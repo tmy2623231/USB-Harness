@@ -12,7 +12,7 @@
 | 插件列表大量显示「未启动/禁用」 | **dsh 架构设计，非故障** | agent 工具（tool-fs/tool-web/tool-todo 等）已从 host 平面移到 preset 层，会话启动时由默认 `standard` preset 挂载提供，功能正常；强行在 host 平面启用会重复注册冲突，勿动 |
 | 配置的模型 401 / unknown model | API Key 错误 / 网关未暴露模型索引 | 核对 `baseURL` 与 key；网关无 `/models` 索引时手动填写模型 id |
 | 浏览器打开空白/连不上 | 服务未起、只监听 loopback | 确认访问 `http://127.0.0.1:<port>`（不是局域网 IP）；看 `data/logs/` |
-| U 盘上安装插件报符号链接错误 | exFAT/FAT32 不支持符号链接 | 改用 NTFS 或本地磁盘；见 DEPLOYMENT.md |
+| `dsh plugin` 装插件报符号链接错误 | exFAT/FAT32 不支持符号链接（仅影响插件安装；核心运行已通过复制回退解决） | 改用 NTFS 或本地磁盘；见 DEPLOYMENT.md |
 | 启动极慢 | USB 2.0 / 杀软实时扫描 | 换 USB 3.0/SSD；目录加入杀软排除 |
 | 从 U 盘被拒绝执行 | 组策略禁止可移动介质运行 | 复制到本地磁盘运行；或 IT 放行 |
 | 报路径过长（260 字符） | U 盘挂在深路径 | 放到盘符根目录；开启长路径支持 |

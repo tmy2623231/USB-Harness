@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import * as yaml from "js-yaml";
@@ -367,7 +367,7 @@ function initProfile(dir, bundles) {
 	const workspacePath = join(dir, "pnpm-workspace.yaml");
 	if (!existsSync(workspacePath)) writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE);
 }
-/** Ensure `link` is a symlink to `target`, replacing a wrong or dangling link; a real directory throws. */
+/** Ensure `link` resolves to `target`: a symlink where the filesystem supports it, otherwise a real directory copy (FAT32/exFAT). */
 function ensureSymlink(link, target) {
 	let stat;
 	try {
@@ -376,7 +376,11 @@ function ensureSymlink(link, target) {
 		stat = void 0;
 	}
 	if (stat !== void 0) {
-		if (!stat.isSymbolicLink()) throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`);
+		if (!stat.isSymbolicLink()) {
+			// 非符号链接:若是此前复制回退产生的真实目录,视为已就绪(幂等);否则交给调用方处理
+			if (stat.isDirectory()) return;
+			throw new Error(`dsh: ${link} exists and is not a symlink; remove it so dsh can manage the installation fallback`);
+		}
 		if (readlinkSync(link) === target) return;
 		unlinkSync(link);
 	}
@@ -384,7 +388,14 @@ function ensureSymlink(link, target) {
 		symlinkSync(target, link, "junction");
 	} catch (error) {
 		/* v8 ignore next 4 */
-		if (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) throw error;
+		if (error.code !== "EEXIST" || !lstatSync(link).isSymbolicLink() || readlinkSync(link) !== target) {
+			// 回退:文件系统不支持符号链接(如 FAT32/exFAT)时,复制真实目录代替链接
+			try {
+				cpSync(target, link, { recursive: true, force: true, dereference: true, errorOnExist: false });
+			} catch (copyError) {
+				throw new Error(`dsh: cannot symlink ${target} -> ${link} (${error.code}); directory copy fallback also failed (${copyError.code}): ${copyError.message}`);
+			}
+		}
 	}
 }
 /**

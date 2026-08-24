@@ -30,6 +30,9 @@ dsh 提供官方发布包 `@deepseek-ai/dsh`（当前 `0.1.1-rc.1`），`npx @de
 
 - Windows 上 npm 生成**扁平化（hoisted）`node_modules` + `.cmd` 启动 shim**，**不使用符号链接**，
   因此可运行在 exFAT / FAT32 / NTFS 上。
+- **运行时回退**：dsh 启动时会在 `$DSH_HOME/profiles/node_modules/` 下创建符号链接（模块回退机制），
+  exFAT/FAT32 不支持时会失败。本项目通过 `brand-patch` 给 `dsh-app-boot` 打了**复制回退补丁**——
+  链接创建失败时自动复制真实包目录代替，因此核心功能在三种文件系统上均可用（详见 [DEPLOYMENT.md](./DEPLOYMENT.md)）。
 - pnpm 使用硬链接/符号链接 store，是 U 盘（尤其 exFAT）的已知故障点。
 - **例外**：`dsh plugin` 子命令内部会转发到 pnpm，用于安装社区插件。这是**可选扩展**，
   见 [DEPLOYMENT.md](./DEPLOYMENT.md#可选安装社区插件)。

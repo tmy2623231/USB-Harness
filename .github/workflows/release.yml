@@ -97,6 +97,8 @@ jobs:
 
       - name: 校验补丁基线（必须与锁定的 dsh 版本一致）
         shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8   # 避免 Windows 控制台 cp1252 编码中文报错
         run: |
           # 断言 brand-patch 的改写基线 == 本次安装的 dsh 版本。
           # 不一致说明「装了新版本、却打着旧版本的补丁」，启动会 ERR_MODULE_NOT_FOUND。

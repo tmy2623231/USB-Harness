@@ -96,6 +96,13 @@ def scan_patch(root: Path):
 
 
 def main() -> int:
+    # Windows 控制台默认 cp1252/gbk，输出中文会抛 UnicodeEncodeError，统一改为 UTF-8
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
+
     ap = argparse.ArgumentParser(description="dsh 品牌补丁兼容性校验")
     ap.add_argument("--patch", required=True, help="brand-patch/@deepseek-ai 目录")
     ap.add_argument("--base", required=True, help="当前锁定的 dsh 版本，如 0.1.1-rc.1")

@@ -58,24 +58,29 @@ jobs:
             --no-audit --no-fund --fetch-retries=5 --legacy-peer-deps
           if ($LASTEXITCODE -ne 0) { throw "dsh 安装失败" }
 
-      - name: 补齐 peer 依赖包
+      - name: 补齐 peer 依赖包（列表从安装脚本解析，避免两处维护）
         shell: pwsh
         run: |
           $npm = ".cache/runtimes/windows-x64/node/npm.cmd"
-          $peers = @(
-            '@deepseek-ai/dsh-invariants@^0.1.1-rc.2', '@deepseek-ai/dsh-scope@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-fs@^0.1.1-rc.2', '@deepseek-ai/dsh-atomic-write@^0.1.1-rc.2',
-            '@deepseek-ai/cordis-plugin-group@^1.0.1', '@deepseek-ai/dsh-shell@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-sandbox@^0.1.1-rc.2', '@deepseek-ai/dsh-bash-local@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-compaction@^0.1.1-rc.2', '@deepseek-ai/dsh-workflow@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-code-runtime@^0.1.1-rc.2', '@deepseek-ai/dsh-timeout@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-session-telemetry@^0.1.1-rc.2', '@deepseek-ai/dsh-anonymous-user-id@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-authorization@^0.1.1-rc.2', '@deepseek-ai/dsh-output-retention@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-session-title-llm@^0.1.1-rc.2', '@deepseek-ai/dsh-spill@^0.1.1-rc.2',
-            '@deepseek-ai/dsh-subagent-in-process-driver@^0.1.1-rc.2', '@cfworker/json-schema@^4.1.1',
-            'react@latest', 'react-dom@latest', 'bufferutil@^4.0.1', 'utf-8-validate@^5.0.2',
-            '@types/react@latest'
-          )
+          $ps1 = Get-Content scripts/setup-windows.ps1 -Raw
+
+          # 从 $PeerFix 数组提取包列表，并剔除注释行里的误匹配
+          $m = [regex]::Match($ps1, '\$PeerFix\s*=\s*@\((.*?)\n\s*\)',
+                [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          if (-not $m.Success) { throw "无法从 setup-windows.ps1 解析 PeerFix 列表" }
+          $peers = @([regex]::Matches($m.Groups[1].Value, "'([^']+)'") |
+                     ForEach-Object { $_.Groups[1].Value } |
+                     Where-Object { $_ -match '[@^]' })
+
+          if ($peers.Count -lt 20) { throw "解析到的 peer 数量异常: $($peers.Count)" }
+          Write-Host "解析到 $($peers.Count) 个 peer 包："
+          $peers | ForEach-Object { Write-Host "  - $_" }
+
+          # 一致性校验：peer 里的 dsh-* 版本必须与 DSH_VERSION 一致，否则装出混合版本
+          $dshVer = "${{ steps.ver.outputs.dsh }}"
+          $mismatch = $peers | Where-Object { $_ -match '^@deepseek-ai/dsh-.*@\^(.+)$' -and $Matches[1] -ne $dshVer }
+          if ($mismatch) { throw "peer 版本与 dsh@$dshVer 不一致: $($mismatch -join ', ')" }
+
           & $npm install --prefix .cache/app @peers --no-audit --no-fund --legacy-peer-deps
           if ($LASTEXITCODE -ne 0) { throw "peer 补齐失败" }
 
@@ -89,6 +94,18 @@ jobs:
             throw "品牌补丁未生效"
           }
           Write-Host "品牌补丁已应用"
+
+      - name: 校验补丁基线（必须与锁定的 dsh 版本一致）
+        shell: pwsh
+        run: |
+          # 断言 brand-patch 的改写基线 == 本次安装的 dsh 版本。
+          # 不一致说明「装了新版本、却打着旧版本的补丁」，启动会 ERR_MODULE_NOT_FOUND。
+          $dshVer = "${{ steps.ver.outputs.dsh }}"
+          python scripts/dsh_patch_compat_check.py `
+            --patch brand-patch/@deepseek-ai `
+            --base $dshVer --target $dshVer --expect-base $dshVer
+          if ($LASTEXITCODE -ne 0) { throw "补丁基线校验未通过（期望 baseline=$dshVer）" }
+          Write-Host "补丁基线校验通过: $dshVer"
 
       - name: 生成就绪标记并清理
         shell: pwsh

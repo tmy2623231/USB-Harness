@@ -1,43 +1,33 @@
-## USB Harness v1.0.2 — 完整包（含运行时，下载即用）
+## USB Harness v1.0.3 — 完整包（含运行时，下载即用）
 
-> **使用 v1.0.1 及更早版本的用户请务必更新**：旧包存在一处会导致**启动必然失败**的问题。
+> **建议所有用户更新**：修复了前端依赖版本漂移，并补齐了构建期的防错校验。
 
 ### 修复
 
-**补丁基线错配（关键）**
+**react 版本漂移**
 
-`brand-patch` 里的 17 个补丁文件此前已按 dsh `0.1.1-rc.2` 重写，但安装脚本的版本变量仍锁在
-`0.1.1-rc.1`。结果是：装上 rc.1 的运行时，却被 rc.2 的补丁覆盖——`dsh-llm-deepseek` 引用了
-rc.2 才有的 `deadline` / `withFileLock` / `writeFileAtomic` / `resolveDshHome` 等导出，
-**启动时必然报 `ERR_MODULE_NOT_FOUND`**。
+peer 依赖补齐列表原先使用 `react@latest` / `react-dom@latest` / `@types/react@latest`。
+随着 react 19 发布，这会把 **react 19.x** 装进来，而 dsh 的 `dsh-web-frontend` 依赖的是
+`react@^18.2.0`——跨大版本，前端渲染存在实际风险。
 
-现已把 `scripts/setup-windows.ps1` 与 `scripts/setup-unix.sh` 的版本锁定同步为 `0.1.1-rc.2`。
+现已锁定为 `react@^18.3.1` / `react-dom@^18.3.1` / `@types/react@^18.3.12`，与 dsh 期望一致。
 
-- 已对 17 个补丁文件逐个做 `patch / rc.1 / rc.2` 三方 diff 验证：基线全部为 rc.2，
-  与 rc.2 的差异仅 4~27 行品牌与中文本地化改动，**无需重做任何补丁**。
+- 影响范围：v1.0.2 及更早版本的包可能装入了 react 19。
 
-### 上游升级
+### 构建管线加固（不改动包内功能）
 
-dsh `0.1.1-rc.1` → `0.1.1-rc.2`，主要变化：
+这几项是给**后续升级**准备的防错机制，避免重蹈本次「补丁基线错配」的覆辙：
 
-| 类别 | 内容 |
-|------|------|
-| 新功能 | 统一图片请求管线，`read_image` 走规范化存储 + Files 回退；新增 `maxRequestFilesBytes`（128 MiB）、`maxImagesPerRequest`（600）、`maxInlineRequestImageBytes`（20 MiB）等配额项 |
-| 行为变更 | `read_image` 执行时校验当前路由模型；返回值新增缩放后尺寸与坐标比例 |
-| **破坏性** | `maxRequestImageBytes` 拆分为 `maxRequestFilesBytes` + `maxInlineRequestImageBytes`；权限预设命名空间 `permission` → `permissionPresets`、事件名 `permission/preset` → `permissionPresets/preset` |
-| 废弃 | 图片区域读取（image-region / region reads）已移除 |
-| 修复 | Files 解析失败自动回退内联、Files 与流超时解耦、WebP 透明通道兼容等 |
-
-### 新增
-
-- `docs/RELEASE_README_SYNC.md`：dsh 升级时 README 的同步规范
-- `CHANGELOG.md`：本项目版本更新日志
-- README：rc.2 变更要点、失效配置项对照、维护者升级指引、图片输入（多模态）能力说明
-- `docs/COMPATIBILITY.md`：新增「版本变更追踪」章节，逐条变更附 commit 证据
+| 改动 | 解决的问题 |
+|------|-----------|
+| peer 列表从 `scripts/setup-windows.ps1` 解析 | 消除 CI 与安装脚本两处维护；升级 dsh 时不会再出现「新主包 + 旧 peer」的混合版本 |
+| peer 版本与 `DSH_VERSION` 一致性校验 | 版本不一致直接构建失败，不静默产出坏包 |
+| 补丁基线断言进 CI | 「升了版本号却没同步 `brand-patch`」会在**构建阶段**失败，而不是等用户下载后才发现启动崩溃 |
+| 新增 `scripts/dsh_patch_compat_check.py` | 补丁兼容性校验工具，本地与 CI 共用，支持 `--expect-base` 断言 |
 
 ### 升级方式
 
-1. 下载 `USB-Harness-with-runtime.zip`，解压即可用（无需重新配置）
+1. 下载 `USB-Harness-with-runtime.zip`，解压即可用
 2. 若要保留原有数据：把旧目录里的 `data/dsh/` 复制到新目录同名位置
 
 > 完整变更见 [CHANGELOG.md](https://github.com/tmy2623231/USB-Harness/blob/main/CHANGELOG.md)。

@@ -143,8 +143,9 @@ if ((Test-Path $DshCmd) -and -not $Force) {
         '@deepseek-ai/dsh-authorization@^0.1.1-rc.2', '@deepseek-ai/dsh-output-retention@^0.1.1-rc.2',
         '@deepseek-ai/dsh-session-title-llm@^0.1.1-rc.2', '@deepseek-ai/dsh-spill@^0.1.1-rc.2',
         '@deepseek-ai/dsh-subagent-in-process-driver@^0.1.1-rc.2', '@cfworker/json-schema@^4.1.1',
-        'react@latest', 'react-dom@latest', 'bufferutil@^4.0.1', 'utf-8-validate@^5.0.2',
-        '@types/react@latest'
+        # react 必须锁 18.x：dsh-web-frontend 依赖 react@^18.2.0，用 latest 会拉到 19.x（跨大版本不兼容）
+        'react@^18.3.1', 'react-dom@^18.3.1', 'bufferutil@^4.0.1', 'utf-8-validate@^5.0.2',
+        '@types/react@^18.3.12'
     )
     Invoke-NpmInstall -ArgsList $PeerFix
     Write-Host '      peer 依赖补齐完成。' -ForegroundColor Green

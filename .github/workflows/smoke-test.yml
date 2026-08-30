@@ -1,0 +1,139 @@
+name: 安装冒烟测试
+
+# 每次推送 / 手动触发：在干净环境完整走一遍「从零安装 → 启动 → HTTP 探测」，
+# 目的是捕获 release.yml 构建测不出来的运行期问题（缺模块、版本冲突、启动崩溃）。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 读取锁定版本
+        id: ver
+        shell: pwsh
+        run: |
+          $ps1 = Get-Content scripts/setup-windows.ps1 -Raw
+          $node = [regex]::Match($ps1, "\`$NodeVersion\s*=\s*'([^']+)'").Groups[1].Value
+          $dsh  = [regex]::Match($ps1, "\`$DshVersion\s*=\s*'([^']+)'").Groups[1].Value
+          if (-not $node -or -not $dsh) { throw "无法解析版本号" }
+          "node=$node"  >> $env:GITHUB_OUTPUT
+          "dsh=$dsh"    >> $env:GITHUB_OUTPUT
+          Write-Host "Node=$node  dsh=$dsh"
+
+      - name: 下载并解压便携 Node.js
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.node }}"
+          New-Item -ItemType Directory -Force -Path .cache/runtimes/windows-x64, .cache/downloads | Out-Null
+          $zip = ".cache/downloads/node-v$v-win-x64.zip"
+          Invoke-WebRequest "https://nodejs.org/dist/v$v/node-v$v-win-x64.zip" -OutFile $zip -UseBasicParsing
+          Expand-Archive $zip -DestinationPath .cache/runtimes/_extract -Force
+          Move-Item ".cache/runtimes/_extract/node-v$v-win-x64" .cache/runtimes/windows-x64/node
+          & .cache/runtimes/windows-x64/node/node.exe -v
+
+      - name: 从安装脚本解析 peer 列表并安装
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $npm = ".cache/runtimes/windows-x64/node/npm.cmd"
+          $ps1 = Get-Content scripts/setup-windows.ps1 -Raw
+
+          $m = [regex]::Match($ps1, '\$PeerFix\s*=\s*@\((.*?)\n\s*\)',
+                [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          if (-not $m.Success) { throw "无法解析 PeerFix 列表" }
+          $peers = @([regex]::Matches($m.Groups[1].Value, "'([^']+)'") |
+                     ForEach-Object { $_.Groups[1].Value } |
+                     Where-Object { $_ -match '[@^]' })
+          if ($peers.Count -lt 20) { throw "peer 数量异常: $($peers.Count)" }
+
+          $dshVer = "${{ steps.ver.outputs.dsh }}"
+          $mismatch = $peers | Where-Object { $_ -match '^@deepseek-ai/dsh-.*@\^(.+)$' -and $Matches[1] -ne $dshVer }
+          if ($mismatch) { throw "peer 版本与 dsh@$dshVer 不一致: $($mismatch -join ', ')" }
+          Write-Host "peer 数量: $($peers.Count)，版本一致性 ✓"
+
+          & $npm install --prefix .cache/app "@deepseek-ai/dsh@$dshVer" `
+            --no-audit --no-fund --fetch-retries=5 --legacy-peer-deps
+          if ($LASTEXITCODE -ne 0) { throw "dsh 安装失败" }
+          & $npm install --prefix .cache/app @peers --no-audit --no-fund --legacy-peer-deps
+          if ($LASTEXITCODE -ne 0) { throw "peer 补齐失败" }
+
+      - name: 安装完整性断言
+        shell: pwsh
+        run: |
+          $nm = ".cache/app/node_modules"
+          if (-not (Test-Path "$nm/.bin/dsh.cmd")) { throw "dsh.cmd 缺失" }
+          $react = (& ".cache/runtimes/windows-x64/node/node.exe" -e "console.log(require('./.cache/app/node_modules/react/package.json').version)")
+          Write-Host "react 实装: $react"
+          if ($react -notmatch '^18\.') { throw "react 版本异常: $react（期望 18.x）" }
+          Copy-Item "brand-patch/@deepseek-ai/*" "$nm/@deepseek-ai/" -Recurse -Force
+          if (-not (Select-String -Path "$nm/@deepseek-ai/dsh-client-ui-brand-official/lib/client.js" -Pattern 'USB Harness' -Quiet)) {
+            throw "品牌补丁未生效"
+          }
+          foreach ($p in 'dsh-timeout','dsh-atomic-write','dsh-shell','dsh-spill','dsh-web-frontend') {
+            if (-not (Test-Path "$nm/@deepseek-ai/$p")) { throw "缺包: $p" }
+          }
+          Write-Host "安装完整性 ✓（dsh.cmd / react 18 / 品牌补丁 / 关键子包）"
+
+      - name: 补丁基线断言
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $dshVer = "${{ steps.ver.outputs.dsh }}"
+          python scripts/dsh_patch_compat_check.py `
+            --patch brand-patch/@deepseek-ai `
+            --base $dshVer --target $dshVer --expect-base $dshVer
+          if ($LASTEXITCODE -ne 0) { throw "补丁基线校验未通过" }
+
+      - name: 启动 dsh web 并探测 HTTP 200
+        shell: pwsh
+        run: |
+          $env:DSH_HOME = "$PWD/data/dsh"
+          $env:Path = "$PWD/.cache/runtimes/windows-x64/node;$env:Path"
+          New-Item -ItemType Directory -Force -Path "$env:DSH_HOME", data/logs | Out-Null
+
+          $out = "$PWD/data/logs/dsh-stdout.log"
+          $err = "$PWD/data/logs/dsh-stderr.log"
+          $proc = Start-Process -FilePath "$PWD/.cache/app/node_modules/.bin/dsh.cmd" `
+            -ArgumentList "web","--port","3080","--no-open","--host","127.0.0.1" `
+            -RedirectStandardOutput $out -RedirectStandardError $err `
+            -PassThru -NoNewWindow
+          Write-Host "dsh web 已启动 (pid=$($proc.Id))，轮询 180 秒 ..."
+
+          $ok = $false
+          $lastErr = ""
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 3
+            if ($proc.HasExited) { break }
+            try {
+              $r = Invoke-WebRequest "http://127.0.0.1:3080" -UseBasicParsing -TimeoutSec 5
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { $lastErr = $_.Exception.Message }
+          }
+
+          Write-Host "--- stdout ---";  Get-Content $out -ErrorAction SilentlyContinue | Select-Object -First 25
+          Write-Host "--- stderr ---";  Get-Content $err -ErrorAction SilentlyContinue | Select-Object -First 25
+
+          if ($proc.HasExited) { throw "dsh web 进程提前退出（退出码 $($proc.ExitCode)）" }
+          if (-not $ok) { throw "dsh web 180 秒内未就绪，最后错误: $lastErr" }
+          Write-Host "dsh web HTTP 200 ✓（等待 $([math]::Round(($i+1)*3)) 秒）"
+
+          $badLog = Get-Content $out,$err -ErrorAction SilentlyContinue |
+                    Select-String -Pattern "ERR_MODULE_NOT_FOUND","Cannot find module" -Quiet
+          if ($badLog) { throw "启动日志含模块缺失错误" }
+          Write-Host "启动日志无模块缺失错误 ✓"
+
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Write-Host "冒烟测试全部通过 ✓"

@@ -260,6 +260,7 @@ USB-Harness/
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 兼容性矩阵、已验证项与逐条版本变更清单 |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查 |
 | [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md) | 发布同步规范（dsh 升级时如何更新本文档） |
+| [CHANGELOG.md](CHANGELOG.md) | 本项目版本更新日志 |
 
 ## License
 

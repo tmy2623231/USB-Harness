@@ -114,6 +114,7 @@
 - ✅ **软重置**：清配置数据但保留运行环境，重置后无需重新下载
 - ✅ **默认监听 0.0.0.0:3080**：本机 + 局域网可访问；端口占用自动顺延
 - ✅ **格式兼容**：符号链接不可用时（FAT32/exFAT）自动回退为目录复制，NTFS / exFAT / FAT32 均可运行
+- ✅ **图片输入（多模态）**：`read_image` 可直接把 PNG/JPEG/WebP/GIF 交给视觉模型；rc.2 起统一走规范化存储 + 回退管线，大图与多图不再轻易超限（固件/网关侧仍以目标网关自身的限制为准）
 
 ## 快速开始
 
@@ -211,7 +212,38 @@ USB-Harness/
 | `@deepseek-ai/dsh` | `0.1.1-rc.2` | 预发布候选版（rc），官方声明会有破坏性变更 |
 | 便携 Node.js | `22.23.2` (LTS Jod) | 满足 dsh `^22.19.0 \|\| >=24.0.0`（23 不支持） |
 
-> 版本号可在 `scripts/setup-windows.ps1` 顶部修改。
+### dsh 0.1.1-rc.2 变更要点（相对 0.1.1-rc.1）
+
+| 类别 | 变更 | 对你的影响 |
+|------|------|-----------|
+| **新功能** | 统一图片请求管线：`read_image` 走规范化存储 + Files 回退；新增 `maxRequestFilesBytes`（默认 128 MiB）、`maxImagesPerRequest`（默认 600）、`maxInlineRequestImageBytes`（默认 20 MiB）等配额项 | 图片/多模态输入更稳，大图与多图不再轻易超限 |
+| **行为变更** | `read_image` 执行时校验当前路由模型；返回值新增缩放后尺寸与坐标比例 | 切换模型后重新提交图片请求即可，无需额外操作 |
+| **破坏性变更** | 配置项 `maxRequestImageBytes` **已移除**，拆分为 `maxRequestFilesBytes` + `maxInlineRequestImageBytes` | `settings.yaml` 里写过旧项的，需按新名改写（见下方对照） |
+| **破坏性变更** | 权限预设的 Settings 命名空间 `permission` → `permissionPresets`；事件名 `permission/preset` → `permissionPresets/preset` | 自定义 `cordis.patch.yml` 引用旧命名空间的，需同步改名 |
+| **废弃项** | 图片区域读取（image-region / region reads）**已移除** | 需裁剪图片时，改用文件系统路径上的其他工具 |
+| **问题修复** | Files 解析失败自动回退内联、Files 与流超时解耦、WebP 透明通道兼容等 | 图片上传偶发失败的情况明显减少 |
+
+**失效配置项对照**
+
+| 旧写法（`settings.yaml`） | 新写法 | 迁移动作 |
+|---------------------------|--------|----------|
+| `maxRequestImageBytes: 20971520` | `maxRequestFilesBytes: 134217728` + `maxInlineRequestImageBytes: 20971520` | 旧名不再生效，按新名改写；不写则用默认值 |
+
+> **适用边界**：上表中 Files API 相关配额（`maxRequestFilesBytes` 等）仅在使用 **DeepSeek 官方通道**时生效。
+> 本项目默认已禁用官方适配器（见「品牌改造」），走自定义 OpenAI 兼容网关时以目标网关自身的限制为准；
+> 命名空间与事件名变更则是通用的，与用哪个通道无关。
+
+> 完整逐条清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)，
+> 同步流程见 [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md)。
+
+### 如何升级 dsh 版本（维护者）
+
+1. 改 `scripts/setup-windows.ps1` 的 `$DshVersion` 与 `scripts/setup-unix.sh` 的 `DSH_VERSION` 为目标版本
+2. 按 [发布同步规范](docs/RELEASE_README_SYNC.md) 校验 `brand-patch` 基线是否与目标版本一致——**版本号与补丁基线必须同时改**，否则会「装旧版、打新版补丁」导致启动崩溃
+3. 删除 `.ready.flag` 后重新运行 `launch.bat`，或用 `launch.bat setup -Force` 强制重装
+4. 启动后确认无 `ERR_MODULE_NOT_FOUND`，并在 Web UI 中确认品牌改造仍生效
+
+> 普通用户无需手动升级：直接下载 [Releases](https://github.com/tmy2623231/USB-Harness/releases/latest) 最新完整包即可。
 
 ## 安全须知
 
@@ -225,8 +257,9 @@ USB-Harness/
 |------|------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 整合架构与关键决策 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 部署指南（U 盘格式/权限/端口/长路径/杀软） |
-| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 兼容性矩阵与已验证项 |
+| [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 兼容性矩阵、已验证项与逐条版本变更清单 |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查 |
+| [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md) | 发布同步规范（dsh 升级时如何更新本文档） |
 
 ## License
 

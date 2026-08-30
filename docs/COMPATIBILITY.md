@@ -68,7 +68,61 @@
 > 配置字段、端口、目录名（如 `storages` vs `sessions`）可能随版本变化。升级后请以
 > 当前版本文档为准；本项目锁定版本号以降低风险。
 
-## 5. 边界与风险
+## 5. 版本变更追踪
+
+> 变更来源：`deepseek-ai/deepseek-harness` 的 tag 区间 compare（上游无 CHANGELOG、不发 GitHub Release）。
+> 同步流程见 [RELEASE_README_SYNC.md](./RELEASE_README_SYNC.md)。
+
+### 0.1.1-rc.1 → 0.1.1-rc.2（2026-08-21，本项目 2026-08-30 跟进）
+
+区间共 35 个提交、300 个文件变更，主线为**统一图片请求管线**与**权限命名空间改名**。
+
+#### 新功能
+
+| 变更 | 证据 | 用户可见性 |
+|------|------|-----------|
+| 统一图片请求管线：`read_image` 走规范化存储 + Files API 回退 | `feat(images): unify master and Files request pipeline`、`feat(attachment-local): store a deterministic canonical image encoding` | 多模态输入稳定性提升 |
+| 新增图片配额配置项：`maxRequestFilesBytes`(128 MiB)、`maxInlineRequestImageBytes`(20 MiB)、`maxImagesPerRequest`(600)、`imageOffloadByteQuantum`(64 MiB)、`inlineImageOffloadByteQuantum`(10 MiB)、`imageOffloadCountQuantum`(20) | `docs/config-catalog.md` +48/-15 | 可按需调大图片提交上限 |
+| 新增附件归一化配置项：`normalizedImageMaxDimension`、`normalizedImageMaxBytes`、`imageCompressionConcurrency` | 同上 | 一般无需调整 |
+| 新增 Files 生命周期配置：`filesApiTimeoutMs`(60s)、`fileExpiresAfterSeconds`(7 天)、`fileRefreshMarginSeconds`(1h)、`fileQuotaCleanupBatch`(100) | `packages/llm/llm-deepseek/README.md` +27/-10 | 仅 DeepSeek 官方通道生效 |
+
+#### 行为变更
+
+| 变更 | 证据 | 需要的动作 |
+|------|------|-----------|
+| `read_image` 执行时校验当前路由模型（route gate） | `packages/fs/tool-fs/README.md` | 切模型后重新提交图片请求 |
+| `read_image` 返回值新增缩放后尺寸与坐标比例 | `feat(tool-fs): read_image reports downscaled dimensions and coordinate scale` | 无（信息更全） |
+| 权限预设 `defaultPreset` 语义由「初始化新会话」改为「未来会话的默认值」 | `packages/interaction/permission-presets/README.md` | 已有会话不受影响 |
+
+#### 破坏性变更
+
+| 变更 | 旧 | 新 | 迁移动作 |
+|------|----|----|----------|
+| 图片配额配置项拆分 | `maxRequestImageBytes` | `maxRequestFilesBytes` + `maxInlineRequestImageBytes` | `settings.yaml` 按新名改写，旧名失效 |
+| 权限预设 Settings 命名空间改名 | `permission` | `permissionPresets` | 自定义 `cordis.patch.yml` 同步改名 |
+| 权限预设事件名改名 | `permission/preset` | `permissionPresets/preset` | 监听该事件的配置同步改名 |
+
+#### 废弃 / 移除
+
+| 项 | 状态 | 替代方案 |
+|----|------|----------|
+| 图片区域读取（image-region / region reads） | **已移除**（`refactor(image): remove region reads`） | 需裁剪图片时改用文件系统路径上的其他工具 |
+
+#### 问题修复
+
+| 修复 | 证据 |
+|------|------|
+| Files 解析失败自动回退为内联提交 | `fix(llm-deepseek): fall back when Files resolution fails` |
+| Files 超时与流式读超时解耦 | `fix(deepseek): decouple files and stream timeouts` |
+| 解析 Files 返回中缺失的 id 列表 | `fix(images): parse listed missing Files ids` |
+| 兼容不透明 WebP 缺失 alpha 通道的情况 | `fix(attachment): accept opaque WebP alpha omission` |
+| 排除元数据载体与动效走直通路径、校验归一化预算 | `fix(attachment-local): exclude metadata carriers and animation from passthrough` |
+| 保持引用字段顺序稳定（便于日志对比） | `fix(attachment-local): keep reference field order stable for logged fixtures` |
+
+> 注：`fix/permission-copy-and-default`（#2608）在该区间被 **revert**（`Revert "Merge pull request #2608 ..."`），
+> 相关权限默认值修复未生效，故不计入上表。
+
+## 6. 边界与风险
 
 | 风险 | 等级 | 缓解 |
 |------|------|------|

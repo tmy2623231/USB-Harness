@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 # launch.sh — USB Harness 启动器（Linux/macOS）
-# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/配置/重置/状态/退出）
-# 用法：bash launch.sh [web|setup|reset|status]
+# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/检查更新/配置/重置/状态/退出）
+# 用法：bash launch.sh [web|setup|reset|status|check-update|upgrade]
 # =============================================================================
 set -euo pipefail
 
@@ -28,6 +28,7 @@ DSH_BIN="$ROOT/.cache/app/node_modules/.bin/dsh"
 DSH_HOME_DIR="$ROOT/data/dsh"
 LOG_DIR="$ROOT/data/logs"
 LOG_FILE="$LOG_DIR/dsh-web.log"
+UPGRADE_SCRIPT="$ROOT/scripts/upgrade-unix.sh"
 
 mkdir -p "$DSH_HOME_DIR" "$LOG_DIR"
 
@@ -52,6 +53,12 @@ show_status() {
   if ready; then
     echo "  便携 Node : $("$NODE_BIN" -v)"
     echo "  dsh 版本  : $("$DSH_BIN" --version 2>/dev/null || echo '未知')"
+    HARNESS_VER=""
+    if [ -f "$ROOT/.ready.flag" ]; then
+      HARNESS_VER="$(sed -n 's/^harness=//p' "$ROOT/.ready.flag" | head -1 | tr -d '\r')"
+    fi
+    [ -z "$HARNESS_VER" ] && [ -f "$ROOT/HARNESS_VERSION" ] && HARNESS_VER="$(tr -d '\r\n' < "$ROOT/HARNESS_VERSION")"
+    if [ -n "$HARNESS_VER" ]; then echo "  程序版本  : $HARNESS_VER"; else echo "  程序版本  : 未记录（旧版包）"; fi
     echo "  数据目录  : $DSH_HOME_DIR"
     echo "  监听地址  : http://0.0.0.0:3080（本机 + 局域网）"
   else
@@ -102,26 +109,33 @@ if ! ready; then
   fi
 fi
 
+# 升级残留裁决（幂等，无网络）：上次升级中断时自动恢复环境
+bash "$UPGRADE_SCRIPT" --reconcile-only || true
+
 # 命令行动作直通
 case "$ACTION" in
   web)    start_web; exit 0 ;;
   setup)  do_setup; exit 0 ;;
   reset)  do_reset; exit 0 ;;
   status) show_status; exit 0 ;;
+  check-update) bash "$UPGRADE_SCRIPT" --check-only; exit $? ;;
+  upgrade)      bash "$UPGRADE_SCRIPT"; exit $? ;;
 esac
 
 # 交互菜单
 while true; do
   show_status
   echo "  [1] 启动 Web 界面"
-  echo "  [2] 重置（清配置数据，保留运行环境，无需下载）"
-  echo "  [3] 退出"
+  echo "  [2] 检查更新（程序与 dsh 版本）"
+  echo "  [3] 重置（清配置数据，保留运行环境，无需下载）"
+  echo "  [4] 退出"
   echo ""
   read -r -p "  请选择 " choice
   case "$choice" in
     1) start_web ;;
-    2) do_reset ;;
-    3) exit 0 ;;
+    2) bash "$UPGRADE_SCRIPT" --check-only || true ;;
+    3) do_reset ;;
+    4) exit 0 ;;
     *) echo "[警告] 无效选择：$choice" ;;
   esac
 done

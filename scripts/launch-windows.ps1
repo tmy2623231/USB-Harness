@@ -1,12 +1,13 @@
 ﻿# =============================================================================
 # launch-windows.ps1 — USB Harness 启动器（Windows）
-# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/配置/重置/状态/退出）
+# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/检查更新/配置/重置/状态/退出）
 # 用法：由 launch.bat 调用；也可直接：
-#   powershell -ExecutionPolicy Bypass -File .\scripts\launch-windows.ps1 [web|setup|reset|status]
+#   powershell -ExecutionPolicy Bypass -File .\scripts\launch-windows.ps1 [web|setup|reset|status|check-update|upgrade]
 # =============================================================================
 [CmdletBinding()]
 param(
-    [string]$Action = ''   # web=直接启动；setup=重新配置；reset=重置；status=查看状态；空=交互菜单
+    [string]$Action = ''   # web=直接启动；setup=重新配置；reset=重置；status=查看状态；
+                          # check-update=检查更新；upgrade=检查并升级；空=交互菜单
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +22,7 @@ $DshHome   = Join-Path $Root 'data\dsh'
 $LogDir    = Join-Path $Root 'data\logs'
 $LogFile   = Join-Path $LogDir 'dsh-web.log'
 $ReadyFlag = Join-Path $Root '.ready.flag'
+$UpgradeScript = Join-Path $PSScriptRoot 'upgrade-windows.ps1'
 
 New-Item -ItemType Directory -Force -Path $DshHome, $LogDir | Out-Null
 
@@ -75,6 +77,18 @@ function Show-Status {
         $dshVer  = & $DshCmd --version 2>$null
         Write-Host "  便携 Node : $nodeVer" -ForegroundColor Green
         Write-Host "  dsh 版本  : $dshVer"
+        $harnessVer = ''
+        if (Test-Path $ReadyFlag) {
+            $hLine = (Get-Content $ReadyFlag -ErrorAction SilentlyContinue) -replace "`r", '' |
+                     Where-Object { $_ -like 'harness=*' } | Select-Object -First 1
+            if ($hLine) { $harnessVer = $hLine.Substring(8).Trim() }
+        }
+        if (-not $harnessVer) {
+            $hf = Join-Path $Root 'HARNESS_VERSION'
+            if (Test-Path $hf) { $harnessVer = ([IO.File]::ReadAllText($hf)).Trim() }
+        }
+        if ($harnessVer) { Write-Host "  程序版本  : $harnessVer" -ForegroundColor Green }
+        else { Write-Host '  程序版本  : 未记录（旧版包）' -ForegroundColor DarkGray }
         Write-Host "  数据目录  : $DshHome"
         Write-Host "  监听地址  : http://0.0.0.0:3080（本机 + 局域网）"
         if (Test-Path $ReadyFlag) { Write-Host '  就绪标记  : 已就绪' -ForegroundColor Green }
@@ -159,26 +173,33 @@ if (-not (Test-Ready)) {
     }
 }
 
+# 升级残留裁决（幂等，无网络）：上次升级中断时自动恢复环境
+& powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript -ReconcileOnly
+
 # 命令行动作直通
 switch ($Action.ToLower()) {
     'web'    { Start-Web; exit 0 }
     'setup'  { Invoke-Setup -Force; exit 0 }
     'reset'  { Invoke-Reset; exit 0 }
     'status' { Show-Status; exit 0 }
+    'check-update' { & powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript -CheckOnly; exit $LASTEXITCODE }
+    'upgrade'      { & powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript; exit $LASTEXITCODE }
 }
 
 # 交互菜单
 while ($true) {
     Show-Status
     Write-Host '  [1] 启动 Web 界面' -ForegroundColor White
-    Write-Host '  [2] 重置（清配置数据，保留运行环境，无需下载）' -ForegroundColor White
-    Write-Host '  [3] 退出' -ForegroundColor Gray
+    Write-Host '  [2] 检查更新（程序与 dsh 版本）' -ForegroundColor White
+    Write-Host '  [3] 重置（清配置数据，保留运行环境，无需下载）' -ForegroundColor White
+    Write-Host '  [4] 退出' -ForegroundColor Gray
     Write-Host ''
     $choice = Read-Host '  请选择'
     switch ($choice.Trim()) {
         '1' { Start-Web }
-        '2' { Invoke-Reset }
-        '3' { exit 0 }
+        '2' { & powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript -CheckOnly }
+        '3' { Invoke-Reset }
+        '4' { exit 0 }
         default { Write-WarnMsg "无效选择：$choice" }
     }
 }

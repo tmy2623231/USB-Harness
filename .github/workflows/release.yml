@@ -112,18 +112,21 @@ jobs:
       - name: 生成就绪标记并清理
         shell: pwsh
         run: |
-          "node=${{ steps.ver.outputs.node }}`ndsh=${{ steps.ver.outputs.dsh }}`ncreated=$(Get-Date -Format 'o')" |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          "node=${{ steps.ver.outputs.node }}`ndsh=${{ steps.ver.outputs.dsh }}`nharness=$tag`ncreated=$(Get-Date -Format 'o')" |
             Out-File -FilePath .ready.flag -Encoding ASCII
+          Set-Content -Path HARNESS_VERSION -Value $tag -Encoding ASCII -NoNewline
           # 清理：npm 缓存与临时解压目录不入包
           Remove-Item .cache/npm-cache, .cache/runtimes/_extract -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path data/dsh, data/logs | Out-Null
           Get-Content .ready.flag
+          Write-Host "HARNESS_VERSION: $(Get-Content HARNESS_VERSION -Raw)"
 
       - name: 压缩为完整包
         shell: pwsh
         run: |
           Compress-Archive -Path launch.bat, launch.sh, LICENSE, README.md, CHANGELOG.md, `
-            brand-patch, config, docs, scripts, .cache, data, .ready.flag, .gitattributes, .gitignore `
+            brand-patch, config, docs, scripts, .cache, data, .ready.flag, HARNESS_VERSION, .gitattributes, .gitignore `
             -DestinationPath USB-Harness-with-runtime.zip -CompressionLevel Optimal
           $mb = [math]::Round((Get-Item USB-Harness-with-runtime.zip).Length / 1MB, 1)
           "size=$mb" >> $env:GITHUB_OUTPUT

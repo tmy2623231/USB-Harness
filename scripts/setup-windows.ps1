@@ -166,7 +166,18 @@ if (Test-Path $brandSrc) {
 }
 
 New-Item -ItemType Directory -Force -Path $DshHome | Out-Null
-"node=$NodeVersion`ndsh=$DshVersion`ncreated=$(Get-Date -Format 'o')" | Out-File -FilePath $ReadyFlag -Encoding ASCII
+
+# 就绪标记：harness 行仅当包根存在 HARNESS_VERSION（CI 打包写入）时追加，向后兼容旧三行格式；
+# 临时文件 + Move-Item 原子写（替代 Out-File 直写，避免写一半断电留半行）
+$flagLines = @("node=$NodeVersion", "dsh=$DshVersion")
+$harnessFile = Join-Path $Root 'HARNESS_VERSION'
+if (Test-Path $harnessFile) {
+    $flagLines += "harness=$([IO.File]::ReadAllText($harnessFile).Trim())"
+}
+$flagLines += "created=$(Get-Date -Format 'o')"
+$tmpFlag = "$ReadyFlag.tmp"
+[IO.File]::WriteAllText($tmpFlag, ($flagLines -join "`r`n") + "`r`n")
+Move-Item -Path $tmpFlag -Destination $ReadyFlag -Force
 
 Write-Host ''
 Write-Host '============================================' -ForegroundColor Green

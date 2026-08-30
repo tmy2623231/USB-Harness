@@ -8,8 +8,9 @@ data/logs/
 # --- 默认工作区（用户项目文件） ---
 work/
 
-# --- ready 标记 ---
+# --- ready 标记 / 版本标记（Release 打包时生成，不提交） ---
 .ready.flag
+HARNESS_VERSION
 
 # --- 回滚备份（原始 dsh 文件） ---
 .backup/

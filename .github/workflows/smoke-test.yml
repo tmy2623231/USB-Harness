@@ -97,6 +97,23 @@ jobs:
             --base $dshVer --target $dshVer --expect-base $dshVer
           if ($LASTEXITCODE -ne 0) { throw "补丁基线校验未通过" }
 
+      - name: 就绪标记生成（走真实 setup 脚本路径，验证 harness 行）
+        shell: pwsh
+        run: |
+          # 模拟 release.yml 打包前写入 HARNESS_VERSION；setup 检测到 Node/dsh 已存在
+          # 会跳过 [1/3][2/3]，直接执行 [3/3] 品牌补丁 + 就绪标记（含 harness= 行）
+          $tag = 'v-smoke-test'
+          Set-Content -Path HARNESS_VERSION -Value $tag -Encoding ASCII -NoNewline
+          & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-windows.ps1
+          if ($LASTEXITCODE -ne 0) { throw "setup-windows.ps1 退出码 $LASTEXITCODE" }
+          if (-not (Test-Path HARNESS_VERSION)) { throw "HARNESS_VERSION 文件缺失" }
+          $line = (Get-Content .ready.flag) -replace "`r", '' |
+                  Where-Object { $_ -like 'harness=*' } | Select-Object -First 1
+          if (-not $line -or $line.Substring(8).Trim() -ne $tag) {
+            throw "就绪标记缺少 harness= 行或值不正确: '$line'"
+          }
+          Write-Host "就绪标记含 harness=$($line.Substring(8).Trim()) ✓（HARNESS_VERSION=$tag）"
+
       - name: 启动 dsh web 并探测 HTTP 200
         shell: pwsh
         run: |
@@ -137,3 +154,13 @@ jobs:
 
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           Write-Host "冒烟测试全部通过 ✓"
+
+      - name: 检查更新脚本冒烟（-CheckOnly 退出码 ∈ {0,1,2}）
+        shell: pwsh
+        run: |
+          # 验证 upgrade 脚本在干净环境不崩；0=已最新 1=有更新 2=网络不可达（CI 抖动可容忍）
+          & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly
+          $rc = $LASTEXITCODE
+          Write-Host "upgrade-windows.ps1 -CheckOnly 退出码: $rc"
+          if ($rc -lt 0 -or $rc -gt 2) { throw "check-only 退出码异常: $rc（期望 0/1/2）" }
+          Write-Host "check-only 冒烟 ✓"

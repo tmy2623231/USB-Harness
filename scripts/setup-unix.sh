@@ -33,8 +33,10 @@ DSH_BIN="$APP_PREFIX/node_modules/.bin/dsh"
 DSH_HOME_DIR="$ROOT/data/dsh"
 NPM_CACHE="$ROOT/.cache/npm-cache"
 READY_FLAG="$ROOT/.ready.flag"
+# 预置/下载的 Node tarball 落点（此前被引用但从未赋值，set -u 下 Unix 全新安装必崩）
+NODE_TARBALL="$ROOT/.cache/downloads/node-v${NODE_VERSION}-${OS}-${ARCH}.tar.xz"
 
-mkdir -p "$NODE_DIR" "$APP_PREFIX" "$DSH_HOME_DIR" "$NPM_CACHE"
+mkdir -p "$NODE_DIR" "$APP_PREFIX" "$DSH_HOME_DIR" "$NPM_CACHE" "$ROOT/.cache/downloads"
 
 echo ""
 echo "============================================"
@@ -134,7 +136,15 @@ else
   echo "      未找到 brand-patch，跳过。"
 fi
 
-printf 'node=%s\ndsh=%s\ncreated=%s\n' "$NODE_VERSION" "$DSH_VERSION" "$(date -Iseconds)" > "$READY_FLAG"
+# 就绪标记：harness 行仅当包根存在 HARNESS_VERSION（CI 打包写入）时追加，向后兼容旧三行格式；
+# 临时文件 + mv 原子写，避免写一半断电留半行
+{
+  printf 'node=%s\ndsh=%s\n' "$NODE_VERSION" "$DSH_VERSION"
+  if [ -f "$ROOT/HARNESS_VERSION" ]; then
+    printf 'harness=%s\n' "$(tr -d '\r\n' < "$ROOT/HARNESS_VERSION")"
+  fi
+  printf 'created=%s\n' "$(date -Iseconds)"
+} > "$READY_FLAG.tmp" && mv -f "$READY_FLAG.tmp" "$READY_FLAG"
 
 echo ""
 echo "============================================"

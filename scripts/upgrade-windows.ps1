@@ -45,6 +45,11 @@ $DshCmd      = Join-Path $AppDir 'node_modules\.bin\dsh.cmd'
 $SelfCheckOut = Join-Path $Root 'data\logs\dsh-selfcheck.log'
 $SelfCheckErr = Join-Path $Root 'data\logs\dsh-selfcheck.err.log'
 
+# 与 launch-windows.ps1 同理：dsh.cmd 垫片靠 PATH 找 node，独立运行本脚本时
+# 也必须预置便携 node 目录（Get-LocalVersions / Test-DshInstall 都要调 dsh.cmd）。
+# 由 launch 调起时父进程已预置，此处再置一遍是幂等的。
+$env:Path = "$NodeDir;$env:Path"
+
 function Write-WarnMsg([string]$m) { Write-Host "  [!] $m" -ForegroundColor Yellow }
 function Write-Info([string]$m)    { Write-Host "  $m" }
 function Write-Ok([string]$m)      { Write-Host "  [OK] $m" -ForegroundColor Green }   # 用 [OK] 而非 ✓，兼容 GBK 控制台

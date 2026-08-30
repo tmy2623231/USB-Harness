@@ -9,6 +9,25 @@
 
 ---
 
+## [1.0.5] — 2026-08-30
+
+### 修复
+
+- **dsh 垫片 node 解析问题（两个症状一个根因）**：
+  - 症状①：启动器 `Show-Status` / 检查更新报 `node 不是内部或外部命令`（干净机器无系统 node）。
+  - 症状②：装了旧系统 node（<16.9，无 `Object.hasOwn`）的机器，Web 打开报
+    `Failed to load plugins. Object.hasOwn is not a function`。
+  - 根因：`dsh.cmd` / `.bin/dsh` 是 npm 生成的垫片，`.bin` 目录下没有 node.exe，**靠 PATH 找 node**；
+    而启动器此前只有 `Start-Web` 预置了便携 node 的 PATH，`Show-Status`、`upgrade-*` 等路径没有。
+  - 修复：`launch-windows.ps1` / `upgrade-windows.ps1` 脚本顶部统一把便携 node 目录提到 PATH 最前
+    （`launch.sh` / `upgrade-unix.sh` 同步 `export PATH`），本进程内所有 dsh/node 调用
+    （状态 / 启动 / 检查更新 / 升级自检 / 子进程 setup/upgrade/reset，自动继承）都命中便携 node 22.23.2，
+    与系统是否装了 node、装了什么版本无关。
+- 文档：`docs/TROUBLESHOOTING.md` 与 `scripts/COMMANDS.md` 新增两条排查指引
+  （明确：请始终用 launch.bat / launch.sh 启动，不要命令行直接敲 dsh）。
+
+---
+
 ## [1.0.4] — 2026-08-30
 
 ### 新增

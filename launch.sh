@@ -28,6 +28,11 @@ DSH_BIN="$ROOT/.cache/app/node_modules/.bin/dsh"
 DSH_HOME_DIR="$ROOT/data/dsh"
 LOG_DIR="$ROOT/data/logs"
 LOG_FILE="$LOG_DIR/dsh-web.log"
+
+# 关键：dsh 的 .bin 垫片（#!/usr/bin/env node）靠 PATH 找 node。必须预置便携 node，
+# 否则干净机器报 "command not found: node"，装有旧系统 node（<16.9）则插件加载失败
+# （Object.hasOwn is not a function）。本进程内所有 dsh/node 调用都命中便携 node。
+export PATH="$NODE_DIR/bin:$PATH"
 UPGRADE_SCRIPT="$ROOT/scripts/upgrade-unix.sh"
 
 mkdir -p "$DSH_HOME_DIR" "$LOG_DIR"

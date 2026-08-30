@@ -127,3 +127,6 @@ USB-Harness/
 - 端口 3080 被占用：启动时自动顺延；也可用环境变量 `PORT=3090 bash launch.sh`。
 - 默认监听 `0.0.0.0`（局域网可访问）。**不要对公网开放**。
 - 仅本机访问：`bash launch.sh` 后用 `--host 127.0.0.1`（Windows 见 start 逻辑说明）。
+- `node 不是内部或外部命令` 或 Web 报「Object.hasOwn is not a function」：系统 PATH 上没有 node
+  或装着旧系统 node（<16.9），而 dsh 的 `.bin` 垫片靠 PATH 找 node。**始终用 launch.bat /
+  launch.sh 启动**（会把便携 node 提到 PATH 最前）；不要在命令行直接敲 `dsh` 命令。

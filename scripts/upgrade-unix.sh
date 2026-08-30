@@ -40,6 +40,11 @@ NPM_CACHE="$ROOT/.cache/npm-cache"
 NPM="$ROOT/.cache/runtimes/${PLATFORM}/node/bin/npm"
 SELF_LOG="$ROOT/data/logs/dsh-selfcheck.log"
 
+# 与 launch.sh 同理：dsh 的 .bin 垫片（#!/usr/bin/env node）靠 PATH 找 node，
+# 独立运行本脚本时必须预置便携 node，否则 --version / 自检 HTTP 探测会命中
+# 系统 node（可能很旧，导致 Object.hasOwn is not a function）。
+export PATH="$ROOT/.cache/runtimes/${PLATFORM}/node/bin:$PATH"
+
 LD='unknown'; LH=''; LN='unknown'          # 本地 dsh / harness / node
 LH_LATEST=''; LD_LATEST=''                 # 上游最新
 NET_ERRORS=()

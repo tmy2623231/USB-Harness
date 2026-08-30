@@ -24,6 +24,13 @@ $LogFile   = Join-Path $LogDir 'dsh-web.log'
 $ReadyFlag = Join-Path $Root '.ready.flag'
 $UpgradeScript = Join-Path $PSScriptRoot 'upgrade-windows.ps1'
 
+# 关键：dsh.cmd 是 npm 生成的垫片，.bin 目录下没有 node.exe，它靠 PATH 找 node。
+# 必须把便携 node 目录提到 PATH 最前，否则：
+#   - 干净机器（无系统 node）→ "node 不是内部或外部命令"（Show-Status 报错）
+#   - 装有旧系统 node（<16.9，无 Object.hasOwn）→ 插件加载失败
+# 本进程内所有 dsh/node 调用（含子进程 setup/upgrade/reset，自动继承）都命中便携 node。
+$env:Path = "$NodeDir;$env:Path"
+
 New-Item -ItemType Directory -Force -Path $DshHome, $LogDir | Out-Null
 
 # ---------------------------------------------------------------------------

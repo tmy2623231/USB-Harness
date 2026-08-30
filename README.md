@@ -139,8 +139,9 @@
 
 ```
 [1] 启动 Web 界面
-[2] 重置（清配置数据，保留运行环境，无需下载）
-[3] 退出
+[2] 检查更新（程序与 dsh 版本）
+[3] 重置（清配置数据，保留运行环境，无需下载）
+[4] 退出
 ```
 
 默认监听 `http://0.0.0.0:3080`（本机 `http://127.0.0.1:3080`，局域网 `http://<本机IP>:3080`）。
@@ -164,10 +165,14 @@
 ```
 USB-Harness/
 ├── launch.bat / launch.sh     # 一键启动入口（交互菜单，首启自动安装）
+├── HARNESS_VERSION            # 程序版本标记（Release 打包时写入）
+├── .ready.flag                # 就绪标记（node=/dsh=/harness=/created=）
 ├── scripts/
 │   ├── launch-windows.ps1     # Windows 启动器（中文菜单）
 │   ├── setup-windows.ps1      # Windows 首次配置（下载/离线 Node + 安装 dsh + 品牌补丁）
 │   ├── setup-unix.sh          # Linux/macOS 首次配置
+│   ├── upgrade-windows.ps1    # Windows 检查更新/升级（自动回滚，不动 data/）
+│   ├── upgrade-unix.sh        # Linux/macOS 检查更新/升级
 │   ├── reset-windows.ps1      # Windows 重置（软重置/完全重置 -Full）
 │   ├── reset-unix.sh          # Linux/macOS 重置
 │   └── COMMANDS.md            # 命令速查
@@ -236,13 +241,19 @@ USB-Harness/
 > 完整逐条清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)，
 > 同步流程见 [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md)。
 
-### 如何升级 dsh 版本（维护者）
+### 检查更新 / 升级（v1.0.4+）
 
-1. 改 `scripts/setup-windows.ps1` 的 `$DshVersion` 与 `scripts/setup-unix.sh` 的 `DSH_VERSION` 为目标版本
-2. 按 [发布同步规范](docs/RELEASE_README_SYNC.md) 校验 `brand-patch` 基线是否与目标版本一致——**版本号与补丁基线必须同时改**，否则会「装旧版、打新版补丁」导致启动崩溃
-3. 删除 `.ready.flag` 后重新运行 `launch.bat`，或用 `launch.bat setup -Force` 强制重装
-4. 启动后确认无 `ERR_MODULE_NOT_FOUND`，并在 Web UI 中确认品牌改造仍生效
+- **普通用户**：启动菜单 `[2] 检查更新`（或 `launch.bat check-update` / `bash launch.sh check-update`）
+  会同时检测「本项目新 Release」与「上游 dsh 新版」。
+  项目有新版 → 提示到 Releases 页下载完整包（数据可沿用）；dsh 上游有新版 → 提示等待本项目适配。
+- **维护者升级 dsh 版本**：
+  1. 改 `scripts/setup-windows.ps1` 的 `$DshVersion` 与 `scripts/setup-unix.sh` 的 `DSH_VERSION` 为目标版本
+  2. 按 [发布同步规范](docs/RELEASE_README_SYNC.md) 校验 `brand-patch` 基线是否与目标版本一致——**版本号与补丁基线必须同时改**，否则会「装旧版、打新版补丁」导致启动崩溃
+  3. 同步更新 `PeerFix` / `PEERS` 中 `dsh-*` 的版本串，然后 `launch.bat upgrade`
+     （或 `scripts/upgrade-windows.ps1 -DshVersion <v>` / `bash scripts/upgrade-unix.sh <v>`）
+  4. 启动后确认无 `ERR_MODULE_NOT_FOUND`，并在 Web UI 中确认品牌改造仍生效
 
+> 升级只动 `.cache/` 运行环境，**`data/dsh/`（配置/密钥/会话）零改动**，失败自动回滚到升级前状态。
 > 普通用户无需手动升级：直接下载 [Releases](https://github.com/tmy2623231/USB-Harness/releases/latest) 最新完整包即可。
 
 ## 安全须知

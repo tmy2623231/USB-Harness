@@ -9,6 +9,40 @@
 
 ---
 
+## [1.0.4] — 2026-08-30
+
+### 新增
+
+- **启动器「检查更新 / 升级」功能**：
+  - 菜单新增 `[2] 检查更新`（直通命令 `check-update` / `upgrade`），双层检测：
+    ① 本项目新 Release（GitHub，主路径，提示浏览器下载，数据可沿用）；
+    ② 上游 dsh 新版（npm，npmmirror 优先回退官方源，需项目适配后才会提供升级）。
+  - 维护者可 `upgrade -DshVersion <v>` 强制升级：自动校验 `PeerFix` / `PEERS` 与目标版本
+    一致（不一致直接阻断，退出码 4）；升级过程写 journal → `.cache/app` 改名备份 →
+    重装 → 自检（版本 + 随机空闲端口 HTTP 探测 + 无模块缺失）→ 成功清理 / 失败自动回滚。
+  - 升级只动 `.cache/`，**`data/dsh/`（配置/密钥/会话）自始至终零改动**。
+  - 断电/中断自动裁决恢复：下次启动时以「app 能跑且版本与 flag 一致」为真值锚点，
+    幂等处理残留（`.cache/app.bak-upgrade` + `.cache/upgrade.state`）。
+- `scripts/upgrade-windows.ps1` / `scripts/upgrade-unix.sh`：检查更新 / 升级 / 回滚脚本（退出码 0-6）。
+- `HARNESS_VERSION` 文件与 `.ready.flag` 的 `harness=` 行：记录程序版本，供检查更新比对。
+
+### 修复
+
+- **`scripts/setup-unix.sh` Linux/macOS 全新安装必崩**：`NODE_TARBALL` 在全新安装路径被
+  引用但从未赋值（`set -u` 直接退出）。已补赋值与 `mkdir -p`。
+- **`upgrade-windows.ps1` 在 Windows PowerShell 5.1 下无法解析**：文件缺 UTF-8 BOM
+  （PS 5.1 按 ANSI/GBK 读取中文导致语法错乱），且误用 PS7 才有的 `??` 运算符。
+  均已修复；`build-release.ps1` 同步补 BOM。
+
+### 构建管线
+
+- `release.yml`：打包前写 `HARNESS_VERSION`；`.ready.flag` 增加 `harness=` 行；
+  压缩清单纳入两个文件。
+- `smoke-test.yml`：新增「就绪标记生成走真实 setup 脚本路径」断言（flag 含 `harness=` 行
+  且值正确）+「`upgrade -CheckOnly` 退出码 ∈ {0,1,2}」冒烟。
+
+---
+
 ## [1.0.3] — 2026-08-30
 
 ### 修复

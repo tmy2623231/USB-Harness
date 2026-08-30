@@ -12,6 +12,9 @@ work/
 .ready.flag
 HARNESS_VERSION
 
+# --- 补丁校验缓存（tgz 可重新下载生成，不入库） ---
+.patch-check-cache/
+
 # --- 回滚备份（原始 dsh 文件） ---
 .backup/
 

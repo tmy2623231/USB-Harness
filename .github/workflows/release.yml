@@ -1,16 +1,17 @@
 name: 构建并发布完整包
 
-# 推送 v* 标签时自动构建「含运行时」完整包并创建 Release
-# 本地发版：git tag v1.0.2 && git push origin v1.0.2
+# 推送版本标签时自动构建「含运行时」完整包并创建 Release。
+# 版本号跟随适配的 dsh 版本（tag 名 == setup 脚本锁定的 DshVersion）。
+# 本地发版：git tag 0.1.1-rc.2 && git push origin 0.1.1-rc.2
 
 on:
   push:
     tags:
-      - 'v*'
+      - '[0-9]*'
   workflow_dispatch:
     inputs:
       tag:
-        description: '要构建的标签（如 v1.0.2）'
+        description: '要构建的标签（须等于 setup 锁定的 dsh 版本，如 0.1.1-rc.2）'
         required: true
 
 permissions:
@@ -34,6 +35,16 @@ jobs:
           "node=$node"  >> $env:GITHUB_OUTPUT
           "dsh=$dsh"    >> $env:GITHUB_OUTPUT
           Write-Host "Node=$node  dsh=$dsh"
+
+      - name: 校验 tag 与 dsh 版本一致（版本号必须跟随 dsh）
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $dsh = "${{ steps.ver.outputs.dsh }}"
+          if ($tag -ne $dsh) {
+            throw "tag($tag) 与 setup 锁定的 dsh 版本($dsh) 不一致——版本号必须跟随 dsh，请用 git tag $dsh 发版"
+          }
+          Write-Host "tag=$tag == dsh=$dsh 一致 ✓"
 
       - name: 下载便携 Node.js
         shell: pwsh

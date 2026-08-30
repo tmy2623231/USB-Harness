@@ -7,6 +7,21 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+> **版本体系**：自 `0.1.1-rc.2` 起，**项目版本号 = 适配的 dsh 版本**（Release tag、
+> HARNESS_VERSION 均与 dsh 版本一致）。`v1.0.0`–`v1.0.5` 为旧版外壳自编号，已弃用。
+
+---
+
+## [0.1.1-rc.2] — 2026-08-30
+
+### 变更
+
+- **版本号体系切换**：由外壳自编号（v1.0.x）改为跟随适配的 dsh 版本。
+  Release tag / HARNESS_VERSION / `.ready.flag` 的 `harness=` 行统一为 dsh 版本号。
+- 内容与 v1.0.5 相同（含 v1.0.5 的 PATH 修复），仅版本标记改为新体系。
+- `release.yml`：tag 过滤由 `v*` 改为 `[0-9]*`；新增硬校验
+  **tag 名必须等于 setup 脚本锁定的 `$DshVersion`**，防止「打错 tag / 装错 dsh 版本」。
+
 ---
 
 ## [1.0.5] — 2026-08-30

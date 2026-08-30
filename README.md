@@ -39,7 +39,7 @@
 
 | 方式 | 说明 |
 |------|------|
-| **Releases 完整包**（推荐） | 下载 `USB-Harness-with-runtime.zip`（v1.0.2 为 136 MB）→ 解压 → 双击 `launch.bat` → 直接用 |
+| **Releases 完整包**（推荐） | 下载 `USB-Harness-with-runtime.zip`（约 136 MB）→ 解压 → 双击 `launch.bat` → 直接用 |
 | 源码 ZIP / git clone | 仅源码（不含运行时），首次启动需联网安装一次（走中国镜像 + 离线包） |
 
 **完整包使用步骤**：
@@ -212,8 +212,12 @@ USB-Harness/
 
 ## 版本锁定
 
+**项目版本号 = 适配的 dsh 版本**（Release tag 与 HARNESS_VERSION 都是 dsh 版本号，
+例如 `0.1.1-rc.2` 表示本包适配 dsh `0.1.1-rc.2`）。v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
+
 | 组件 | 版本 | 说明 |
 |------|------|------|
+| 本包（USB Harness） | `0.1.1-rc.2` | 版本号跟随适配的 dsh 版本 |
 | `@deepseek-ai/dsh` | `0.1.1-rc.2` | 预发布候选版（rc），官方声明会有破坏性变更 |
 | 便携 Node.js | `22.23.2` (LTS Jod) | 满足 dsh `^22.19.0 \|\| >=24.0.0`（23 不支持） |
 
@@ -241,7 +245,9 @@ USB-Harness/
 > 完整逐条清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)，
 > 同步流程见 [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md)。
 
-### 检查更新 / 升级（v1.0.4+）
+### 检查更新 / 升级
+
+> 版本号跟随 dsh：`check-update` 显示的「程序版本」即本包适配的 dsh 版本。
 
 - **普通用户**：启动菜单 `[2] 检查更新`（或 `launch.bat check-update` / `bash launch.sh check-update`）
   会同时检测「本项目新 Release」与「上游 dsh 新版」。

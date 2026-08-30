@@ -159,8 +159,12 @@ jobs:
         shell: pwsh
         run: |
           # 验证 upgrade 脚本在干净环境不崩；0=已最新 1=有更新 2=网络不可达（CI 抖动可容忍）
-          & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly
+          $output = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly 2>&1
           $rc = $LASTEXITCODE
-          Write-Host "upgrade-windows.ps1 -CheckOnly 退出码: $rc"
-          if ($rc -lt 0 -or $rc -gt 2) { throw "check-only 退出码异常: $rc（期望 0/1/2）" }
-          Write-Host "check-only 冒烟 ✓"
+          $output | ForEach-Object { Write-Host $_ }
+          Write-Host "check-only 退出码: $rc"
+          if ($null -eq $rc -or $rc -lt 0 -or $rc -gt 2) { throw "check-only 退出码异常: $rc（期望 0/1/2）" }
+          Write-Host "check-only 冒烟通过"
+          # 关键：子进程退出码 1/2 是预期结果，若步骤结束时 $LASTEXITCODE 非 0，
+          # GitHub Actions 的 pwsh 外壳会把步骤判失败，必须显式以 0 结束
+          exit 0

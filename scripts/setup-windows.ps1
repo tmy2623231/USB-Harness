@@ -7,7 +7,7 @@
 [CmdletBinding()]
 param(
     [string]$NodeVersion = '22.23.2',           # 锁定 22.x LTS（满足 dsh ^22.19 || >=24）
-    [string]$DshVersion  = '0.1.1-rc.1',        # 锁定 dsh 版本
+    [string]$DshVersion  = '0.1.1-rc.2',        # 锁定 dsh 版本（补丁基线必须与此一致）
     [switch]$Force,                             # 强制重装
     [string]$Root        = ''                   # 项目根目录；留空则按 $PSScriptRoot 推断
 )
@@ -128,9 +128,10 @@ if ((Test-Path $DshCmd) -and -not $Force) {
     Invoke-NpmInstall -ArgsList @("@deepseek-ai/dsh@$DshVersion")
     Write-Host "      dsh 安装完成: $DshCmd" -ForegroundColor Green
 
-    # 已知坑位：dsh rc.1 发布内部不一致，peerDependencies 指向 rc.2 子包，
+    # 已知坑位：多个 dsh 子包把彼此声明为 peerDependencies，主包 bundle 未包含，
     # --legacy-peer-deps 会跳过它们，导致启动报 ERR_MODULE_NOT_FOUND。这里显式补齐。
-    Write-Host '      补齐 dsh 缺失的 peer 依赖包（rc.1 已知 25 个）...' -ForegroundColor Yellow
+    # rc.2 下该问题依然存在，补齐列表版本串已与 rc.2 对齐。
+    Write-Host '      补齐 dsh 缺失的 peer 依赖包（已知 25 个）...' -ForegroundColor Yellow
     $PeerFix = @(
         '@deepseek-ai/dsh-invariants@^0.1.1-rc.2', '@deepseek-ai/dsh-scope@^0.1.1-rc.2',
         '@deepseek-ai/dsh-fs@^0.1.1-rc.2', '@deepseek-ai/dsh-atomic-write@^0.1.1-rc.2',

@@ -17,7 +17,7 @@
 
 ### 决策 1：用官方 npm 预编译包，而不是从源码编译 monorepo
 
-dsh 提供官方发布包 `@deepseek-ai/dsh`（当前 `0.1.1-rc.1`），`npx @deepseek-ai/dsh web`
+dsh 提供官方发布包 `@deepseek-ai/dsh`（当前 `0.1.1-rc.2`），`npx @deepseek-ai/dsh web`
 即可启动完整 Web UI。本项目选择**预编译包**而非源码构建，理由：
 
 - **100% 功能兼容**：npm 包由官方源码构建，包含全部功能插件（`dsh-web-app`、`dsh-headless`、

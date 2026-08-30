@@ -34,28 +34,31 @@
 | Windows 10/11 x64 | ✅ 交付目标 | — |
 | macOS / Linux | 🔧 可扩展 | 需另行下载对应 Node 构建，脚本逻辑一致 |
 
-## 4. 已验证项（本地实测，2026-08-21）
+## 4. 已验证项（2026-08-21 实装 / 2026-08-30 升级 rc.2 复核）
 
 | 验证项 | 结果 | 方法 |
 |--------|------|------|
-| `@deepseek-ai/dsh` 包存在且可安装 | ✅ v0.1.1-rc.1 | `npm view` + 本地 `npm install` |
+| `@deepseek-ai/dsh` 包存在且可安装 | ✅ v0.1.1-rc.2 | `npm view` + 本地 `npm install` |
+| `brand-patch` 全部 17 个文件的基线版本 | ✅ 与 rc.2 一致 | 逐个 diff `patch` / rc.1 / rc.2 三方对比 |
 | dsh CLI 启动器参数（`--profile`/`--patch`/`--dump-config`/`web`/`plugin`） | ✅ | 读取 `lib/bin.js` 源码 |
 | `DSH_HOME` 环境变量可重定向 | ✅ 官方支持 | 官方文档/第三方实测一致 |
 | 默认端口 3080、仅监听 loopback | ✅ | 官方 README |
 | `--no-open` 标志 | ✅ | 官方 README |
 | Node 22.x 最新 LTS 版本号 | ✅ v22.23.2 (Jod) | `nodejs.org/dist/index.json` |
 | **实测：E: U 盘全流程安装** | ✅ 535MB | `npm install`（430 包，6 分钟） |
-| **实测：`dsh --version`** | ✅ 0.1.1-rc.1 | 便携 Node 22.23.2 运行 |
+| **实测：`dsh --version`** | ✅ 0.1.1-rc.2 | 便携 Node 22.23.2 运行 |
 | **实测：`dsh web` 启动** | ✅ HTTP 200 | `--port 3080 --no-open`，真实服务响应 |
 | **实测：web 子命令参数** | ✅ | `--port`（含 0=自动选端口）/`--host`/`--no-open` 均确认 |
 
 ### 已知坑位（2026-08-21 实装记录）
 
 1. **npm 大依赖树解析卡死**（20 分钟纯 CPU 空转、零网络）→ 需加 `--legacy-peer-deps`。
-2. **dsh rc.1 发布内部不一致**：多个包的 peerDependencies 指向 `0.1.1-rc.2` 子包，
-   rc.1 bundle 未包含 → `--legacy-peer-deps` 会跳过这些 peer，启动报
+2. **peer 依赖未被主包 bundle 携带**：多个 `dsh-*` 子包把彼此声明为 `peerDependencies`，
+   主包 bundle 未包含 → `--legacy-peer-deps` 会跳过这些 peer，启动报
    `ERR_MODULE_NOT_FOUND`。**修复**：显式补齐 25 个缺失 peer 包（见 `scripts/setup-windows.ps1`
-   注释与下文）。
+   注释）。**rc.2 下该问题依然存在**，补齐列表的版本串已与 `0.1.1-rc.2` 对齐，无需改动。
+   > 注意：`brand-patch` 内的文件是针对具体 dsh 版本改写的，**升级版本号时必须同步重做补丁**，
+   > 否则会出现「装 rc.1、打 rc.2 补丁」的错配，启动时因缺少 `deadline` 等新版导出而崩溃。
 3. **npm 缓存 EPERM**：强杀进程残留的缓存锁会触发 `EPERM` 打不开缓存文件 →
    `scripts/setup-windows.ps1` 已把 npm 缓存移入项目内 `.cache/npm-cache`（随盘，避开系统盘）。
 4. **PowerShell `$Host` 是只读自动变量**：早期 `start.ps1` 曾把监听地址参数命名为 `-Host`

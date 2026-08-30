@@ -11,7 +11,7 @@
 [![Downloads](https://img.shields.io/github/downloads/tmy2623231/USB-Harness/total?color=green)](https://github.com/tmy2623231/USB-Harness/releases/latest)
 [![Stars](https://img.shields.io/github/stars/tmy2623231/USB-Harness?color=yellow)](https://github.com/tmy2623231/USB-Harness)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blueviolet)](launch.sh)
-[![dsh](https://img.shields.io/badge/dsh-0.1.1--rc.1-purple)](https://github.com/deepseek-ai/deepseek-harness)
+[![dsh](https://img.shields.io/badge/dsh-0.1.1--rc.2-purple)](https://github.com/deepseek-ai/deepseek-harness)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/tmy2623231/USB-Harness/pulls)
 
 </div>
@@ -208,7 +208,7 @@ USB-Harness/
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
-| `@deepseek-ai/dsh` | `0.1.1-rc.1` | 预发布候选版（rc），官方声明会有破坏性变更 |
+| `@deepseek-ai/dsh` | `0.1.1-rc.2` | 预发布候选版（rc），官方声明会有破坏性变更 |
 | 便携 Node.js | `22.23.2` (LTS Jod) | 满足 dsh `^22.19.0 \|\| >=24.0.0`（23 不支持） |
 
 > 版本号可在 `scripts/setup-windows.ps1` 顶部修改。

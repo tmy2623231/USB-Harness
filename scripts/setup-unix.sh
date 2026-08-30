@@ -10,7 +10,7 @@ set -euo pipefail
 # 项目根目录 = scripts/ 的上一级
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_VERSION="${NODE_VERSION:-22.23.2}"
-DSH_VERSION="${DSH_VERSION:-0.1.1-rc.1}"
+DSH_VERSION="${DSH_VERSION:-0.1.1-rc.2}"
 
 # 平台/架构
 case "$(uname -s)" in
@@ -98,9 +98,10 @@ else
       --no-audit --no-fund --fetch-retries=5 --legacy-peer-deps --cache "$NPM_CACHE"
   fi
 
-  # 已知坑位：dsh rc.1 发布内部不一致，peerDependencies 指向 rc.2 子包，
+  # 已知坑位：多个 dsh 子包把彼此声明为 peerDependencies，主包 bundle 未包含，
   # --legacy-peer-deps 会跳过它们，导致启动报 ERR_MODULE_NOT_FOUND。显式补齐。
-  echo "[2.5] 补齐 dsh 缺失的 peer 依赖包（rc.1 已知 25 个）..."
+  # rc.2 下该问题依然存在，补齐列表版本串已与 rc.2 对齐。
+  echo "[2.5] 补齐 dsh 缺失的 peer 依赖包（已知 25 个）..."
   PEERS=(
     '@deepseek-ai/dsh-invariants@^0.1.1-rc.2' '@deepseek-ai/dsh-scope@^0.1.1-rc.2'
     '@deepseek-ai/dsh-fs@^0.1.1-rc.2' '@deepseek-ai/dsh-atomic-write@^0.1.1-rc.2'

@@ -1,0 +1,122 @@
+name: 构建并发布完整包
+
+# 推送 v* 标签时自动构建「含运行时」完整包并创建 Release
+# 本地发版：git tag v1.0.2 && git push origin v1.0.2
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要构建的标签（如 v1.0.2）'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 读取锁定版本（单一数据源：安装脚本）
+        id: ver
+        shell: pwsh
+        run: |
+          $ps1 = Get-Content scripts/setup-windows.ps1 -Raw
+          $node = [regex]::Match($ps1, "\`$NodeVersion\s*=\s*'([^']+)'").Groups[1].Value
+          $dsh  = [regex]::Match($ps1, "\`$DshVersion\s*=\s*'([^']+)'").Groups[1].Value
+          if (-not $node -or -not $dsh) { throw "无法从 setup-windows.ps1 解析版本号" }
+          "node=$node"  >> $env:GITHUB_OUTPUT
+          "dsh=$dsh"    >> $env:GITHUB_OUTPUT
+          Write-Host "Node=$node  dsh=$dsh"
+
+      - name: 下载便携 Node.js
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.node }}"
+          New-Item -ItemType Directory -Force -Path .cache/runtimes/windows-x64, .cache/downloads | Out-Null
+          $zip = ".cache/downloads/node-v$v-win-x64.zip"
+          if (-not (Test-Path $zip)) {
+            Write-Host "下载 Node $v ..."
+            Invoke-WebRequest "https://nodejs.org/dist/v$v/node-v$v-win-x64.zip" -OutFile $zip -UseBasicParsing
+          }
+          Expand-Archive $zip -DestinationPath .cache/runtimes/_extract -Force
+          Move-Item ".cache/runtimes/_extract/node-v$v-win-x64" .cache/runtimes/windows-x64/node
+          & .cache/runtimes/windows-x64/node/node.exe -v
+
+      - name: 安装 @deepseek-ai/dsh
+        shell: pwsh
+        run: |
+          $dsh = "${{ steps.ver.outputs.dsh }}"
+          $npm = ".cache/runtimes/windows-x64/node/npm.cmd"
+          & $npm install --prefix .cache/app "@deepseek-ai/dsh@$dsh" `
+            --no-audit --no-fund --fetch-retries=5 --legacy-peer-deps
+          if ($LASTEXITCODE -ne 0) { throw "dsh 安装失败" }
+
+      - name: 补齐 peer 依赖包
+        shell: pwsh
+        run: |
+          $npm = ".cache/runtimes/windows-x64/node/npm.cmd"
+          $peers = @(
+            '@deepseek-ai/dsh-invariants@^0.1.1-rc.2', '@deepseek-ai/dsh-scope@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-fs@^0.1.1-rc.2', '@deepseek-ai/dsh-atomic-write@^0.1.1-rc.2',
+            '@deepseek-ai/cordis-plugin-group@^1.0.1', '@deepseek-ai/dsh-shell@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-sandbox@^0.1.1-rc.2', '@deepseek-ai/dsh-bash-local@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-compaction@^0.1.1-rc.2', '@deepseek-ai/dsh-workflow@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-code-runtime@^0.1.1-rc.2', '@deepseek-ai/dsh-timeout@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-session-telemetry@^0.1.1-rc.2', '@deepseek-ai/dsh-anonymous-user-id@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-authorization@^0.1.1-rc.2', '@deepseek-ai/dsh-output-retention@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-session-title-llm@^0.1.1-rc.2', '@deepseek-ai/dsh-spill@^0.1.1-rc.2',
+            '@deepseek-ai/dsh-subagent-in-process-driver@^0.1.1-rc.2', '@cfworker/json-schema@^4.1.1',
+            'react@latest', 'react-dom@latest', 'bufferutil@^4.0.1', 'utf-8-validate@^5.0.2',
+            '@types/react@latest'
+          )
+          & $npm install --prefix .cache/app @peers --no-audit --no-fund --legacy-peer-deps
+          if ($LASTEXITCODE -ne 0) { throw "peer 补齐失败" }
+
+      - name: 应用品牌补丁
+        shell: pwsh
+        run: |
+          $dst = ".cache/app/node_modules/@deepseek-ai"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "brand-patch/@deepseek-ai/*" $dst -Recurse -Force
+          if (-not (Select-String -Path "$dst/dsh-client-ui-brand-official/lib/client.js" -Pattern 'USB Harness' -Quiet)) {
+            throw "品牌补丁未生效"
+          }
+          Write-Host "品牌补丁已应用"
+
+      - name: 生成就绪标记并清理
+        shell: pwsh
+        run: |
+          "node=${{ steps.ver.outputs.node }}`ndsh=${{ steps.ver.outputs.dsh }}`ncreated=$(Get-Date -Format 'o')" |
+            Out-File -FilePath .ready.flag -Encoding ASCII
+          # 清理：npm 缓存与临时解压目录不入包
+          Remove-Item .cache/npm-cache, .cache/runtimes/_extract -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path data/dsh, data/logs | Out-Null
+          Get-Content .ready.flag
+
+      - name: 压缩为完整包
+        shell: pwsh
+        run: |
+          Compress-Archive -Path launch.bat, launch.sh, LICENSE, README.md, CHANGELOG.md, `
+            brand-patch, config, docs, scripts, .cache, data, .ready.flag, .gitattributes, .gitignore `
+            -DestinationPath USB-Harness-with-runtime.zip -CompressionLevel Optimal
+          $mb = [math]::Round((Get-Item USB-Harness-with-runtime.zip).Length / 1MB, 1)
+          "size=$mb" >> $env:GITHUB_OUTPUT
+          Write-Host "压缩包: $mb MB"
+
+      - name: 创建 Release 并上传
+        uses: softprops/action-gh-release@v2
+        with:
+          name: USB Harness ${{ github.ref_name }} — 完整包（含运行时，下载即用）
+          body_path: .github/RELEASE_NOTES.md
+          files: USB-Harness-with-runtime.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

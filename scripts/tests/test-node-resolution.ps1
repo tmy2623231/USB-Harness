@@ -77,19 +77,29 @@ process.exit(42);
     New-Item -ItemType Directory -Force -Path $emptyDir | Out-Null
 
     # ---- 受控子进程执行器（自定义 PATH，不继承本进程 PATH）----
+    # 已知：windows-latest runner 上 spawn powershell.exe 偶发 0xC0000142（DLL 初始化
+    # 失败），会抛异常而非正常退出——捕获并重试 3 次，避免环境抖动误杀测试。
     function Invoke-WithPath([string]$path, [string]$file, [string]$arguments) {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $file
-        $psi.Arguments = $arguments
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.Environment['Path'] = $path
-        $p = [System.Diagnostics.Process]::Start($psi)
-        $stdout = $p.StandardOutput.ReadToEnd()
-        $stderr = $p.StandardError.ReadToEnd()
-        $p.WaitForExit()
-        return @{ Exit = $p.ExitCode; Out = $stdout; Err = $stderr }
+        for ($t = 1; $t -le 3; $t++) {
+            try {
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = $file
+                $psi.Arguments = $arguments
+                $psi.UseShellExecute = $false
+                $psi.RedirectStandardOutput = $true
+                $psi.RedirectStandardError = $true
+                $psi.Environment['Path'] = $path
+                $p = [System.Diagnostics.Process]::Start($psi)
+                $stdout = $p.StandardOutput.ReadToEnd()
+                $stderr = $p.StandardError.ReadToEnd()
+                $p.WaitForExit()
+                return @{ Exit = $p.ExitCode; Out = $stdout; Err = $stderr }
+            } catch {
+                Write-Host "  [warn] 子进程启动失败（第 $t 次）: $($_.Exception.Message)" -ForegroundColor DarkYellow
+                Start-Sleep -Seconds 2
+            }
+        }
+        throw "子进程连续 3 次启动失败: $file $arguments"
     }
 
     # ---- 场景 A：PATH 无任何 node ----

@@ -76,8 +76,14 @@ exec node "$DIR/../@deepseek-ai/dsh/lib/bin.js" "$@"
 EOF
 chmod +x "$TMP/.cache/app/node_modules/.bin/dsh"
 
-# 受控 PATH：过滤掉一切含 node/nvm/npm 的目录，保证场景可控
-BASE="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vi -e node -e nvm -e npm | paste -sd: -)"
+# 受控 PATH：过滤掉一切含 node/nvm/npm 的目录 + 真实 node 所在目录，
+# 保证场景可控（否则 setup-node 装在 /usr/local/bin 之类目录时过滤不干净，
+# 负对照 2 会命中真实 node 而不报错）
+REAL_NODE_DIR="$(dirname "$REAL_NODE")"
+BASE="$(printf '%s' "$PATH" | tr ':' '\n' \
+  | grep -vi -e node -e nvm -e npm \
+  | grep -v "^$REAL_NODE_DIR\$" \
+  | paste -sd: -)"
 EMPTY_DIR="$TMP/emptydir"
 mkdir -p "$EMPTY_DIR"
 

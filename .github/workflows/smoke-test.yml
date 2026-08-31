@@ -159,13 +159,19 @@ jobs:
         shell: pwsh
         run: |
           # 验证 upgrade 脚本在干净环境不崩；0=已最新 1=有更新 2=网络不可达（CI 抖动可容忍）。
-          # 已知偶发：windows-latest 上子进程 powershell.exe 启动崩溃（0xC0000142，
-          # 退出码 -1073741502），属 runner 环境性问题而非脚本问题——负退出码自动重试 3 次。
+          # 已知问题：windows-latest 上从 pwsh 用 & 调用 powershell.exe 偶发子进程启动
+          # 崩溃（0xC0000142，DLL 初始化失败），pwsh 会直接抛异常中断本步骤——必须
+          # try/catch 捕获并重试（异常不走 $LASTEXITCODE，负退出码判断拦不住）。
           $rc = -999
-          $output = $null
+          $output = @()
           for ($try = 1; $try -le 3; $try++) {
-            $output = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly 2>&1
-            $rc = $LASTEXITCODE
+            try {
+              $output = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly 2>&1
+              $rc = $LASTEXITCODE
+            } catch {
+              Write-Host "try $try: 子进程启动/执行异常: $($_.Exception.Message)"
+              $rc = -999
+            }
             Write-Host "try $try: rc=$rc"
             if ($null -ne $rc -and $rc -ge 0) { break }   # 0/1/2 为业务退出码，直接采用
             Start-Sleep -Seconds 2

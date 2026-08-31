@@ -14,10 +14,22 @@ set -uo pipefail
 
 fail=0
 SUMM="${GITHUB_STEP_SUMMARY:-}"
-pass() { echo "[PASS] $*"; [ -n "$SUMM" ] && echo "[PASS] $*" >> "$SUMM"; }
-fail_check() { echo "[FAIL] $*"; [ -n "$SUMM" ] && echo "[FAIL] $*" >> "$SUMM"; fail=1; }
-# 把场景原始输出写入 step summary，方便通过 check-run API 定位失败
-dump_scene() { [ -n "$SUMM" ] && { echo "--- $1 ---" >> "$SUMM"; printf '%s\n' "$2" | head -40 >> "$SUMM"; }; }
+pass() { echo "[PASS] $*"; if [ -n "$SUMM" ]; then echo "[PASS] $*" >> "$SUMM"; fi; return 0; }
+fail_check() {
+  echo "[FAIL] $*"
+  if [ -n "$SUMM" ]; then echo "[FAIL] $*" >> "$SUMM"; fi
+  # 失败细节打进 ::error:: annotation（公共仓库可经 check-run API 匿名读取）
+  echo "::error::$*"
+  return 0
+}
+# 把场景原始输出写入 step summary / annotation，方便定位失败
+dump_scene() {
+  if [ -n "$SUMM" ]; then
+    { echo "--- $1 ---"; printf '%s\n' "$2" | head -40; } >> "$SUMM"
+  fi
+  echo "::error::--- $1 ---"
+  printf '%s\n' "$2" | head -40 | sed 's/^/::error::  /'
+}
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 

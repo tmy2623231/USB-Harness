@@ -115,8 +115,8 @@ process.exit(42);
     Assert ($rA.Exit -eq 0) ("A) 退出码=0（实际 $($rA.Exit)）")
     Assert ($rA.Out -match '便携 Node\s*:\s*v\d') 'A) 便携 Node 显示真实版本'
     Assert ($rA.Out -match 'dsh 版本\s*:\s*0\.1\.1-rt') 'A) dsh 版本显示 0.1.1-rt'
-    Assert ($rA.Out -notmatch '不是内部或外部命令') 'A) stdout 无「不是内部或外部命令」'
-    Assert ($rA.Err -notmatch '不是内部或外部命令') 'A) stderr 无「不是内部或外部命令」'
+    Assert ($rA.Out -notmatch '不是内部或外部命令|not recognized as an internal') 'A) stdout 无 node 找不到类报错'
+    Assert ($rA.Err -notmatch '不是内部或外部命令|not recognized as an internal') 'A) stderr 无 node 找不到类报错'
 
     # ---- 场景 B：旧系统 node 前置（垫片必被带偏，直调不受影响）----
     Write-Host ''
@@ -135,11 +135,13 @@ process.exit(42);
     $negOut = ($rN.Out -split "`r?`n" | Where-Object { $_ -match 'v\d' } | Select-Object -Last 1)
     Assert ($negOut -match 'v14\.0\.0') ("负对照1: 垫片被旧 node 带偏（实际 '$negOut'）——证明测试环境有效")
 
-    # ---- 负对照2：垫片 dsh.cmd + 无 node PATH -> 必然「不是内部或外部命令」----
+    # ---- 负对照2：垫片 dsh.cmd + 无 node PATH -> 必然报 node 找不到 ----
+    # 注意：windows-latest runner 为英文系统，cmd 报错是 "not recognized as an
+    # internal or external command"，中文系统才是「不是内部或外部命令」，两者都匹配。
     Write-Host ''
     Write-Host '== 负对照2：垫片 dsh.cmd + 无 node PATH（应报 node 找不到）==' -ForegroundColor Cyan
     $rN2 = Invoke-WithPath "$emptyDir;$basePath" 'cmd.exe' "/c `"$binDir\dsh.cmd`" --version"
-    Assert ($rN2.Err -match '不是内部或外部命令') "负对照2: 垫片在无 node 环境下报错——证明两个历史失败模式均由垫片 PATH 解析引起"
+    Assert ($rN2.Err -match '不是内部或外部命令|not recognized as an internal') "负对照2: 垫片在无 node 环境下报错（实际: $($rN2.Err.Trim())）——证明两个历史失败模式均由垫片 PATH 解析引起"
 
     Write-Host ''
     if ($script:failed) { Write-Host '[RT] 失败' -ForegroundColor Red; exit 1 }

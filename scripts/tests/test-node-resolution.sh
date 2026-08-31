@@ -31,6 +31,9 @@ esac
 PLATFORM="${OS}-${ARCH}"
 
 REAL_NODE="$(command -v node 2>/dev/null || true)"
+[ -z "$REAL_NODE" ] && REAL_NODE="$(command -v nodejs 2>/dev/null || true)"
+[ -z "$REAL_NODE" ] && [ -x /usr/bin/node ] && REAL_NODE=/usr/bin/node
+[ -z "$REAL_NODE" ] && [ -x /usr/local/bin/node ] && REAL_NODE=/usr/local/bin/node
 if [ -z "$REAL_NODE" ]; then
   echo "[FAIL] 找不到真实 node（测试需本机或 CI runner 预装 Node）"; exit 1
 fi

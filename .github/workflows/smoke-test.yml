@@ -158,31 +158,25 @@ jobs:
       - name: 检查更新脚本冒烟（-CheckOnly 退出码 ∈ {0,1,2}）
         shell: pwsh
         run: |
-          # 验证 upgrade 脚本在干净环境不崩；0=已最新 1=有更新 2=网络不可达（CI 抖动可容忍）
-          $output = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly 2>&1
-          $rc = $LASTEXITCODE
+          # 验证 upgrade 脚本在干净环境不崩；0=已最新 1=有更新 2=网络不可达（CI 抖动可容忍）。
+          # 已知偶发：windows-latest 上子进程 powershell.exe 启动崩溃（0xC0000142，
+          # 退出码 -1073741502），属 runner 环境性问题而非脚本问题——负退出码自动重试 3 次。
+          $rc = -999
+          $output = $null
+          for ($try = 1; $try -le 3; $try++) {
+            $output = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly 2>&1
+            $rc = $LASTEXITCODE
+            Write-Host "try $try: rc=$rc"
+            if ($null -ne $rc -and $rc -ge 0) { break }   # 0/1/2 为业务退出码，直接采用
+            Start-Sleep -Seconds 2
+          }
           $output | ForEach-Object { Write-Host $_ }
-          Write-Host "check-only 退出码: $rc"
+          Write-Host "check-only 最终退出码: $rc"
           if ($null -eq $rc -or $rc -lt 0 -or $rc -gt 2) { throw "check-only 退出码异常: $rc（期望 0/1/2）" }
           Write-Host "check-only 冒烟通过"
           # 关键：子进程退出码 1/2 是预期结果，若步骤结束时 $LASTEXITCODE 非 0，
           # GitHub Actions 的 pwsh 外壳会把步骤判失败，必须显式以 0 结束
           exit 0
-
-  regression-node-resolution-unix:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 回归测试：dsh 不依赖 PATH 找 node（Linux）
-        shell: bash
-        run: |
-          # 与 Windows 版同构的 RT：干净机器/旧系统 node 两种环境下，launch.sh status
-          # 必须仍解析到便携 node。历史事故：.bin/dsh 垫片（#!/usr/bin/env node）
-          # 报 "command not found: node" / Object.hasOwn is not a function。
-          bash scripts/tests/test-node-resolution.sh
 
       - name: 回归测试：dsh 不依赖 PATH 找 node（Windows）
         shell: pwsh
@@ -193,3 +187,23 @@ jobs:
           & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/test-node-resolution.ps1
           if ($LASTEXITCODE -ne 0) { throw "node 解析回归测试未通过（退出码 $LASTEXITCODE）" }
           Write-Host "node 解析回归测试通过 ✓"
+
+  regression-node-resolution-unix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js（RT 需要真实 node 充当「便携 node」）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 回归测试：dsh 不依赖 PATH 找 node（Linux）
+        shell: bash
+        run: |
+          # 与 Windows 版同构的 RT：干净机器/旧系统 node 两种环境下，launch.sh status
+          # 必须仍解析到便携 node。历史事故：.bin/dsh 垫片（#!/usr/bin/env node）
+          # 报 "command not found: node" / Object.hasOwn is not a function。
+          bash scripts/tests/test-node-resolution.sh

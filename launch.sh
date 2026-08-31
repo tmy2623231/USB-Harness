@@ -37,11 +37,31 @@ LOG_FILE="$LOG_DIR/dsh-web.log"
 export PATH="$NODE_DIR/bin:$PATH"
 UPGRADE_SCRIPT="$ROOT/scripts/upgrade-unix.sh"
 
+# 读取本包版本（程序版本）：优先 .ready.flag 的 harness= 行，缺失回退 HARNESS_VERSION
+# 必须定义在横幅（下方 echo）之前
+get_harness_ver() {
+  local v=""
+  if [ -f "$ROOT/.ready.flag" ]; then
+    v="$(sed -n 's/^harness=//p' "$ROOT/.ready.flag" | head -1 | tr -d '\r')" || true
+  fi
+  if [ -z "$v" ] && [ -f "$ROOT/HARNESS_VERSION" ]; then
+    v="$(tr -d '\r\n' < "$ROOT/HARNESS_VERSION")" || true
+  fi
+  printf '%s' "$v"
+}
+
 mkdir -p "$DSH_HOME_DIR" "$LOG_DIR"
 
 echo ""
 echo "============================================"
 echo "   USB Harness — 便携式 AI 助手"
+# 启动横幅直接显示版本号，一眼可见（状态面板里也有）
+HV="$(get_harness_ver)"
+if [ -n "$HV" ]; then
+  echo "   版本      : v$HV"
+else
+  echo "   版本      : 未记录（旧版包）"
+fi
 echo "============================================"
 
 # 统一调用 dsh：便携 node 绝对路径直调 CLI 入口。.bin 垫片靠 PATH 找 node——
@@ -68,11 +88,7 @@ show_status() {
   if ready; then
     echo "  便携 Node : $("$NODE_BIN" -v)"
     echo "  dsh 版本  : $(dsh --version 2>/dev/null || echo '未知')"
-    HARNESS_VER=""
-    if [ -f "$ROOT/.ready.flag" ]; then
-      HARNESS_VER="$(sed -n 's/^harness=//p' "$ROOT/.ready.flag" | head -1 | tr -d '\r')"
-    fi
-    [ -z "$HARNESS_VER" ] && [ -f "$ROOT/HARNESS_VERSION" ] && HARNESS_VER="$(tr -d '\r\n' < "$ROOT/HARNESS_VERSION")"
+    HARNESS_VER="$(get_harness_ver)"
     if [ -n "$HARNESS_VER" ]; then echo "  程序版本  : $HARNESS_VER"; else echo "  程序版本  : 未记录（旧版包）"; fi
     echo "  数据目录  : $DSH_HOME_DIR"
     echo "  监听地址  : http://0.0.0.0:3080（本机 + 局域网）"

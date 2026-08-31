@@ -88,13 +88,55 @@ get_local_versions() {
 }
 
 # ---------------------------------------------------------------------------
+# 语义化版本比较：支持 x.y.z 与 x.y.z-rc.a[.b]。规则同 Windows 版：
+# 0.1.1-rc.2 < 0.1.1-rc.2.1 < 0.1.1 < 0.1.2。输出 1/0/-1（$1 > $2 / 相等 / $1 < $2）
+# ---------------------------------------------------------------------------
+cmp_version() {
+  local a="$1" b="$2" prea=0 preb=0
+  local bodya="$a" bodyb="$b" rca="" rcb=""
+  if [[ "$a" =~ -rc\.(.+)$ ]]; then prea=1; bodya="${a%-rc.*}"; rca="${BASH_REMATCH[1]}"; fi
+  if [[ "$b" =~ -rc\.(.+)$ ]]; then preb=1; bodyb="${b%-rc.*}"; rcb="${BASH_REMATCH[1]}"; fi
+  local na nb i ia ib
+  IFS=. read -r -a na <<<"$bodya"
+  IFS=. read -r -a nb <<<"$bodyb"
+  local n=$(( ${#na[@]} > ${#nb[@]} ? ${#na[@]} : ${#nb[@]} ))
+  for ((i = 0; i < n; i++)); do
+    ia="${na[$i]:-0}"; ib="${nb[$i]:-0}"
+    if [ "$ia" -gt "$ib" ]; then echo 1; return; fi
+    if [ "$ia" -lt "$ib" ]; then echo -1; return; fi
+  done
+  if [ "$prea" -ne "$preb" ]; then
+    if [ "$prea" -eq 0 ]; then echo 1; else echo -1; fi
+    return
+  fi
+  if [ "$prea" -eq 1 ]; then
+    local ra rb m
+    IFS=. read -r -a ra <<<"$rca"
+    IFS=. read -r -a rb <<<"$rcb"
+    m=$(( ${#ra[@]} > ${#rb[@]} ? ${#ra[@]} : ${#rb[@]} ))
+    for ((i = 0; i < m; i++)); do
+      ia="${ra[$i]:-0}"; ib="${rb[$i]:-0}"
+      if [ "$ia" -gt "$ib" ]; then echo 1; return; fi
+      if [ "$ia" -lt "$ib" ]; then echo -1; return; fi
+    done
+  fi
+  echo 0
+}
+
+# ---------------------------------------------------------------------------
 # 上游最新（GitHub 与 npm 两源独立探测，失败互不拖累，绝不 exit）
 # ---------------------------------------------------------------------------
 get_latest_versions() {
-  LH_LATEST="$(curl -L --fail --max-time 10 -s \
-    "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-    | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)" || true
-  [ -z "$LH_LATEST" ] && NET_ERRORS+=("GitHub Release 检测失败")
+  # GitHub Release 检测：重试 3 次（api.github.com 在国内网络下易超时）
+  LH_LATEST=''
+  for t in 1 2 3; do
+    LH_LATEST="$(curl -L --fail --max-time 8 -s \
+      "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+      | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)" || true
+    [ -n "$LH_LATEST" ] && break
+    [ "$t" -lt 3 ] && sleep 1
+  done
+  [ -z "$LH_LATEST" ] && NET_ERRORS+=("GitHub Release 检测失败（已重试 3 次）")
 
   if [ -x "$NPM" ]; then
     LD_LATEST="$("$NPM" view @deepseek-ai/dsh version --cache "$NPM_CACHE" \
@@ -113,15 +155,23 @@ show_report() {
   echo ""
   echo "========== 版本检查 =========="
   if [ -n "$LH_LATEST" ]; then
-    if [ -n "$LH" ] && [ "$LH" = "$LH_LATEST" ]; then
-      w_ok "程序版本: $LH（已是最新）"
-    elif [ -z "$LH" ]; then
+    if [ -z "$LH" ]; then
       w_warn "程序版本: 未记录（旧版包）。最新完整包: $LH_LATEST，建议从 Releases 页下载更新"
     else
-      w_warn "程序版本: $LH → 有新版本 $LH_LATEST！请到 Releases 页下载完整包（数据可沿用）"
+      local cmp
+      cmp="$(cmp_version "$LH" "$LH_LATEST")"
+      if [ "$cmp" = "0" ]; then
+        w_ok "程序版本: $LH（已是最新）"
+      elif [ "$cmp" = "-1" ]; then
+        w_warn "程序版本: $LH → 有新版本 $LH_LATEST！请到 Releases 页下载完整包（数据可沿用）"
+      else
+        w_warn "程序版本: 本机 $LH 高于线上 $LH_LATEST（可能线上被回滚或未同步）"
+      fi
     fi
   else
-    w_warn "程序版本: 无法连接 GitHub，已跳过该项检查"
+    w_warn "程序版本: 无法连接 GitHub（已重试 3 次），已跳过该项检查"
+    echo "          请检查网络后重试；或直接打开 Releases 页查看最新包:"
+    echo "          https://github.com/$REPO/releases"
   fi
   if [ -n "$LD_LATEST" ]; then
     if [ "$LD" = "$LD_LATEST" ]; then
@@ -386,7 +436,10 @@ if [ "${CHECK_ONLY:-0}" = "1" ]; then
   if [ ${#NET_ERRORS[@]} -gt 0 ] && [ -z "$LH_LATEST" ] && [ -z "$LD_LATEST" ]; then exit 2; fi
   if [ "$LD" = "unknown" ] && [ -z "$LH" ]; then exit 3; fi
   has_update=0
-  if [ -n "$LH_LATEST" ] && [ "$LH" != "$LH_LATEST" ]; then has_update=1; fi
+  # 语义化比较：仅当「线上 > 本机」才算有更新（避免把回退/异常误报为更新）
+  if [ -n "$LH_LATEST" ]; then
+    if [ -z "$LH" ] || [ "$(cmp_version "$LH" "$LH_LATEST")" = "-1" ]; then has_update=1; fi
+  fi
   if [ -n "$LD_LATEST" ] && [ "$LD" != "$LD_LATEST" ]; then has_update=1; fi
   exit $has_update
 fi

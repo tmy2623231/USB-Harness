@@ -87,6 +87,22 @@ function Invoke-Setup {
     if ($LASTEXITCODE -ne 0) { throw "配置失败（退出码 $LASTEXITCODE）" }
 }
 
+# 读取本包版本（程序版本）：优先 .ready.flag 的 harness= 行，缺失回退 HARNESS_VERSION
+# 文件（Release 打包写入）；两者皆无 = 旧版包结构，返回空串。
+function Get-HarnessVersion {
+    $v = ''
+    if (Test-Path $ReadyFlag) {
+        $hLine = (Get-Content $ReadyFlag -ErrorAction SilentlyContinue) -replace "`r", '' |
+                 Where-Object { $_ -like 'harness=*' } | Select-Object -First 1
+        if ($hLine) { $v = $hLine.Substring(8).Trim() }
+    }
+    if (-not $v) {
+        $hf = Join-Path $Root 'HARNESS_VERSION'
+        if (Test-Path $hf) { $v = ([IO.File]::ReadAllText($hf)).Trim() }
+    }
+    return $v
+}
+
 # 显示状态
 function Show-Status {
     Write-Host ''
@@ -98,16 +114,7 @@ function Show-Status {
         $dshVer  = Invoke-Dsh --version 2>$null | Select-Object -Last 1
         Write-Host "  便携 Node : $nodeVer" -ForegroundColor Green
         Write-Host "  dsh 版本  : $dshVer"
-        $harnessVer = ''
-        if (Test-Path $ReadyFlag) {
-            $hLine = (Get-Content $ReadyFlag -ErrorAction SilentlyContinue) -replace "`r", '' |
-                     Where-Object { $_ -like 'harness=*' } | Select-Object -First 1
-            if ($hLine) { $harnessVer = $hLine.Substring(8).Trim() }
-        }
-        if (-not $harnessVer) {
-            $hf = Join-Path $Root 'HARNESS_VERSION'
-            if (Test-Path $hf) { $harnessVer = ([IO.File]::ReadAllText($hf)).Trim() }
-        }
+        $harnessVer = Get-HarnessVersion
         if ($harnessVer) { Write-Host "  程序版本  : $harnessVer" -ForegroundColor Green }
         else { Write-Host '  程序版本  : 未记录（旧版包）' -ForegroundColor DarkGray }
         Write-Host "  数据目录  : $DshHome"
@@ -189,6 +196,10 @@ function Invoke-Reset {
 Write-Host ''
 Write-Host '============================================' -ForegroundColor Cyan
 Write-Host '   USB Harness — 便携式 AI 助手' -ForegroundColor Cyan
+# 启动横幅直接显示版本号，一眼可见（状态面板里也有）
+$bannerVer = Get-HarnessVersion
+if ($bannerVer) { Write-Host "   版本      : v$bannerVer" -ForegroundColor Green }
+else { Write-Host '   版本      : 未记录（旧版包）' -ForegroundColor DarkGray }
 Write-Host '============================================' -ForegroundColor Cyan
 
 # 环境就绪校验，缺失则自动安装

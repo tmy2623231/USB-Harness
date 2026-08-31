@@ -100,16 +100,68 @@ function Get-LocalVersions {
 }
 
 # ---------------------------------------------------------------------------
+# 语义化版本比较：支持 x.y.z 与 x.y.z-rc.a[.b]（本项目只用到 rc 预发布段）。
+# 规则：先比主/次/修订数字段；主段相同后，正式版 > 预发布（rc）；rc 内按段数值
+# 递增。即 0.1.1-rc.2 < 0.1.1-rc.2.1 < 0.1.1 < 0.1.2。
+# 返回：1 = $a > $b；0 = 相等；-1 = $a < $b
+# ---------------------------------------------------------------------------
+function Compare-Version([string]$a, [string]$b) {
+    function Split-Ver([string]$s) {
+        $pre = $false
+        $body = $s
+        $rcNums = @()
+        if ($s -match '-rc\.(.+)$') {
+            $pre = $true
+            $body = $s.Substring(0, $s.Length - $Matches[0].Length)
+            $rcNums = @($Matches[1].Split('.') | ForEach-Object { [int]$_ })
+        }
+        $nums = @($body.Split('.') | ForEach-Object { [int]$_ })
+        return @{ pre = $pre; nums = $nums; rcNums = $rcNums }
+    }
+    $sa = Split-Ver $a
+    $sb = Split-Ver $b
+
+    $max = [Math]::Max($sa.nums.Count, $sb.nums.Count)
+    for ($i = 0; $i -lt $max; $i++) {
+        $na = if ($i -lt $sa.nums.Count) { $sa.nums[$i] } else { 0 }
+        $nb = if ($i -lt $sb.nums.Count) { $sb.nums[$i] } else { 0 }
+        if ($na -gt $nb) { return 1 }
+        if ($na -lt $nb) { return -1 }
+    }
+    # 主段相同：正式版 > rc
+    if ($sa.pre -ne $sb.pre) { return $(if ($sa.pre) { -1 } else { 1 }) }
+    if ($sa.pre) {
+        $m2 = [Math]::Max($sa.rcNums.Count, $sb.rcNums.Count)
+        for ($i = 0; $i -lt $m2; $i++) {
+            $na = if ($i -lt $sa.rcNums.Count) { $sa.rcNums[$i] } else { 0 }
+            $nb = if ($i -lt $sb.rcNums.Count) { $sb.rcNums[$i] } else { 0 }
+            if ($na -gt $nb) { return 1 }
+            if ($na -lt $nb) { return -1 }
+        }
+    }
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # 上游最新版本：GitHub Release 与 npm dist-tags 两个源独立探测，失败互不拖累
 # ---------------------------------------------------------------------------
 function Get-LatestVersions {
     $result = @{ harness = ''; dsh = ''; errors = @() }
 
+    # GitHub Release 检测：重试 3 次（api.github.com 在国内网络下易超时，一次失败
+    # 就跳过会让「检查更新」误报没有新版本）
     try {
-        $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -TimeoutSec 10
-        if ($r.tag_name) { $result.harness = [string]$r.tag_name }
+        for ($t = 1; $t -le 3; $t++) {
+            try {
+                $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -TimeoutSec 8
+                if ($r.tag_name) { $result.harness = [string]$r.tag_name; break }
+            } catch {
+                if ($t -ge 3) { throw }
+                Start-Sleep -Seconds 1
+            }
+        }
     } catch {
-        $result.errors += "GitHub Release 检测失败: $($_.Exception.Message)"
+        $result.errors += "GitHub Release 检测失败（已重试 3 次）: $($_.Exception.Message)"
     }
 
     if (Test-Path $NodeNpm) {
@@ -134,15 +186,22 @@ function Show-UpdateReport($local, $latest) {
     Write-Host '========== 版本检查 ==========' -ForegroundColor Cyan
 
     if ($latest.harness) {
-        if ($local.harness -and ($local.harness -eq $latest.harness)) {
-            Write-Ok ("程序版本: {0}（已是最新）" -f $local.harness)
-        } elseif (-not $local.harness) {
+        if (-not $local.harness) {
             Write-WarnMsg ("程序版本: 未记录（旧版包）。最新完整包: {0}，建议从 Releases 页下载更新" -f $latest.harness)
         } else {
-            Write-WarnMsg ("程序版本: {0} → 有新版本 {1}！请到 Releases 页下载完整包（数据可沿用）" -f $local.harness, $latest.harness)
+            $cmp = Compare-Version $local.harness $latest.harness
+            if ($cmp -eq 0) {
+                Write-Ok ("程序版本: {0}（已是最新）" -f $local.harness)
+            } elseif ($cmp -lt 0) {
+                Write-WarnMsg ("程序版本: {0} → 有新版本 {1}！请到 Releases 页下载完整包（数据可沿用）" -f $local.harness, $latest.harness)
+            } else {
+                Write-WarnMsg ("程序版本: 本机 {0} 高于线上 {1}（可能线上被回滚或未同步）" -f $local.harness, $latest.harness)
+            }
         }
     } else {
-        Write-WarnMsg '程序版本: 无法连接 GitHub，已跳过该项检查'
+        Write-WarnMsg '程序版本: 无法连接 GitHub（已重试 3 次），已跳过该项检查'
+        Write-Info   '          请检查网络后重试；或直接打开 Releases 页查看最新包:'
+        Write-Info   "          https://github.com/$Repo/releases"
     }
 
     if ($latest.dsh) {
@@ -409,8 +468,14 @@ if ($CheckOnly) {
     $netFail = ($latestVersions.errors.Count -gt 0) -and (-not $latestVersions.harness) -and (-not $latestVersions.dsh)
     if ($netFail) { exit 2 }
     if ($localVersions.dsh -eq 'unknown' -and -not $localVersions.harness) { exit 3 }
-    $hasUpdate = ($latestVersions.harness -and $localVersions.harness -ne $latestVersions.harness) -or
-                 ($latestVersions.dsh -and $localVersions.dsh -ne $latestVersions.dsh)
+    # 语义化比较：仅当「线上 > 本机」才算有更新（避免把回退/异常误报为更新）
+    $hasUpdate = $false
+    if ($latestVersions.harness) {
+        if (-not $localVersions.harness -or (Compare-Version $localVersions.harness $latestVersions.harness) -lt 0) {
+            $hasUpdate = $true
+        }
+    }
+    if ($latestVersions.dsh -and $localVersions.dsh -ne $latestVersions.dsh) { $hasUpdate = $true }
     exit ($(if ($hasUpdate) { 1 } else { 0 }))
 }
 

@@ -178,6 +178,11 @@ jobs:
           }
           $output | ForEach-Object { Write-Host $_ }
           Write-Host "check-only 最终退出码: $rc"
+          # 诊断写入 step summary，方便通过 check-run API 定位失败（日志下载需鉴权）
+          if ($env:GITHUB_STEP_SUMMARY) {
+            "## check-only 诊断（tries=$try, rc=$rc）" | Add-Content $env:GITHUB_STEP_SUMMARY
+            $output | ForEach-Object { "$_" | Add-Content $env:GITHUB_STEP_SUMMARY }
+          }
           if ($null -eq $rc -or $rc -lt 0 -or $rc -gt 2) { throw "check-only 退出码异常: $rc（期望 0/1/2）" }
           Write-Host "check-only 冒烟通过"
           # 关键：子进程退出码 1/2 是预期结果，若步骤结束时 $LASTEXITCODE 非 0，

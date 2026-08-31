@@ -13,8 +13,11 @@
 set -uo pipefail
 
 fail=0
-pass() { echo "[PASS] $*"; }
-fail_check() { echo "[FAIL] $*"; fail=1; }
+SUMM="${GITHUB_STEP_SUMMARY:-}"
+pass() { echo "[PASS] $*"; [ -n "$SUMM" ] && echo "[PASS] $*" >> "$SUMM"; }
+fail_check() { echo "[FAIL] $*"; [ -n "$SUMM" ] && echo "[FAIL] $*" >> "$SUMM"; fail=1; }
+# 把场景原始输出写入 step summary，方便通过 check-run API 定位失败
+dump_scene() { [ -n "$SUMM" ] && { echo "--- $1 ---" >> "$SUMM"; printf '%s\n' "$2" | head -40 >> "$SUMM"; }; }
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -84,6 +87,7 @@ BASE="$(printf '%s' "$PATH" | tr ':' '\n' \
   | grep -vi -e node -e nvm -e npm \
   | grep -v "^$REAL_NODE_DIR\$" \
   | paste -sd: -)"
+dump_scene "环境: REAL_NODE=$REAL_NODE REAL_NODE_DIR=$REAL_NODE_DIR" "BASE=$BASE"
 EMPTY_DIR="$TMP/emptydir"
 mkdir -p "$EMPTY_DIR"
 
@@ -95,6 +99,7 @@ rcA=$?
 echo "$outA" | grep -qE '便携 Node *: *v[0-9]' && pass "A) 便携 Node 显示真实版本" || fail_check "A) 便携 Node 未显示"
 echo "$outA" | grep -q 'dsh 版本 *: *0\.1\.1-rt' && pass "A) dsh 版本显示 0.1.1-rt" || fail_check "A) dsh 版本未显示 0.1.1-rt"
 if echo "$outA" | grep -qi 'command not found\|No such file\|not found'; then fail_check "A) 出现 node 找不到类报错"; else pass "A) 无 node 找不到类报错"; fi
+dump_scene "场景A原始输出" "$outA"
 
 echo ""
 echo "== 场景 B：PATH 前置旧 node(v14.0.0) =="
@@ -104,6 +109,7 @@ rcB=$?
 echo "$outB" | grep -qE '便携 Node *: *v[0-9]' && pass "B) 便携 Node 为真实版本" || fail_check "B) 便携 Node 未显示"
 echo "$outB" | grep -q 'v14\.0\.0' && fail_check "B) 命中了旧系统 node v14.0.0" || pass "B) 未命中旧系统 node v14.0.0"
 echo "$outB" | grep -q 'dsh 版本 *: *0\.1\.1-rt' && pass "B) dsh 版本仍为 0.1.1-rt" || fail_check "B) dsh 版本未显示"
+dump_scene "场景B原始输出" "$outB"
 
 echo ""
 echo "== 负对照1：垫片 .bin/dsh + 旧 node PATH（应命中 v14.0.0）=="

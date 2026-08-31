@@ -160,35 +160,34 @@ jobs:
         run: |
           # 验证 upgrade 脚本在干净环境不崩；0=已最新 1=有更新 2=网络不可达（CI 抖动可容忍）。
           # 已知问题：windows-latest 上从 pwsh 用 & 调用 powershell.exe 偶发子进程启动
-          # 崩溃（0xC0000142，DLL 初始化失败），pwsh 会直接抛异常中断本步骤——必须
-          # try/catch 捕获并重试（异常不走 $LASTEXITCODE，负退出码判断拦不住）。
+          # 崩溃（0xC0000142），且 & + 2>&1 的管道合并会把异常变成难以诊断的形态。
+          # 改用 Start-Process + 文件重定向（无管道），配合 try/catch 重试 3 次；
+          # 所有关键行输出 ::error:: annotation（公共仓库可经 check-run API 匿名读取）。
+          $scriptPath = (Resolve-Path scripts/upgrade-windows.ps1).Path
           $rc = -999
-          $output = @()
+          $outF = Join-Path $env:TEMP ("cc-$([guid]::NewGuid().ToString('N')).log")
+          $errF = "$outF.err"
           for ($try = 1; $try -le 3; $try++) {
             try {
-              $output = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-windows.ps1 -CheckOnly 2>&1
-              $rc = $LASTEXITCODE
+              $p = Start-Process -FilePath 'powershell.exe' `
+                -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$scriptPath,'-CheckOnly') `
+                -NoNewWindow -Wait -PassThru `
+                -RedirectStandardOutput $outF -RedirectStandardError $errF
+              $rc = $p.ExitCode
+              $output = Get-Content $outF -ErrorAction SilentlyContinue
             } catch {
-              Write-Host "try $try: 子进程启动/执行异常: $($_.Exception.Message)"
+              Write-Host "::error::try $try 子进程异常: $($_.Exception.Message)"
+              $output = @()
               $rc = -999
             }
-            Write-Host "try $try: rc=$rc"
+            Write-Host "::error::try $try rc=$rc"
             if ($null -ne $rc -and $rc -ge 0) { break }   # 0/1/2 为业务退出码，直接采用
             Start-Sleep -Seconds 2
           }
           $output | ForEach-Object { Write-Host $_ }
-          Write-Host "check-only 最终退出码: $rc"
-          if ($env:GITHUB_STEP_SUMMARY) {
-            "## check-only 诊断（tries=$try, rc=$rc）" | Add-Content $env:GITHUB_STEP_SUMMARY
-            $output | ForEach-Object { "$_" | Add-Content $env:GITHUB_STEP_SUMMARY }
-          }
-          if ($null -eq $rc -or $rc -lt 0 -or $rc -gt 2) {
-            # 失败细节打进 ::error:: annotation（公共仓库可经 check-run API 匿名读取）
-            $diag = "check-only rc=$rc " + (($output | Out-String) -replace "`r?`n", ' ')
-            if ($diag.Length -gt 3500) { $diag = $diag.Substring(0, 3500) }
-            Write-Host "::error::$diag"
-            throw "check-only 退出码异常: $rc（期望 0/1/2）"
-          }
+          Get-Content $errF -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  [stderr] $_" }
+          Write-Host "::error::check-only 最终 rc=$rc"
+          if ($null -eq $rc -or $rc -lt 0 -or $rc -gt 2) { throw "check-only 退出码异常: $rc（期望 0/1/2）" }
           Write-Host "check-only 冒烟通过"
           # 关键：子进程退出码 1/2 是预期结果，若步骤结束时 $LASTEXITCODE 非 0，
           # GitHub Actions 的 pwsh 外壳会把步骤判失败，必须显式以 0 结束

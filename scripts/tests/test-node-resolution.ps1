@@ -29,7 +29,12 @@ $script:failed = $false
 
 function Assert($cond, $msg) {
     if ($cond) { Write-Host "[PASS] $msg" -ForegroundColor Green }
-    else       { Write-Host "[FAIL] $msg" -ForegroundColor Red; $script:failed = $true }
+    else {
+        Write-Host "[FAIL] $msg" -ForegroundColor Red
+        # 失败细节打进 ::error:: annotation（公共仓库可经 check-run API 匿名读取）
+        Write-Host "::error::$msg"
+        $script:failed = $true
+    }
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)

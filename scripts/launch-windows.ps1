@@ -17,18 +17,19 @@ $Root      = Split-Path -Parent $PSScriptRoot
 $Arch      = 'windows-x64'   # 注意：运行时目录是 windows-x64，不是 win-x64
 $NodeDir   = Join-Path $Root ".cache\runtimes\$Arch\node"
 $NodeExe   = Join-Path $NodeDir 'node.exe'
+# dsh 的 CLI 入口（bin.js）。优先用便携 node.exe 绝对路径直调它，彻底摆脱 npm 垫片
+# 靠 PATH 找 node 的坑（见下方 Invoke-Dsh 注释）；垫片仅作 bin.js 缺失时的回退。
+$DshCli    = Join-Path $Root '.cache\app\node_modules\@deepseek-ai\dsh\lib\bin.js'
 $DshCmd    = Join-Path $Root '.cache\app\node_modules\.bin\dsh.cmd'
 $DshHome   = Join-Path $Root 'data\dsh'
 $LogDir    = Join-Path $Root 'data\logs'
 $LogFile   = Join-Path $LogDir 'dsh-web.log'
+$ErrLog    = Join-Path $LogDir 'dsh-web.err.log'
 $ReadyFlag = Join-Path $Root '.ready.flag'
 $UpgradeScript = Join-Path $PSScriptRoot 'upgrade-windows.ps1'
 
-# 关键：dsh.cmd 是 npm 生成的垫片，.bin 目录下没有 node.exe，它靠 PATH 找 node。
-# 必须把便携 node 目录提到 PATH 最前，否则：
-#   - 干净机器（无系统 node）→ "node 不是内部或外部命令"（Show-Status 报错）
-#   - 装有旧系统 node（<16.9，无 Object.hasOwn）→ 插件加载失败
-# 本进程内所有 dsh/node 调用（含子进程 setup/upgrade/reset，自动继承）都命中便携 node。
+# 兜底：把便携 node 目录提到 PATH 最前（对 dsh 内部再派生的子进程同样生效）。
+# 注意：这只是兜底——dsh 主进程的 node 解析已不再依赖 PATH（见 Invoke-Dsh）。
 $env:Path = "$NodeDir;$env:Path"
 
 New-Item -ItemType Directory -Force -Path $DshHome, $LogDir | Out-Null
@@ -59,9 +60,22 @@ function Get-FreePort {
     throw "在 $StartPort - $($StartPort + 99) 范围内未找到空闲端口"
 }
 
-# 环境就绪？（便携 Node 与 dsh 都在）
+# 环境就绪？（便携 Node 与 dsh 入口都在；bin.js 缺失时接受垫片回退）
 function Test-Ready {
-    return ((Test-Path $NodeExe) -and (Test-Path $DshCmd))
+    return ((Test-Path $NodeExe) -and ((Test-Path $DshCli) -or (Test-Path $DshCmd)))
+}
+
+# 统一调用 dsh：
+#   - 首选：& $NodeExe $DshCli —— 便携 node 的绝对路径直调 CLI 入口。dsh.cmd 垫片
+#     （#!/usr/bin/env node 的 Windows 版）靠 PATH 找 node：干净机器报「node 不是内部
+#     或外部命令」，装了旧系统 node（<16.9，无 Object.hasOwn）的机器会命中老版本，
+#     导致插件树加载失败（Failed to load plugins. Object.hasOwn is not a function）。
+#     直调后这两类问题从根上消失。
+#   - 回退：$DshCmd 垫片（仅当 bin.js 缺失的极老目录结构）。
+function Invoke-Dsh {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DshArgs)
+    if (Test-Path $DshCli) { & $NodeExe $DshCli @DshArgs }
+    else                   { & $DshCmd @DshArgs }
 }
 
 # 运行首次配置（不加 -Force = 只补丁/修复，不重新下载；-Force = 完全重装需下载）
@@ -81,7 +95,7 @@ function Show-Status {
     Write-Host '--------------------------------------------' -ForegroundColor Cyan
     if (Test-Ready) {
         $nodeVer = & $NodeExe -v
-        $dshVer  = & $DshCmd --version 2>$null
+        $dshVer  = Invoke-Dsh --version 2>$null | Select-Object -Last 1
         Write-Host "  便携 Node : $nodeVer" -ForegroundColor Green
         Write-Host "  dsh 版本  : $dshVer"
         $harnessVer = ''
@@ -123,7 +137,7 @@ function Start-Web {
     Write-Host ''
 
     $env:DSH_HOME = $DshHome
-    $env:Path = "$NodeDir;$($DshCmd | Split-Path);$env:Path"
+    $env:Path = "$NodeDir;$env:Path"
     # USB Harness: dsh 自动打开的是 http://0.0.0.0:port（浏览器不可访问），
     # 故加 --no-open，由这里轮询端口「可连接」后再打开正确的 http://127.0.0.1:port。
     # 注意：不能用 TcpListener 绑定探测——Windows 允许特定 IP 与通配 0.0.0.0 绑定共存，
@@ -146,8 +160,18 @@ function Start-Web {
         if ($ready) { Start-Process "http://127.0.0.1:$p" }
         else { Write-Host "端口 $p 未在 60 秒内就绪，请手动打开 http://127.0.0.1:$p" -ForegroundColor Yellow }
     } | Out-Null
-    & $DshCmd web --port "$usePort" --host 0.0.0.0 --no-open 2>&1 | Tee-Object -FilePath $LogFile -Append
+    # 不用 2>&1 | Tee-Object：PowerShell 会把 dsh 的每行 stderr 包成 ErrorRecord 并以整屏
+    # 红色块显示，真正的错误信息反而被淹没（历史上 Object.hasOwn 报错就是这样被藏起来的）。
+    # 改为 stdout 走 Tee（实时回显+记日志）、stderr 落 err.log；退出码非 0 时打印 err.log
+    # 尾部，让失败原因直接可见。
+    Remove-Item $ErrLog -Force -ErrorAction SilentlyContinue
+    Invoke-Dsh web --port "$usePort" --host 0.0.0.0 --no-open 2>>$ErrLog | Tee-Object -FilePath $LogFile -Append
     $exit = $LASTEXITCODE
+    if ($exit -ne 0 -and (Test-Path $ErrLog)) {
+        Write-Host ''
+        Write-Host "[错误] dsh 退出码 $exit。错误详情（$ErrLog）：" -ForegroundColor Red
+        Get-Content $ErrLog -Tail 30 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    }
     Write-Host ''
     Write-Host "dsh 已退出（代码 $exit）。按回车键返回菜单 ..." -ForegroundColor DarkGray
     Read-Host

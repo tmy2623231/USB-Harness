@@ -98,7 +98,8 @@ curl -sL "https://api.github.com/repos/deepseek-ai/deepseek-harness/tags?per_pag
 ## 5. 操作步骤
 
 > 版本号跟随 dsh：Release tag 名必须等于锁定的 dsh 版本（如 `0.1.1-rc.2`），
-> CI 会强制校验 tag == setup 脚本的 `$DshVersion`，不一致直接构建失败。
+> 或 dsh 版本 + 包装补丁号（如 `0.1.1-rc.2.1`，仅用于本项目独立热修复）；
+> CI 会强制校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`，不一致直接构建失败。
 
 1. **定版本**：确认当前锁定版本与目标版本（npm `dist-tags.latest`）。
 2. **取变更**：调用 compare API，拿到 commits 与 files（含 patch）。
@@ -108,7 +109,7 @@ curl -sL "https://api.github.com/repos/deepseek-ai/deepseek-harness/tags?per_pag
 6. **改 README**：按第 3 节逐区块更新，遵守第 4 节约束。
 7. **改关联文档**：`docs/COMPATIBILITY.md`（验证表 + 完整变更清单）、`docs/ARCHITECTURE.md`（若涉及架构决策）。
 8. **自检**：`bash -n scripts/setup-unix.sh`；ps1 语法解析；全文搜旧版本号确认无残留引用。
-9. **发版**：`git tag <dsh版本> && git push origin <dsh版本>`（触发 CI 构建并创建 Release，tag 名=包内 HARNESS_VERSION）。
+9. **发版**：`git tag <dsh版本[.N]> && git push origin <dsh版本[.N]>`（触发 CI 构建并创建 Release，tag 名=包内 HARNESS_VERSION）。
 10. **出清单**：按第 7 节输出改动清单。
 
 ---

@@ -127,6 +127,9 @@ USB-Harness/
 - 端口 3080 被占用：启动时自动顺延；也可用环境变量 `PORT=3090 bash launch.sh`。
 - 默认监听 `0.0.0.0`（局域网可访问）。**不要对公网开放**。
 - 仅本机访问：`bash launch.sh` 后用 `--host 127.0.0.1`（Windows 见 start 逻辑说明）。
-- `node 不是内部或外部命令` 或 Web 报「Object.hasOwn is not a function」：系统 PATH 上没有 node
-  或装着旧系统 node（<16.9），而 dsh 的 `.bin` 垫片靠 PATH 找 node。**始终用 launch.bat /
-  launch.sh 启动**（会把便携 node 提到 PATH 最前）；不要在命令行直接敲 `dsh` 命令。
+- `node 不是内部或外部命令` 或 Web 报「Object.hasOwn is not a function」：这是旧版本号
+  （≤ v1.0.5 / 0.1.1-rc.2 的已知问题）——dsh 的 `.bin` 垫片靠 PATH 找 node，系统没装 node
+  或装着旧系统 node（<16.9）时被带偏。**`0.1.1-rc.2.1` 起已根治**：启动器 / 升级脚本用便携
+  node 的绝对路径直调 dsh CLI 入口（`lib/bin.js`），不再经过垫片，与系统 node 完全无关。
+  排查手段：确认包根存在 `.cache/app/node_modules/@deepseek-ai/dsh/lib/bin.js`（缺失 =
+  安装不完整，重跑 setup）；回归测试见 `scripts/tests/test-node-resolution.ps1`。

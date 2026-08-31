@@ -168,3 +168,28 @@ jobs:
           # 关键：子进程退出码 1/2 是预期结果，若步骤结束时 $LASTEXITCODE 非 0，
           # GitHub Actions 的 pwsh 外壳会把步骤判失败，必须显式以 0 结束
           exit 0
+
+  regression-node-resolution-unix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 回归测试：dsh 不依赖 PATH 找 node（Linux）
+        shell: bash
+        run: |
+          # 与 Windows 版同构的 RT：干净机器/旧系统 node 两种环境下，launch.sh status
+          # 必须仍解析到便携 node。历史事故：.bin/dsh 垫片（#!/usr/bin/env node）
+          # 报 "command not found: node" / Object.hasOwn is not a function。
+          bash scripts/tests/test-node-resolution.sh
+
+      - name: 回归测试：dsh 不依赖 PATH 找 node（Windows）
+        shell: pwsh
+        run: |
+          # RT：干净机器/旧系统 node 两种环境下，launch status 必须仍解析到便携 node。
+          # 历史事故：launch-windows.ps1 75 行 & $DshCmd --version 报「node 不是内部或
+          # 外部命令」/ Object.hasOwn is not a function。本步失败 = 有人改回了垫片调用。
+          & powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/test-node-resolution.ps1
+          if ($LASTEXITCODE -ne 0) { throw "node 解析回归测试未通过（退出码 $LASTEXITCODE）" }
+          Write-Host "node 解析回归测试通过 ✓"

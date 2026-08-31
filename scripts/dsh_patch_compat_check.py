@@ -31,12 +31,13 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
-REGISTRY = "https://registry.npmjs.org"
+# 中国镜像优先，官方源回退（下载走国内源，避免 CI/本机在官方源上超时）
+REGISTRIES = ("https://registry.npmmirror.com", "https://registry.npmjs.org")
 
 
-def tarball_url(pkg: str, ver: str) -> str:
+def tarball_urls(pkg: str, ver: str):
     short = pkg.split("/")[-1]
-    return f"{REGISTRY}/{pkg}/-/{short}-{ver}.tgz"
+    return [f"{reg}/{pkg}/-/{short}-{ver}.tgz" for reg in REGISTRIES]
 
 
 def sha256(data: bytes) -> str:
@@ -52,12 +53,15 @@ def fetch(pkg: str, ver: str, cache_dir: Path):
     """下载（或命中缓存）指定版本的 tarball，返回本地路径；失败返回 (None, 原因)。"""
     dest = cache_path(cache_dir, pkg, ver)
     if not dest.exists():
-        url = tarball_url(pkg, ver)
-        try:
-            with urllib.request.urlopen(url, timeout=90) as r:
-                dest.write_bytes(r.read())
-        except Exception as exc:
-            return None, f"{type(exc).__name__}: {exc}"
+        errors = []
+        for url in tarball_urls(pkg, ver):
+            try:
+                with urllib.request.urlopen(url, timeout=90) as r:
+                    dest.write_bytes(r.read())
+                return dest, None
+            except Exception as exc:
+                errors.append(f"{url} -> {type(exc).__name__}: {exc}")
+        return None, " | ".join(errors)
     return dest, None
 
 

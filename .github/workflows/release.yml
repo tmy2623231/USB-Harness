@@ -1,8 +1,9 @@
 name: 构建并发布完整包
 
 # 推送版本标签时自动构建「含运行时」完整包并创建 Release。
-# 版本号跟随适配的 dsh 版本（tag 名 == setup 脚本锁定的 DshVersion）。
-# 本地发版：git tag 0.1.1-rc.2 && git push origin 0.1.1-rc.2
+# 版本号跟随适配的 dsh 版本：tag 可等于 dsh 版本（如 0.1.1-rc.2），
+# 也可在 dsh 版本后追加包装补丁号（如 0.1.1-rc.2.1，用于本项目独立热修复）。
+# 本地发版：git tag 0.1.1-rc.2.1 && git push origin 0.1.1-rc.2.1
 
 on:
   push:
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要构建的标签（须等于 setup 锁定的 dsh 版本，如 0.1.1-rc.2）'
+        description: '要构建的标签（dsh 版本或其包装补丁版，如 0.1.1-rc.2 / 0.1.1-rc.2.1）'
         required: true
 
 permissions:
@@ -36,15 +37,26 @@ jobs:
           "dsh=$dsh"    >> $env:GITHUB_OUTPUT
           Write-Host "Node=$node  dsh=$dsh"
 
-      - name: 校验 tag 与 dsh 版本一致（版本号必须跟随 dsh）
+      - name: 校验 tag 与 dsh 版本一致（版本号必须跟随 dsh，允许包装补丁号）
         shell: pwsh
         run: |
           $tag = "${{ github.event.inputs.tag || github.ref_name }}"
           $dsh = "${{ steps.ver.outputs.dsh }}"
-          if ($tag -ne $dsh) {
-            throw "tag($tag) 与 setup 锁定的 dsh 版本($dsh) 不一致——版本号必须跟随 dsh，请用 git tag $dsh 发版"
+          if ($tag -eq $dsh) {
+            Write-Host "tag=$tag == dsh=$dsh 一致 ✓"
+          } else {
+            # 允许在 dsh 版本后追加包装补丁号：0.1.1-rc.2.1（本项目独立热修复，不涉及上游版本变更）
+            $suffix = ''
+            $ok = $false
+            if ($tag.StartsWith($dsh + '.')) {
+              $suffix = $tag.Substring($dsh.Length + 1)
+              if ($suffix -match '^\d+$') { $ok = $true }
+            }
+            if (-not $ok) {
+              throw "tag($tag) 与 setup 锁定的 dsh 版本($dsh) 不一致——版本号必须跟随 dsh（可带包装补丁号，如 $dsh.1），请用 git tag $dsh 或 $dsh.<N> 发版"
+            }
+            Write-Host "tag=$tag 为 dsh=$dsh 的包装补丁版（+.$suffix）✓"
           }
-          Write-Host "tag=$tag == dsh=$dsh 一致 ✓"
 
       - name: 下载便携 Node.js
         shell: pwsh

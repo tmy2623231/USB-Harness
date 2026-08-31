@@ -8,7 +8,40 @@
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
 > **版本体系**：自 `0.1.1-rc.2` 起，**项目版本号 = 适配的 dsh 版本**（Release tag、
-> HARNESS_VERSION 均与 dsh 版本一致）。`v1.0.0`–`v1.0.5` 为旧版外壳自编号，已弃用。
+> HARNESS_VERSION 均与 dsh 版本一致）；如需发布「不涉及上游变更」的包装热修复，
+> 在 dsh 版本后追加包装补丁号，如 `0.1.1-rc.2.1`。`v1.0.0`–`v1.0.5` 为旧版外壳自编号，已弃用。
+
+---
+
+## [0.1.1-rc.2.1] — 2026-08-31
+
+### 修复（根治「node 不是内部或外部命令」/ `Object.hasOwn` 插件加载失败）
+
+- **上一轮修复只做了「把便携 node 提到 PATH 最前」的兜底，没有切断根因**：
+  dsh 的 `dsh.cmd` / `.bin/dsh` 垫片（`#!/usr/bin/env node` 的 Windows 版）依然靠
+  **PATH 找 node**。实测在装有旧系统 node 的机器上，`Show-Status` 显示正常
+  （便携 node v22.23.2），但启动 Web 时插件树加载失败
+  （`dsh: plugin tree failed to load`，源自 `dsh-app-boot/lib/index.js` 的 boot 抛错），
+  即旧系统 node 仍会在某条路径上被垫片解析到。
+- **根治方案：不再经过垫片，直调 CLI 入口**。
+  - `launch-windows.ps1` / `upgrade-windows.ps1` / `launch.sh` / `upgrade-unix.sh`
+    一律用**便携 node 的绝对路径**直调 `.cache/app/node_modules/@deepseek-ai/dsh/lib/bin.js`
+    （新增 `Invoke-Dsh` / `dsh()` 统一入口；垫片仅作 bin.js 缺失时的回退）。
+    从此「机器有没有 node、node 多旧」都与 dsh 的解析无关。
+  - 启动 Web 时不再用 `2>&1 | Tee-Object`（PowerShell 会把 dsh 的每行 stderr 包成
+    ErrorRecord 以整屏红块显示，真实错误被淹没）。改为 stdout 实时回显 + 记日志、
+    stderr 落 `data/logs/dsh-web.err.log`，退出码非 0 时打印错误尾部，失败原因直接可见。
+
+### 构建管线 / 回归测试
+
+- **新增 RT（回归测试）`scripts/tests/test-node-resolution.ps1` / `.sh`**：
+  在临时沙箱用真实 node + stub dsh，在两种受控 PATH 下断言 `launch status` 仍解析到
+  便携 node——场景 A：PATH 无任何 node；场景 B：PATH 前置打印 `v14.0.0` 的旧 node。
+  附两个负对照（垫片在这些 PATH 下必然被带偏 / 报 node 找不到），证明测试环境有效、
+  且「有人把启动器改回垫片调用」时测试会立即变红。已接入 `smoke-test.yml`
+  （Windows 步骤 + 新增 ubuntu-latest 回归 job）。
+- `release.yml`：tag 校验放行包装补丁号——tag 须等于 dsh 版本，或在 dsh 版本后追加
+  纯数字后缀（如 `0.1.1-rc.2.1`）。
 
 ---
 

@@ -175,6 +175,9 @@ USB-Harness/
 │   ├── upgrade-unix.sh        # Linux/macOS 检查更新/升级
 │   ├── reset-windows.ps1      # Windows 重置（软重置/完全重置 -Full）
 │   ├── reset-unix.sh          # Linux/macOS 重置
+│   ├── tests/                 # 回归测试（RT）
+│   │   ├── test-node-resolution.ps1  # node 解析不依赖 PATH（Windows，离线）
+│   │   └── test-node-resolution.sh   # node 解析不依赖 PATH（Linux/macOS，离线）
 │   └── COMMANDS.md            # 命令速查
 ├── brand-patch/               # 品牌补丁（去 DeepSeek 化 + 中文本地化，安装时自动应用）
 ├── config/
@@ -213,13 +216,20 @@ USB-Harness/
 ## 版本锁定
 
 **项目版本号 = 适配的 dsh 版本**（Release tag 与 HARNESS_VERSION 都是 dsh 版本号，
-例如 `0.1.1-rc.2` 表示本包适配 dsh `0.1.1-rc.2`）。v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
+例如 `0.1.1-rc.2` 表示本包适配 dsh `0.1.1-rc.2`）。若需要发布「不涉及上游变更」的
+包装热修复，在 dsh 版本后追加纯数字补丁号，如 `0.1.1-rc.2.1`。
+v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
-| 本包（USB Harness） | `0.1.1-rc.2` | 版本号跟随适配的 dsh 版本 |
+| 本包（USB Harness） | `0.1.1-rc.2` | 版本号跟随适配的 dsh 版本（热修复可加 `.N` 后缀） |
 | `@deepseek-ai/dsh` | `0.1.1-rc.2` | 预发布候选版（rc），官方声明会有破坏性变更 |
 | 便携 Node.js | `22.23.2` (LTS Jod) | 满足 dsh `^22.19.0 \|\| >=24.0.0`（23 不支持） |
+
+> **node 解析**：启动器 / 升级脚本用便携 node 的绝对路径直调 dsh 的 CLI 入口
+> （`lib/bin.js`），**不经过**依赖 PATH 的 `.bin` 垫片——机器上有没有 node、node 多旧，
+> 都不影响本包运行（历史事故：`node 不是内部或外部命令` / `Object.hasOwn is not a function`，
+> 见 `scripts/tests/test-node-resolution.*` 回归测试）。
 
 ### dsh 0.1.1-rc.2 变更要点（相对 0.1.1-rc.1）
 

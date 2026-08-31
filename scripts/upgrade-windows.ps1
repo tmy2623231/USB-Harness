@@ -41,18 +41,28 @@ $NpmCache    = Join-Path $Root '.cache\npm-cache'
 $NodeDir     = Join-Path $Root '.cache\runtimes\windows-x64\node'
 $NodeExe     = Join-Path $NodeDir 'node.exe'
 $NodeNpm     = Join-Path $NodeDir 'npm.cmd'
+$DshCli      = Join-Path $AppDir 'node_modules\@deepseek-ai\dsh\lib\bin.js'
 $DshCmd      = Join-Path $AppDir 'node_modules\.bin\dsh.cmd'
 $SelfCheckOut = Join-Path $Root 'data\logs\dsh-selfcheck.log'
 $SelfCheckErr = Join-Path $Root 'data\logs\dsh-selfcheck.err.log'
 
-# 与 launch-windows.ps1 同理：dsh.cmd 垫片靠 PATH 找 node，独立运行本脚本时
-# 也必须预置便携 node 目录（Get-LocalVersions / Test-DshInstall 都要调 dsh.cmd）。
-# 由 launch 调起时父进程已预置，此处再置一遍是幂等的。
+# 兜底：把便携 node 目录提到 PATH 最前（对 dsh 内部再派生的子进程同样生效）。
+# dsh 主进程的 node 解析已不再依赖 PATH（见 Invoke-Dsh），此处仅作子进程兜底。
 $env:Path = "$NodeDir;$env:Path"
 
 function Write-WarnMsg([string]$m) { Write-Host "  [!] $m" -ForegroundColor Yellow }
 function Write-Info([string]$m)    { Write-Host "  $m" }
 function Write-Ok([string]$m)      { Write-Host "  [OK] $m" -ForegroundColor Green }   # 用 [OK] 而非 ✓，兼容 GBK 控制台
+
+# 统一调用 dsh：便携 node.exe 绝对路径直调 CLI 入口 bin.js。
+# dsh.cmd 垫片（#!/usr/bin/env node 的 Windows 版）靠 PATH 找 node——干净机器报
+# 「node 不是内部或外部命令」，装了旧系统 node（<16.9，无 Object.hasOwn）的机器会
+# 命中老版本导致插件树加载失败。直调后这两类问题从根上消失；bin.js 缺失时回退垫片。
+function Invoke-Dsh {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DshArgs)
+    if (Test-Path $DshCli) { & $NodeExe $DshCli @DshArgs }
+    else                   { & $DshCmd @DshArgs }
+}
 
 # ---------------------------------------------------------------------------
 # 本地版本：dsh 优先跑 --version（实装事实），flag 作后备；harness 读 flag/包根文件
@@ -60,8 +70,8 @@ function Write-Ok([string]$m)      { Write-Host "  [OK] $m" -ForegroundColor Gre
 function Get-LocalVersions {
     $result = @{ dsh = 'unknown'; harness = ''; node = 'unknown' }
 
-    if (Test-Path $DshCmd) {
-        $v = & cmd /c "`"$DshCmd`" --version" 2>$null
+    if ((Test-Path $DshCli) -or (Test-Path $DshCmd)) {
+        $v = Invoke-Dsh --version 2>$null
         if ($v) { $result.dsh = ([string]($v | Select-Object -Last 1)).Trim() }
     }
     if ($result.dsh -eq 'unknown' -or -not $result.dsh) {
@@ -177,7 +187,7 @@ function Test-PeerMatch([string]$target) {
 # 升级后自检：①dsh --version == 目标  ②HTTP 探测 + 无模块缺失错误
 # ---------------------------------------------------------------------------
 function Test-DshInstall([string]$expect) {
-    $v = & cmd /c "`"$DshCmd`" --version" 2>$null
+    $v = Invoke-Dsh --version 2>$null
     $got = if ($v) { ([string]($v | Select-Object -Last 1)).Trim() } else { '' }
     if ($got -ne $expect) {
         Write-WarnMsg "dsh --version 返回 '$got'，期望 '$expect'"
@@ -192,11 +202,12 @@ function Test-DshInstall([string]$expect) {
     }
     if ($port -gt 0) {
         $env:DSH_HOME = Join-Path $Root 'data\dsh'
-        $env:Path = "$NodeDir;$(Split-Path $DshCmd);$env:Path"
+        $env:Path = "$NodeDir;$env:Path"
         $proc = $null
         try {
-            $proc = Start-Process -FilePath $DshCmd `
-                -ArgumentList 'web', "--port=$port", '--host', '127.0.0.1', '--no-open' `
+            # 直调便携 node.exe + CLI 入口（不经 npm 垫片，避免 PATH 解析到旧系统 node）
+            $proc = Start-Process -FilePath $NodeExe `
+                -ArgumentList @($DshCli, 'web', "--port=$port", '--host', '127.0.0.1', '--no-open') `
                 -PassThru -NoNewWindow `
                 -RedirectStandardOutput $SelfCheckOut -RedirectStandardError $SelfCheckErr
             $ok = $false
@@ -214,7 +225,7 @@ function Test-DshInstall([string]$expect) {
             Write-WarnMsg "HTTP 探测异常（不阻断）: $($_.Exception.Message)"
         } finally {
             if ($proc -and -not $proc.HasExited) {
-                # dsh.cmd 是 cmd 垫片，必须杀整棵进程树，否则 node 子进程残留占端口
+                # node 可能派生子进程，必须杀整棵进程树，否则残留占端口
                 & taskkill /PID $proc.Id /T /F 2>$null | Out-Null
             }
         }
@@ -359,8 +370,8 @@ function Resolve-UpgradeResidue {
     else {
         # 时序③④⑤：app 与 bak 并存 —— 以 app 可用性裁决
         $appVer = ''
-        if (Test-Path $DshCmd) {
-            $v = & cmd /c "`"$DshCmd`" --version" 2>$null
+        if ((Test-Path $DshCli) -or (Test-Path $DshCmd)) {
+            $v = Invoke-Dsh --version 2>$null
             if ($v) { $appVer = ([string]($v | Select-Object -Last 1)).Trim() }
         }
         $flagDsh = ''

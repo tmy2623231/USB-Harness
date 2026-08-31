@@ -39,10 +39,13 @@ SETUP_SCRIPT="$ROOT/scripts/setup-unix.sh"
 NPM_CACHE="$ROOT/.cache/npm-cache"
 NPM="$ROOT/.cache/runtimes/${PLATFORM}/node/bin/npm"
 SELF_LOG="$ROOT/data/logs/dsh-selfcheck.log"
+# dsh 的 CLI 入口（bin.js）。优先用便携 node 绝对路径直调，摆脱 .bin 垫片
+# （#!/usr/bin/env node）靠 PATH 找 node 的坑；垫片仅作 bin.js 缺失时的回退。
+DSH_CLI="$APP/node_modules/@deepseek-ai/dsh/lib/bin.js"
+DSH_BIN="$APP/node_modules/.bin/dsh"
 
-# 与 launch.sh 同理：dsh 的 .bin 垫片（#!/usr/bin/env node）靠 PATH 找 node，
-# 独立运行本脚本时必须预置便携 node，否则 --version / 自检 HTTP 探测会命中
-# 系统 node（可能很旧，导致 Object.hasOwn is not a function）。
+# 兜底：把便携 node 提到 PATH 最前（对 dsh 内部再派生的子进程同样生效）。
+# 注意：这只是兜底——dsh 主进程的 node 解析已不再依赖 PATH（见 dsh()）。
 export PATH="$ROOT/.cache/runtimes/${PLATFORM}/node/bin:$PATH"
 
 LD='unknown'; LH=''; LN='unknown'          # 本地 dsh / harness / node
@@ -52,12 +55,20 @@ NET_ERRORS=()
 w_warn() { echo "  [!] $*"; }
 w_ok()   { echo "  [✓] $*"; }
 
+# 统一调用 dsh：便携 node 绝对路径直调 CLI 入口。.bin 垫片靠 PATH 找 node——
+# 干净机器报 "command not found: node"，装了旧系统 node（<16.9）则插件树加载失败
+# （Object.hasOwn is not a function）。直调后这两类问题从根上消失。
+dsh() {
+  if [ -f "$DSH_CLI" ]; then "$ROOT/.cache/runtimes/${PLATFORM}/node/bin/node" "$DSH_CLI" "$@"
+  else                        "$DSH_BIN" "$@"; fi
+}
+
 # ---------------------------------------------------------------------------
 # 本地版本（dsh 优先跑 --version，flag 后备；全程 || 兜底防 set -u/-o 传染）
 # ---------------------------------------------------------------------------
 get_local_versions() {
-  if [ -x "$APP/node_modules/.bin/dsh" ]; then
-    LD="$("$APP/node_modules/.bin/dsh" --version 2>/dev/null | tail -1 | tr -d '\r')" || true
+  if [ -f "$DSH_CLI" ] || [ -x "$DSH_BIN" ]; then
+    LD="$(dsh --version 2>/dev/null | tail -1 | tr -d '\r')" || true
     [ -z "$LD" ] && LD='unknown'
   fi
   if [ "$LD" = "unknown" ] && [ -f "$FLAG" ]; then
@@ -160,7 +171,7 @@ peer_match() {
 self_check() {
   local expect="$1"
   local got
-  got="$("$APP/node_modules/.bin/dsh" --version 2>/dev/null | tail -1 | tr -d '\r')" || true
+  got="$(dsh --version 2>/dev/null | tail -1 | tr -d '\r')" || true
   if [ "$got" != "$expect" ]; then
     w_warn "dsh --version 返回 '$got'，期望 '$expect'"
     return 1
@@ -179,9 +190,14 @@ self_check() {
   fi
 
   mkdir -p "$ROOT/data/logs" "$ROOT/data/dsh"
-  DSH_HOME="$ROOT/data/dsh" PATH="$ROOT/.cache/runtimes/${PLATFORM}/node/bin:$PATH" \
-    "$APP/node_modules/.bin/dsh" web --port "$port" --host 127.0.0.1 --no-open \
-    > "$SELF_LOG" 2>&1 &
+  # 直调便携 node.exe 绝对路径 + CLI 入口（不经垫片，避免 PATH 解析到旧系统 node）
+  if [ -f "$DSH_CLI" ]; then
+    DSH_HOME="$ROOT/data/dsh" "$ROOT/.cache/runtimes/${PLATFORM}/node/bin/node" "$DSH_CLI" \
+      web --port "$port" --host 127.0.0.1 --no-open > "$SELF_LOG" 2>&1 &
+  else
+    DSH_HOME="$ROOT/data/dsh" "$DSH_BIN" \
+      web --port "$port" --host 127.0.0.1 --no-open > "$SELF_LOG" 2>&1 &
+  fi
   local pid=$!
   local ok=0 i
   for i in $(seq 1 20); do
@@ -332,8 +348,8 @@ reconcile() {
     w_warn "已恢复旧版本环境（上次升级在安装阶段中断）。"
   else
     local app_ver="unknown" flag_dsh=""
-    if [ -x "$APP/node_modules/.bin/dsh" ]; then
-      app_ver="$("$APP/node_modules/.bin/dsh" --version 2>/dev/null | tail -1 | tr -d '\r')" || true
+    if [ -f "$DSH_CLI" ] || [ -x "$DSH_BIN" ]; then
+      app_ver="$(dsh --version 2>/dev/null | tail -1 | tr -d '\r')" || true
     fi
     if [ -f "$FLAG" ]; then
       flag_dsh="$(sed -n 's/^dsh=//p' "$FLAG" | head -1 | tr -d '\r')" || true

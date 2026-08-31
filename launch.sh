@@ -24,14 +24,16 @@ PLATFORM="${OS}-${ARCH}"
 
 NODE_DIR="$ROOT/.cache/runtimes/${PLATFORM}/node"
 NODE_BIN="$NODE_DIR/bin/node"
+# dsh 的 CLI 入口（bin.js）。优先用便携 node 绝对路径直调，摆脱 .bin 垫片
+# （#!/usr/bin/env node）靠 PATH 找 node 的坑；垫片仅作 bin.js 缺失时的回退。
+DSH_CLI="$ROOT/.cache/app/node_modules/@deepseek-ai/dsh/lib/bin.js"
 DSH_BIN="$ROOT/.cache/app/node_modules/.bin/dsh"
 DSH_HOME_DIR="$ROOT/data/dsh"
 LOG_DIR="$ROOT/data/logs"
 LOG_FILE="$LOG_DIR/dsh-web.log"
 
-# 关键：dsh 的 .bin 垫片（#!/usr/bin/env node）靠 PATH 找 node。必须预置便携 node，
-# 否则干净机器报 "command not found: node"，装有旧系统 node（<16.9）则插件加载失败
-# （Object.hasOwn is not a function）。本进程内所有 dsh/node 调用都命中便携 node。
+# 兜底：把便携 node 提到 PATH 最前（对 dsh 内部再派生的子进程同样生效）。
+# 注意：这只是兜底——dsh 主进程的 node 解析已不再依赖 PATH（见 dsh()）。
 export PATH="$NODE_DIR/bin:$PATH"
 UPGRADE_SCRIPT="$ROOT/scripts/upgrade-unix.sh"
 
@@ -42,8 +44,16 @@ echo "============================================"
 echo "   USB Harness — 便携式 AI 助手"
 echo "============================================"
 
+# 统一调用 dsh：便携 node 绝对路径直调 CLI 入口。.bin 垫片靠 PATH 找 node——
+# 干净机器报 "command not found: node"，装了旧系统 node（<16.9）则插件树加载失败
+# （Object.hasOwn is not a function）。直调后这两类问题从根上消失。
+dsh() {
+  if [ -f "$DSH_CLI" ]; then "$NODE_BIN" "$DSH_CLI" "$@"
+  else                        "$DSH_BIN" "$@"; fi
+}
+
 # 环境就绪校验
-ready() { [ -x "$NODE_BIN" ] && [ -x "$DSH_BIN" ]; }
+ready() { [ -x "$NODE_BIN" ] && { [ -f "$DSH_CLI" ] || [ -x "$DSH_BIN" ]; }; }
 
 do_setup() {
   bash "$ROOT/scripts/setup-unix.sh"
@@ -57,7 +67,7 @@ show_status() {
   echo "--------------------------------------------"
   if ready; then
     echo "  便携 Node : $("$NODE_BIN" -v)"
-    echo "  dsh 版本  : $("$DSH_BIN" --version 2>/dev/null || echo '未知')"
+    echo "  dsh 版本  : $(dsh --version 2>/dev/null || echo '未知')"
     HARNESS_VER=""
     if [ -f "$ROOT/.ready.flag" ]; then
       HARNESS_VER="$(sed -n 's/^harness=//p' "$ROOT/.ready.flag" | head -1 | tr -d '\r')"
@@ -94,7 +104,12 @@ start_web() {
       fi
       sleep 0.5
     done ) &
-  exec "$DSH_BIN" web --port "$PORT" --host 0.0.0.0 --no-open 2>&1 | tee -a "$LOG_FILE"
+  # exec 只能作用于外部命令，函数 dsh 不能 exec，这里按 CLI 是否存在显式展开
+  if [ -f "$DSH_CLI" ]; then
+    exec "$NODE_BIN" "$DSH_CLI" web --port "$PORT" --host 0.0.0.0 --no-open 2>&1 | tee -a "$LOG_FILE"
+  else
+    exec "$DSH_BIN" web --port "$PORT" --host 0.0.0.0 --no-open 2>&1 | tee -a "$LOG_FILE"
+  fi
 }
 
 # 重置

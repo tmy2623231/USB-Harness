@@ -44,9 +44,9 @@
   交由人工核对上游是否改了写法。
 - **教训**：补丁重建后必须补一道**功能断言**，逐条验证定制点存在，不能只信三方差异校验。
 
-### 新增（控制台 CLI 模式）
+### 新增（控制台 CLI 单次任务模式）
 
-- 启动器新增 **[4] 切换运行模式**，可在 **Web 界面**（默认）与 **命令行模式（dsh TUI）** 间切换。
+- 启动器新增 **[4] 切换运行模式**，可在 **Web 界面**（默认）与 **CLI 单次任务** 间切换。
   - Windows：`scripts/launch-windows.ps1` 新增 `Get-LaunchMode` / `Set-LaunchMode` /
     `Get-LaunchModeLabel` / `Start-Cli` / `Switch-LaunchMode`；菜单重新编号为
     `[1] 启动（当前模式）` `[2] 检查更新` `[3] 重置` `[4] 切换运行模式` `[5] 退出`。
@@ -57,8 +57,26 @@
 - **默认行为不变（硬约束）**：`config/launch.conf` 不存在、为空、或 `mode` 值无法识别时，
   一律按 `web` 处理——删除该文件即可恢复默认，且**任何既有默认行为均未改变**。
 - 状态面板新增「运行模式」行，并显示当前模式；CLI 模式下不再显示监听地址。
-- 命令行模式底层为 `dsh --profile headless`（dsh 0.1.5 起仅有 `web`/`acp`/`headless`/`sdk`），
+- CLI 模式底层为 `dsh --profile headless`（dsh 0.1.5 起仅有 `web`/`acp`/`headless`/`sdk`），
   日志写入 `data/logs/dsh-cli.log`。
+
+> **定位修正（2026-09-17 补记）**：本项最初按「交互式 TUI」设计，但 dsh 0.1.5 的
+> 执行档位中**并不存在交互式 TUI**（`headless` = 跑一次任务、打印答案、退出）。
+> 因此该模式重新定位为「**CLI 单次任务**」：启动后提示输入任务，跑完打印答案即退出；
+> 需要持续多轮对话请用 Web 界面。菜单、状态面板、提示文案已同步更正。
+
+### 修复（CLI 模式必失败 —— 启动器漏传 `--profile`）
+
+- **`launch-windows.ps1` 的 `Start-Cli` 原先调用裸 `dsh`**。dsh 0.1.5 起取消了默认执行档位，
+  裸跑直接报 `error: --profile <name> is required`，**该路径 100% 失败**。
+  现已改为 `Invoke-Dsh --profile headless $task`，并增加任务输入与空输入（回车即取消）处理。
+- **漏检原因**：冒烟用例 5 虽跑了 `--profile headless`，但**绕过了启动器**直接调 dsh——
+  测的是「dsh 能跑 headless」，而非「启动器的 CLI 模式可用」。
+  现已补两条守护断言，覆盖**启动器调用路径本身**：
+  - 本地：`.patch-tools/smoke-local.sh` 新增**用例 6「启动器 CLI 分支传参」**
+    （已做负对照验证：还原为裸调用时判定 FAIL）
+  - CI：`.github/workflows/smoke-test.yml` 新增同名步骤「启动器 CLI 分支传参断言」
+  - 冒烟用例数 9 → **10**（10/10 通过）
 
 ### 变更（适配 dsh 0.1.5 的执行档位）
 

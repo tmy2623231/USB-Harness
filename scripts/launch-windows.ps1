@@ -6,7 +6,7 @@
 # =============================================================================
 [CmdletBinding()]
 param(
-    [string]$Action = ''   # web=直接启动 Web 界面；cli=直接启动命令行模式；setup=重新配置；
+    [string]$Action = ''   # web=直接启动 Web 界面；cli=直接启动 CLI 单次任务；setup=重新配置；
                           # reset=重置；status=查看状态；check-update=检查更新；
                           # upgrade=检查并升级；空=交互菜单（按 config/launch.conf 的模式启动）
 )
@@ -88,7 +88,7 @@ function Set-LaunchMode {
     $body = @(
         '# USB Harness 运行模式（由启动器菜单 [4] 切换）',
         '#   mode = web   启动 Web 界面（默认）',
-        '#   mode = cli   启动 dsh 命令行交互模式',
+        '#   mode = cli   启动 dsh 单次任务（headless）模式',
         '# 本文件缺失或值无法识别时按 web 处理，删除即恢复默认。',
         "mode = $Mode"
     ) -join "`r`n"
@@ -98,7 +98,7 @@ function Set-LaunchMode {
 
 function Get-LaunchModeLabel {
     param([string]$Mode)
-    if ($Mode -eq 'cli') { return 'CLI（命令行）' }
+    if ($Mode -eq 'cli') { return 'CLI（单次任务）' }
     return 'Web（图形界面）'
 }
 
@@ -165,7 +165,7 @@ function Show-Status {
         if ($mode -eq 'web') {
             Write-Host '  监听地址  : http://0.0.0.0:3080（本机 + 局域网）'
         } else {
-            Write-Host '  监听地址  : 不适用（CLI 模式不监听端口）' -ForegroundColor DarkGray
+            Write-Host '  监听地址  : 不适用（CLI 单次任务模式不监听端口）' -ForegroundColor DarkGray
         }
         if (Test-Path $ReadyFlag) { Write-Host '  就绪标记  : 已就绪' -ForegroundColor Green }
         else { Write-Host '  就绪标记  : 缺失（将自动重新配置）' -ForegroundColor Yellow }
@@ -232,33 +232,52 @@ function Start-Web {
     Read-Host
 }
 
-# 启动 dsh 命令行（TUI）模式
-# 与 Start-Web 共用同一份环境变量（DSH_HOME / PATH），因此模型配置、会话数据完全一致，
-# 只是交互界面从浏览器换成终端。dsh 不带子命令时进入交互式 TUI。
+# 启动 dsh 单次任务模式（headless profile）
+#
+# 【重要变更 — dsh 0.1.5 起】
+# 0.1.5 取消了「无默认执行档位」的行为：裸跑 `dsh` 会直接报
+#   error: --profile <name> is required
+# 且上游**不再提供交互式 TUI 档位**，可用的只有 web / headless / acp / sdk。
+# 因此原先「不带子命令进入交互式 TUI」的设计前提已不存在，改为使用 headless：
+#   dsh --profile headless "<任务>"  ->  跑一个全新会话，打印最终答案后退出
+#
+# 与 Start-Web 共用同一份环境变量（DSH_HOME / PATH），模型配置与会话数据完全一致。
 function Start-Cli {
-    Write-Step '启动 dsh 命令行（CLI）模式'
-    Write-Host '  提示: 本模式在终端内交互，不监听端口，浏览器访问不可用' -ForegroundColor DarkGray
-    Write-Host '  可用命令: /help 查看帮助，Ctrl+C 或输入 /exit 退出' -ForegroundColor DarkGray
-    Write-Host '  想切回 Web 界面: 返回菜单后用 [4] 切换运行模式' -ForegroundColor DarkGray
+    Write-Step '启动 dsh 单次任务（headless）模式'
+    Write-Host '  说明: 输入一个任务，dsh 跑完一次会话后打印答案并退出' -ForegroundColor DarkGray
+    Write-Host '  提示: 本模式不监听端口，浏览器访问不可用' -ForegroundColor DarkGray
+    Write-Host '  想持续对话/图形界面: 返回菜单后用 [4] 切换运行模式' -ForegroundColor DarkGray
     Write-Host ''
 
     $env:DSH_HOME = $DshHome
     $env:Path = "$NodeDir;$env:Path"
     $CliLog = Join-Path $LogDir 'dsh-cli.log'
     $CliErr = Join-Path $LogDir 'dsh-cli.err.log'
+
+    Write-Host '请输入任务内容（直接回车取消）:' -ForegroundColor Cyan
+    $task = Read-Host '任务'
+    if (-not $task -or -not $task.Trim()) {
+        Write-Host '  已取消，未执行任何任务。' -ForegroundColor DarkGray
+        Start-Sleep -Milliseconds 800
+        return
+    }
+
+    Write-Host ''
+    Write-Host "  [执行] $task" -ForegroundColor DarkGray
+    Write-Host ''
     Remove-Item $CliErr -Force -ErrorAction SilentlyContinue
-    Invoke-Dsh 2>>$CliErr | Tee-Object -FilePath $CliLog -Append
+    Invoke-Dsh --profile headless $task 2>>$CliErr | Tee-Object -FilePath $CliLog -Append
     $exit = $LASTEXITCODE
     if ($exit -ne 0 -and (Test-Path $CliErr)) {
         $errBody = Get-Content $CliErr -Raw -ErrorAction SilentlyContinue
         if ($errBody -and $errBody.Trim()) {
             Write-Host ''
-            Write-Host "[错误] dsh CLI 退出码 $exit。错误详情（$CliErr）：" -ForegroundColor Red
+            Write-Host "[错误] dsh headless 退出码 $exit。错误详情（$CliErr）：" -ForegroundColor Red
             Get-Content $CliErr -Tail 30 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
         }
     }
     Write-Host ''
-    Write-Host "dsh CLI 已退出（代码 $exit）。按回车键返回菜单 ..." -ForegroundColor DarkGray
+    Write-Host "dsh 已退出（代码 $exit）。按回车键返回菜单 ..." -ForegroundColor DarkGray
     Read-Host
 }
 
@@ -277,7 +296,7 @@ function Switch-LaunchMode {
     Write-Host "  当前: $(Get-LaunchModeLabel $cur)"
     Write-Host ''
     Write-Host '  [1] Web 界面（图形化，浏览器访问，默认）' -ForegroundColor White
-    Write-Host '  [2] CLI 命令行（终端内交互，不监听端口）' -ForegroundColor White
+    Write-Host '  [2] CLI 单次任务（输入任务，跑完打印答案后退出）' -ForegroundColor White
     Write-Host '  [0] 取消' -ForegroundColor Gray
     Write-Host ''
     $pick = (Read-Host '  请选择').Trim()
@@ -350,12 +369,12 @@ switch ($Action.ToLower()) {
 while ($true) {
     Show-Status
     $mode = Get-LaunchMode
-    if ($mode -eq 'cli') { $startLabel = '启动（当前模式：CLI 命令行）' }
+    if ($mode -eq 'cli') { $startLabel = '启动（当前模式：CLI 单次任务）' }
     else { $startLabel = '启动（当前模式：Web 图形界面）' }
     Write-Host "  [1] $startLabel" -ForegroundColor White
     Write-Host '  [2] 检查更新（程序与 dsh 版本）' -ForegroundColor White
     Write-Host '  [3] 重置（清配置数据，保留运行环境，无需下载）' -ForegroundColor White
-    Write-Host '  [4] 切换运行模式（Web 界面 / CLI 命令行）' -ForegroundColor White
+    Write-Host '  [4] 切换运行模式（Web 界面 / CLI 单次任务）' -ForegroundColor White
     Write-Host '  [5] 退出' -ForegroundColor Gray
     Write-Host ''
     $choice = Read-Host '  请选择'

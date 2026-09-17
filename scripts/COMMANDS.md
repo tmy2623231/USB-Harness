@@ -134,10 +134,19 @@ USB-Harness/
   排查手段：确认包根存在 `.cache/app/node_modules/@deepseek-ai/dsh/lib/bin.js`（缺失 =
   安装不完整，重跑 setup）；回归测试见 `scripts/tests/test-node-resolution.ps1`。
 - `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/dsh-xxx'`：dsh 的 peer 依赖缺陷，
-  补齐清单须逐版本实测重定（0.1.1-rc.2 为 25 个，0.1.5-rc.2 为 26 个），
+  补齐清单须逐版本实测重定（0.1.1-rc.2 为 25 个，**0.1.5-rc.2 为 71 个**），
   方法见 `docs/TROUBLESHOOTING.md` 的「peer 依赖补齐清单的重定方法」。
+  **不要用「扫安装树看缺哪个」的办法**重定——那是循环论证、会报「缺失 0 个」的假阴性。
 - 裸跑 `dsh` 报 `error: --profile <name> is required`：0.1.5 起 dsh 无默认执行档位，
-  须显式给 `web` / `acp` / `headless` / `sdk`。本项目的「命令行模式」= `--profile headless`，
-  用启动器菜单 `[4]` 切换，无需手敲。
+  须显式给 `web` / `acp` / `headless` / `sdk`。
+  本项目的「CLI 模式」= `--profile headless`（**单次任务**：输入任务 → 跑完打印答案 → 退出），
+  用启动器菜单 `[4]` 切换、`[1]` 启动即可，启动器会自动带上 `--profile`，无需手敲。
+
+  > 注意：0.1.5 的上游**没有交互式 TUI 档位**。若想持续多轮对话，请用 Web 界面；
+  > `headless` 每次只跑一个任务，会话数据仍持久化在 `$DSH_HOME`，可用 `--resume` 续接。
+- 启动器 CLI 模式曾报 `--profile is required`（**已修复**）：`launch-windows.ps1` 的 CLI 分支
+  原先调用的是裸 `dsh`。由于 0.1.5 取消默认档位，该路径**每次必失败**。
+  现已改为 `Invoke-Dsh --profile headless $task`；
+  冒烟用例 6「启动器 CLI 分支传参」专门守护此点（防止再次漏传）。
 - 打开 Web 只显示 `401`：dsh 的 browser-trust fence 正常行为，需带启动时打印的 `?token=xxx`
   访问（会 303 种下会话 cookie，之后为 200）。

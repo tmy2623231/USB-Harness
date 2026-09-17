@@ -102,7 +102,7 @@ unset CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR CODEBUDDY_TOOL_CALL_ID CODEBUDDY_SAFE
 # 用例 1：dsh --version
 # ---------------------------------------------------------------------------
 hr
-say "用例 1/6  dsh --version（超时 ${T_VERSION}s）"
+say "用例 1/7  dsh --version（超时 ${T_VERSION}s）"
 out="$(run_to $T_VERSION "$NODE" "$CLI" --version 2>&1 | tail -1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -117,7 +117,7 @@ fi
 # 用例 2：dsh --help 且品牌已替换
 # ---------------------------------------------------------------------------
 hr
-say "用例 2/6  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
+say "用例 2/7  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
 help_out="$(run_to $T_HELP "$NODE" "$CLI" --help 2>&1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -141,7 +141,7 @@ fi
 # 以 setup 脚本的 $PeerFix 为唯一数据源，逐个断言其声明的包确实落地。
 # 这样"清单写了但没装上"会在本地就炸，而不是等到 CI。
 hr
-say "用例 3/6  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
+say "用例 3/7  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
 if [ "$QUICK" = "1" ]; then
   record "peer 清单一致性" SKIP "--quick 跳过"
 else
@@ -177,7 +177,7 @@ fi
 # 用例 4：补丁基线校验（dsh_patch_compat_check.py）
 # ---------------------------------------------------------------------------
 hr
-say "用例 4/6  补丁基线校验（超时 ${T_PATCHCHECK}s）"
+say "用例 4/7  补丁基线校验（超时 ${T_PATCHCHECK}s）"
 pc_out="$(run_to $T_PATCHCHECK python scripts/dsh_patch_compat_check.py \
           --patch "brand-patch/@deepseek-ai" --base 0.1.5-rc.2 --target 0.1.5-rc.2 2>&1)"
 rc=$?
@@ -197,7 +197,7 @@ fi
 # 用例 5：headless（CLI）模式可启动到模型派发阶段
 # ---------------------------------------------------------------------------
 hr
-say "用例 5/6  headless CLI 模式（超时 ${T_HEADLESS}s）"
+say "用例 5/7  headless CLI 模式（超时 ${T_HEADLESS}s）"
 if [ "$QUICK" = "1" ]; then
   record "headless CLI 模式" SKIP "--quick 跳过"
 else
@@ -217,10 +217,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 用例 6：web 服务能真正起来并返回 200
+# 用例 6：启动器的 CLI 分支确实带了 --profile（回归：曾漏传导致必失败）
+# ---------------------------------------------------------------------------
+# 【背景 — 这个用例为什么必须存在】
+# dsh 0.1.5 起取消了默认执行档位：裸跑 `dsh` 直接报
+#   error: --profile <name> is required
+# 而 launch-windows.ps1 的 CLI 分支当时调的就是裸 `dsh`，因此**每次必失败**。
+# 上一版冒烟没抓到，是因为用例 5 直接调 dsh、**绕过了启动器**——
+# 测的是 dsh 本身能跑 headless，而不是"启动器的 CLI 模式可用"。
+# 这个用例转而检查**启动器的调用路径本身**，堵住该盲区。
+hr
+say "用例 6/7  启动器 CLI 分支传参（静态检查）"
+LAUNCH_PS1="scripts/launch-windows.ps1"
+if [ ! -f "$LAUNCH_PS1" ]; then
+  record "启动器 CLI 传参" FAIL "找不到 $LAUNCH_PS1"
+else
+  # 抓 Start-Cli 函数体（到下一个顶层 function 或文件结束）
+  cli_body="$(sed -n '/^function Start-Cli/,/^function /p' "$LAUNCH_PS1" | sed '$d')"
+  if [ -z "$cli_body" ]; then
+    record "启动器 CLI 传参" FAIL "未能从 $LAUNCH_PS1 解析出 Start-Cli 函数体"
+  elif ! printf '%s' "$cli_body" | grep -q 'Invoke-Dsh'; then
+    record "启动器 CLI 传参" FAIL "Start-Cli 未调用 Invoke-Dsh"
+  elif printf '%s' "$cli_body" | grep -qE 'Invoke-Dsh[[:space:]]+--profile[[:space:]]+headless'; then
+    record "启动器 CLI 传参" PASS "已显式传 --profile headless"
+  else
+    record "启动器 CLI 传参" FAIL "Start-Cli 调用 Invoke-Dsh 时未传 --profile headless（裸跑必报 --profile is required）"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 用例 7：web 服务能真正起来并返回 200
 # ---------------------------------------------------------------------------
 hr
-say "用例 6/6  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
+say "用例 7/7  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
 if [ "$QUICK" = "1" ]; then
   record "web 服务 HTTP" SKIP "--quick 跳过"
 else

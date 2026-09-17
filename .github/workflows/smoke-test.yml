@@ -113,6 +113,30 @@ jobs:
           }
           Write-Host "安装完整性 ✓（dsh.cmd / react 18 / 品牌补丁 / $($peers.Count) 个 peer 子包全部落地）"
 
+      - name: 启动器 CLI 分支传参断言
+        shell: pwsh
+        run: |
+          # 【为什么必须断言这个】
+          # dsh 0.1.5 起取消了默认执行档位：裸跑 `dsh` 直接报
+          #   error: --profile <name> is required
+          # 而 launch-windows.ps1 的 CLI 分支当时调的正是裸 `dsh`，因此每次必失败。
+          # 本地冒烟没抓到，是因为那里的 headless 用例**绕过了启动器**直接调 dsh——
+          # 测的是「dsh 能跑 headless」，不是「启动器的 CLI 模式可用」。
+          # 这里改为检查**启动器的调用路径本身**，堵住该盲区。
+          $ps1 = Get-Content 'scripts/launch-windows.ps1' -Raw
+          # 抓 Start-Cli 函数体（到下一个顶层 function 为止）
+          $m = [regex]::Match($ps1, 'function\s+Start-Cli\s*\{(.*?)\n\}\s*\n', `
+                [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          if (-not $m.Success) { throw "无法从 launch-windows.ps1 解析出 Start-Cli 函数体" }
+          $body = $m.Groups[1].Value
+          if ($body -notmatch 'Invoke-Dsh') {
+            throw "Start-Cli 未调用 Invoke-Dsh"
+          }
+          if ($body -notmatch 'Invoke-Dsh\s+--profile\s+headless') {
+            throw "Start-Cli 调用 Invoke-Dsh 时未显式传 --profile headless（裸跑必报 --profile is required）"
+          }
+          Write-Host "启动器 CLI 传参 ✓（Start-Cli 已显式传 --profile headless）"
+
       - name: 补丁基线断言
         shell: pwsh
         env:

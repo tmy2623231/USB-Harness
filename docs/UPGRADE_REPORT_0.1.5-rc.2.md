@@ -129,10 +129,10 @@
 ### 3.2 菜单变更
 
 ```
-[1] 启动（当前模式：Web 界面 / 命令行模式）
+[1] 启动（当前模式：Web 图形界面 / CLI 单次任务）
 [2] 检查更新（程序与 dsh 版本）
 [3] 重置（清配置数据，保留运行环境，无需下载）
-[4] 切换运行模式（Web 界面 ⇄ 命令行模式）      <- 新增
+[4] 切换运行模式（Web 界面 ⇄ CLI 单次任务）      <- 新增
 [5] 退出
 ```
 
@@ -144,8 +144,90 @@
 
 ### 3.4 底层调用
 
-命令行模式底层为 `dsh --profile headless`（dsh 0.1.5 起仅有 `web` / `acp` / `headless` / `sdk`），
+CLI 模式底层为 `dsh --profile headless`（dsh 0.1.5 起仅有 `web` / `acp` / `headless` / `sdk`），
 日志写入 `data/logs/dsh-cli.log`。
+
+### 3.5 定位修正与缺陷修复（2026-09-17 补记）
+
+**问题 A — 功能定位与上游能力不符**
+
+本项最初按「交互式 TUI」设计（菜单文案写「CLI 命令行」「终端内交互」，
+提示「可用命令 `/help`，输入 `/exit` 退出」）。但实测 dsh 0.1.5 的
+`--help` 与上游 `README` 后确认：**上游并不提供交互式 TUI 档位**。
+
+```
+Commands:
+  web [options] [args...]        boot the web profile (alias of --profile web)
+  plugin [options] [args...]     manage a profile's plugins ...
+```
+
+`headless` 的语义是「跑一个任务、打印最终答案、退出」，不是长驻交互界面。
+原先把 `acp`/`sdk` 之外的档位想象成 TUI，属**设计前提错误**。
+
+> 处置：按用户决策，该模式**重新定位为「CLI 单次任务」**——启动后提示输入任务，
+> 跑完打印答案即退出；需要持续多轮对话时改用 Web 界面。
+> 菜单 / 状态面板 / 提示文案已全部更正。因 `headless` 会话仍持久化在 `$DSH_HOME`，
+> 后续可用 `--resume` 续接。
+
+**问题 B — 启动器漏传 `--profile`，CLI 模式 100% 失败**
+
+`launch-windows.ps1` 的 `Start-Cli` 原先调用的是**裸 `dsh`**：
+
+```powershell
+Invoke-Dsh 2>>$CliErr | Tee-Object -FilePath $CliLog -Append
+```
+
+而 0.1.5 取消了默认执行档位，裸跑直接报错：
+
+```
+node.exe : error: --profile <name> is required
+```
+
+这是**必然失败**（非概率性），用户首次使用即命中。
+
+修复：
+
+```powershell
+Invoke-Dsh --profile headless $task 2>>$CliErr | Tee-Object -FilePath $CliLog -Append
+```
+
+并补充任务输入、空输入（直接回车）取消、退出码与错误日志回显。
+
+**问题 C — 冒烟测试漏检（已补覆盖）**
+
+原用例 5 确实跑了 `--profile headless`，但它**绕过了启动器、直接调 dsh**：
+
+```bash
+# 原用例 5：测的是「dsh 本身能跑 headless」
+hl_out="$(run_to $T_HEADLESS "$NODE" "$CLI" --profile headless "..." 2>&1)"
+```
+
+因此「**启动器的 CLI 分支漏传 `--profile`**」这个真实缺陷从未被覆盖。
+现已补两条断言，检查**启动器的调用路径本身**：
+
+| 位置 | 用例 | 判定方式 |
+|------|------|---------|
+| 本地 `.patch-tools/smoke-local.sh` | 用例 6「启动器 CLI 分支传参」 | 解析 `Start-Cli` 函数体，断言含 `Invoke-Dsh --profile headless` |
+| CI `.github/workflows/smoke-test.yml` | 步骤「启动器 CLI 分支传参断言」 | 同上（pwsh 正则） |
+
+> 该用例已做**负对照验证**：临时把调用还原为裸 `Invoke-Dsh`，用例 6 正确判定 FAIL；
+> 恢复后判定 PASS。确保它不是「永远通过」的装饰性断言。
+
+### 3.6 附带发现：Web 页面 401 属正常行为（非缺陷）
+
+用户报告浏览器打开 `127.0.0.1:3080` 显示
+`dsh web authentication required; reopen the URL printed by dsh web`。
+核查后确认这是 dsh 的 **browser-trust fence 正常工作**：
+
+| 请求 | 响应 |
+|------|------|
+| 裸 URL `http://127.0.0.1:3080` | `401` |
+| 带 token `...?token=XXXX` | `303` + `Set-Cookie: dsh-auth-<id>` |
+| 带 cookie 再请求 | `200` |
+
+启动器已实现正确的就绪轮询（等端口可连后打开**带 token 的** `127.0.0.1` 地址），
+因此正常路径下用户不会看到 401。仅在手动抄地址时容易漏掉 `?token=`。
+已在 README「安全须知」补充明确的排查小节。
 
 ---
 
@@ -163,19 +245,25 @@
 | 4 | **`$PeerFix` 清单一致性** | PASS | **77 项全部落地**（前向校验，见下） |
 | 5 | 补丁基线校验 | PASS | 安全 **17** / 需确认 0 / 阻断 0 / 异常 0 |
 | 6 | headless CLI 模式 | PASS | 插件树加载成功（止于模型派发：无 API Key） |
-| 7 | web 服务启动 | PASS | 已监听 3080 端口族；局域网地址已发布 |
-| 8 | web 首页 HTTP | PASS | HTTP 200（`token → 303 + Set-Cookie → cookie → 200` 全链路通过） |
-| 9 | web 首页标题 / 静态资源 | PASS | `<title>USB Harness</title>`；4 个 JS/CSS 资源全部 HTTP 200 |
+| 7 | **启动器 CLI 分支传参** | PASS | `Start-Cli` 已显式传 `--profile headless`（新增，见 3.5-C） |
+| 8 | web 服务启动 | PASS | 已监听 3080 端口族；局域网地址已发布 |
+| 9 | web 首页 HTTP | PASS | HTTP 200（`token → 303 + Set-Cookie → cookie → 200` 全链路通过） |
+| 10 | web 首页标题 / 静态资源 | PASS | `<title>USB Harness</title>`；4 个 JS/CSS 资源全部 HTTP 200 |
 
 **品牌泄漏复查**：首页 HTML 中 `deepseek` 出现 **486 次，其中 486 次为 `@deepseek-ai/` 包名路径** → **品牌零泄漏**。
 
-> **无跳过、无注释、无屏蔽**：全部 9 个用例真实执行。
+> **无跳过、无注释、无屏蔽**：全部 **10** 个用例真实执行。
 > 脚本对每一步都加了 `timeout` 硬超时（60s / 60s / 30s / 300s / 180s / 120s），
 > 任一步超时标记为 FATAL 并计入统计，不静默跳过。
 
 **用例 4 已由「扫安装树」改为前向校验**：以 setup 脚本的 `$PeerFix` 为唯一数据源，
 逐个断言其声明的包确实落地。旧做法（扫安装树找解析不到的 import）是循环论证，
 本地全绿却掩盖了 CI 的真实失败——详见 1.4。
+
+**用例 7 为新增（2026-09-17 补记）**：守护「启动器 CLI 分支必须传 `--profile`」。
+原先本地测的是「dsh 能跑 headless」（绕过启动器），而真实缺陷出在**启动器的调用路径**上，
+因此本地与 CI 都漏掉了这个必然失败的功能缺陷——详见 3.5-C。
+该用例已通过负对照验证（还原为裸调用时正确判定 FAIL）。
 
 ### 4.2 GitHub Actions 冒烟（`.github/workflows/smoke-test.yml`）
 
@@ -184,7 +272,7 @@
 | `0a56ede` | #20 | 失败 | 安装完整性断言 |
 | `0aaeab7` | #21 | 失败 | 启动 dsh web 并探测 HTTP 200 |
 | `bd7be89` | #22 | 成功 | —（全部步骤通过） |
-| **`f9c42fc`** | **#27** | **成功（最终）** | **—（全部步骤通过，2m 04s）** |
+| `f9c42fc` | #27 | 成功 | —（全部步骤通过，2m 04s） |
 
 Run #27（最终提交，含本文档全部改动）两个 job 均通过：
 
@@ -193,6 +281,7 @@ JOB smoke                          -> success   (1m 59s)
    OK  检出代码 / 读取锁定版本 / 下载并解压便携 Node.js
    OK  从安装脚本解析 peer 列表并安装
    OK  安装完整性断言
+   OK  启动器 CLI 分支传参断言          <- 2026-09-17 新增（见 3.5-C）
    OK  补丁基线断言
    OK  就绪标记生成（走真实 setup 脚本路径，验证 harness 行）
    OK  启动 dsh web 并探测 HTTP 200
@@ -204,6 +293,9 @@ JOB regression-node-resolution-unix -> success   (12s)
 > 关于页面上出现的 "10 errors" 标注：那是**负对照用例的预期输出**，不是失败。
 > 这些用例刻意走错误路径并断言报错内容，因此运行日志里必然打印错误文本；
 > 作业结论为 success 恰恰证明断言与预期一致。
+>
+> 注：上表 Run #27 的步骤列表为**当时**的步骤集；「启动器 CLI 分支传参断言」
+> 是此后新增的步骤，将在下一次 CI 运行中出现。
 
 ### 4.3 发版构建（`.github/workflows/release.yml`）
 

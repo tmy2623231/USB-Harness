@@ -2,8 +2,8 @@
 
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
-> 提交：`e6f52b9`（main 与 Release 指向同一提交）
-> 结论：**六项任务全部完成，冒烟测试 9/9 通过（100%）**
+> 提交：`bd7be89`（main 与 Release 指向同一提交）
+> 结论：**六项任务全部完成；本地冒烟 9/9 通过（100%），GitHub Actions 冒烟 Run #22 全绿**
 
 ---
 
@@ -45,20 +45,48 @@
 
 ### 1.4 peer 依赖补齐清单重定
 
-| 版本 | 缺失 peer 数 |
-|------|-------------|
+| 版本 | 需显式补齐的 peer 数 |
+|------|--------------------|
 | 0.1.1-rc.2 | 25 |
-| **0.1.5-rc.2** | **26** |
+| **0.1.5-rc.2** | **71** |
 
-**重定方法**：扫描安装树里全部 `.js/.mjs/.cjs` 的 `@deepseek-ai/*` import 说明符，
-逐个用 `createRequire().resolve()` 解析，凡解析不到的即为缺失项。
-实测 **95 个说明符全部可解析、缺失 0**。
+**重定方法（权威）**：遍历 **npm 注册表依赖闭包**，取全体 `peerDependencies` 的并集，
+再减去主包 `dependencies` 已自动覆盖的部分。
 
-> **反面教训**：用「跑一次 dsh，看报哪个包缺失」的方式**严重漏报**——
-> 本次只报出 **1 个**，实际缺 **26 个**，因为绝大多数模块是**懒加载**的。
-> 该结论已写入 `docs/TROUBLESHOOTING.md`。
+> 实测（0.1.5-rc.2）：扫描 215 个子包，发现 89 个 peer 依赖，
+> 其中 18 个已被主包 `dependencies` 覆盖，**71 个必须显式补齐**。
 
-第三方包版本不含 dsh 版本号，按各自兼容范围锁定（`react` 必须锁 `18.x`）。
+工具：`.patch-tools/refscan-registry.py`（`--emit-ps1` / `--emit-sh` 直接生成脚本片段）。
+
+#### ⚠️ 两代错误方法（均已在本文档中修正，勿再使用）
+
+**第一代：跑一次看报错。** 绝大多数子模块**懒加载**，单次启动只能触达极小部分。
+本次实测只报出 **1 个**，而实际需 **71 个**。
+
+**第二代：扫描已安装树找解析不到的 import。** 该方法**是循环论证，本质不可能报全**：
+
+```
+没被装上的包  →  不在安装树里  →  扫不到  →  报告「缺失 0 个」  →  但它是真缺
+```
+
+> **实测事故**：该法报告「缺失 0 个」，本地冒烟全绿；而 CI 的安装完整性断言在
+> `dsh-timeout` / `dsh-atomic-write` / `dsh-web-frontend` 上判定缺包失败——
+> 这三个包确实需要，只是从未被装上，因此从未出现在被扫描的树里。
+> **用安装结果去验证安装完整性，必然漏报。**
+
+#### 版本号分组：按「版本范围」判，不是按包名前缀
+
+| 组 | 判据 | 写法 |
+|----|------|------|
+| 跟随 dsh 版本 | peer 声明的版本范围落在本次 dsh 版本族（`0.1.5-*`） | `"@deepseek-ai/dsh-xxx@$DshVersion"` |
+| 独立版本 | 版本范围不在 dsh 版本族 | `'@deepseek-ai/cordis-plugin-group@^1.0.2'` |
+
+> **坑位**：`@deepseek-ai/cordis-plugin-group` 的版本是 `1.0.1` / `1.0.2`，
+> 与 dsh 的 `0.1.5-rc.2` **毫无关系**。若按 `@deepseek-ai/` 前缀当成 dsh 家族写成
+> `@0.1.5-rc.2`，npm 直接 `ETARGET: No matching version found`，
+> **整个 peer 补齐步骤失败**。本次由本地 `-Force` 全流程实测捕获。
+
+两类均以 `docs/TROUBLESHOOTING.md`「peer 依赖补齐清单的重定方法」为准。
 
 ---
 
@@ -123,7 +151,8 @@
 
 ## 四、冒烟测试结果
 
-**执行命令**：`bash .patch-tools/smoke-local.sh`
+### 4.1 本地冒烟（`bash .patch-tools/smoke-local.sh`）
+
 **最终结果**：**用例数 9 / 通过 9 / 失败 0 / 通过率 100% / 退出码 0**
 
 | # | 用例 | 结果 | 判定依据 |
@@ -131,7 +160,7 @@
 | 1 | 依赖就绪 | PASS | 便携 Node v22.23.2；dsh 入口存在 |
 | 2 | `dsh --version` | PASS | 输出 `0.1.5-rc.2` |
 | 3 | `dsh --help` 品牌 | PASS | `DeepSeek` 出现 **0** 次、`USB Harness` 出现 1 次 |
-| 4 | 模块解析 | PASS | 解析失败 **0**（95 个说明符全部可解析） |
+| 4 | **`$PeerFix` 清单一致性** | PASS | **77 项全部落地**（前向校验，见下） |
 | 5 | 补丁基线校验 | PASS | 安全 **17** / 需确认 0 / 阻断 0 / 异常 0 |
 | 6 | headless CLI 模式 | PASS | 插件树加载成功（止于模型派发：无 API Key） |
 | 7 | web 服务启动 | PASS | 已监听 3080 端口族；局域网地址已发布 |
@@ -144,6 +173,67 @@
 > 脚本对每一步都加了 `timeout` 硬超时（60s / 60s / 30s / 300s / 180s / 120s），
 > 任一步超时标记为 FATAL 并计入统计，不静默跳过。
 
+**用例 4 已由「扫安装树」改为前向校验**：以 setup 脚本的 `$PeerFix` 为唯一数据源，
+逐个断言其声明的包确实落地。旧做法（扫安装树找解析不到的 import）是循环论证，
+本地全绿却掩盖了 CI 的真实失败——详见 1.4。
+
+### 4.2 GitHub Actions 冒烟（`.github/workflows/smoke-test.yml`）
+
+| 提交 | Run | 结果 | 失败点 |
+|------|-----|------|--------|
+| `0a56ede` | #20 | 失败 | 安装完整性断言 |
+| `0aaeab7` | #21 | 失败 | 启动 dsh web 并探测 HTTP 200 |
+| **`bd7be89`** | **#22** | **成功** | **—（全部步骤通过）** |
+
+Run #22 全部步骤：
+
+```
+JOB smoke -> success
+   OK  检出代码 / 读取锁定版本 / 下载并解压便携 Node.js
+   OK  从安装脚本解析 peer 列表并安装
+   OK  安装完整性断言
+   OK  补丁基线断言
+   OK  就绪标记生成（走真实 setup 脚本路径，验证 harness 行）
+   OK  启动 dsh web 并探测 HTTP 200
+   OK  检查更新脚本冒烟（-CheckOnly 退出码 ∈ {0,1,2}）
+   OK  回归测试：dsh 不依赖 PATH 找 node（Windows）
+JOB regression-node-resolution-unix -> success
+```
+
+#### CI 失败的两轮根因（均已修复）
+
+**第一轮 — Run #20，安装完整性断言**
+
+两处叠加：
+
+1. 断言**硬编码**了 5 个包名，peer 清单重定后其中 3 个已不在 `$PeerFix` 里
+   → 断言与实际安装行为脱节，把一次**正确**的安装判成了失败。
+2. **更严重**：CI 从 `$PeerFix` 正则抽包名时**只匹配单引号**，而 dsh 子包写的是
+   双引号（需插值 `$peerVer`）→ **71 项被静默丢弃**，实际只装了 6 个第三方包。
+   `release.yml` 存在同样缺陷。
+
+修复：解析正则同时覆盖双/单引号；断言对象改为从 `$PeerFix` **派生**，
+CI 内不再存在第二份包名清单，结构上杜绝「清单改了断言没改」。
+
+**第二轮 — Run #21，web 就绪探测**
+
+该步骤用**裸 URL** 轮询期望 200：
+
+```powershell
+$r = Invoke-WebRequest "http://127.0.0.1:3080"   # 裸 URL -> 401
+if ($r.StatusCode -eq 200) { $ok = $true; break }
+```
+
+而 `Invoke-WebRequest` 对非 2xx **会抛异常**，`$r` 根本不会被赋值——60 轮全部落入
+`catch`，**该判据永远不可能成立**，180 秒后必然超时。这与 1.4 是同一类问题：
+**CI 的判据与本地不一致**。本地 `smoke-local.sh` 走的是正确的
+`token → 303 → cookie → 200` 全链路，所以本地绿、CI 红。
+
+修复：每轮从服务端日志提取就绪 URL 中的 token → 带 token 请求捕获 303
+（状态码从异常响应取）→ 用 `-SessionVariable` 吸收的 cookie 再请求取 200。
+失败诊断拆分为「未打印 token」与「握手未到 200」两种。本地复刻实测
+第 3 轮取得 token、`303 → 200`、PASS。
+
 ### 排障记录（脚本健壮性）
 
 本次执行中定位并修复了两个**环境陷阱**（非应用逻辑缺陷）：
@@ -154,11 +244,17 @@
    `Node.js v22.x.x`（无报错正文）；`curl.exe -o /d/...` 静默写不出文件（返回 `000`）。
    已改为同时维护 `ROOT`（POSIX，给 bash）与 `ROOT_W`（`pwd -W` → `D:/...`，给原生程序）。
 
+另：`smoke-local.sh` 原先硬编码了已经清理掉的 `.tmp-upstream/` 临时路径，
+导致在真实布局下无法运行。已改为默认指向真实 `.cache/` 布局，
+并支持 `SMOKE_APP_DIR` / `SMOKE_NODE_DIR` / `SMOKE_WORK_DIR` 覆盖。
+
 ---
 
 ## 五、分支同步验证结论
 
 ### 5.1 同步方式
+
+**第一轮（建立两分支）**
 
 1. `git fetch origin` — 发现远程有本地未包含的提交 `3dde9d6`（README 隐私修改）
 2. 以 `origin/main` 为基线，将本地工作重做到其上（保持**线性历史**）
@@ -168,15 +264,29 @@
 > 说明：`Release` 分支此前仅存在于本地且指向同一提交，本次为其建立远程跟踪。
 > 未使用 `--force`，未改写任何已有历史。
 
+**第二轮（CI 修复后回同步）**
+
+第一轮同步完成后，GitHub Actions 冒烟连续失败两轮（详见 4.2），修复过程产生了新提交。
+为使两分支在 CI 转绿后仍保持完全一致，按用户选定的方案执行：
+
+1. `git switch main` → 提交 CI 修复（`0aaeab7`、`bd7be89`）
+2. `git switch Release` → `git merge main`（**fast-forward**，无合并提交，历史仍为线性）
+3. `git push origin main`、`git push origin Release`
+
+> 合并方式是「main 合并进 Release，再回合并」——因两分支自第一轮起即指向同一提交，
+> 第二轮天然构成 fast-forward，**没有产生任何合并提交**，也未改写历史。
+
 ### 5.2 零差异证据
+
+> 以下证据均为 CI Run #22 转绿后、以最终提交 `bd7be89` 实测采集。
 
 **证据 1 — 分支 SHA 完全一致**
 
 ```
-main            : e6f52b96537a4ef3565aed77b3de880090ca7e8d
-Release         : e6f52b96537a4ef3565aed77b3de880090ca7e8d
-origin/main     : e6f52b96537a4ef3565aed77b3de880090ca7e8d
-origin/Release  : e6f52b96537a4ef3565aed77b3de880090ca7e8d
+main            : bd7be893059e3b5c9d5c1e307bd72215664fdf0d
+Release         : bd7be893059e3b5c9d5c1e307bd72215664fdf0d
+origin/main     : bd7be893059e3b5c9d5c1e307bd72215664fdf0d
+origin/Release  : bd7be893059e3b5c9d5c1e307bd72215664fdf0d
 全部一致: 是
 ```
 
@@ -192,7 +302,7 @@ $ git diff origin/main origin/Release
 **证据 3 — 提交历史一致**
 
 ```
-两分支历史提交数均为 54
+两分支历史提交数均为 57
 main..Release 独有提交数: 0
 Release..main 独有提交数: 0
 ```
@@ -200,14 +310,19 @@ Release..main 独有提交数: 0
 **证据 4 — 文件树对象哈希一致**
 
 ```
-main    tree : 669343e8c03e9813e1286506bde1bd406985cc84
-Release tree : 669343e8c03e9813e1286506bde1bd406985cc84
+main    tree : 8c37442b0995a1d344566e8bb5f973616752ae4c
+Release tree : 8c37442b0995a1d344566e8bb5f973616752ae4c
 ```
 
 **证据 5 — 逐文件内容校验（全量对比）**
 
 ```
-两分支全部文件的对象哈希一致（零差异）
+两分支文件数均为 54
+$ git ls-tree -r main    | sort > m.txt
+$ git ls-tree -r Release | sort > r.txt
+$ diff m.txt r.txt
+（无输出）                                  -> 差异行数: 0
+（ls-tree 内容含每个文件的 blob 对象哈希，相等即逐文件内容相等）
 ```
 
 **证据 6 — 构建产物内容一致**
@@ -217,10 +332,15 @@ Release tree : 669343e8c03e9813e1286506bde1bd406985cc84
 （两分支的 commit 字段虽同源但生成时机不同）。因此按**内容**比对：
 
 ```
-产物文件清单 + 权限 + 时间戳 : 89 项全一致
-解包后内容流 SHA256          : dc7379b33685572cdcbf196057c25a8baf5c55e0f629feaee0e42d554f081586（两分支相同）
-解包目录树 diff -r           : 无输出（完全一致）
+$ git archive main    | tar -x -C /tmp/aw-main
+$ git archive Release | tar -x -C /tmp/aw-rel
+产物文件数                   : 54 : 54（一致）
+解包目录树 diff -r           : 无输出（差异行数 0）
+解包后内容流 SHA256          : a1b46dd3bb8956957c4a191b4f3771139032f656078ef3bdf32c9905b7777f5e（两分支相同）
 ```
+
+上述 SHA256 的算法为：解包后按 `find | sort` 排序全部文件，逐个 `sha256sum`，
+再把该清单整体哈希一次——因此它同时覆盖了**文件清单、文件内容**两个维度。
 
 **结论：main 与 Release 在提交历史、文件内容、构建产物三个维度上完全一致，零差异。**
 
@@ -294,21 +414,34 @@ Release tree : 669343e8c03e9813e1286506bde1bd406985cc84
 | 故障排查（含 peer 重定方法） | `docs/TROUBLESHOOTING.md` |
 | 发布同步规范 | `docs/RELEASE_README_SYNC.md` |
 | 补丁重建工具 | `.patch-tools/rebuild-patch.py` |
-| peer 重定工具 | `.patch-tools/refscan.mjs` |
+| peer 重定工具（权威） | `.patch-tools/refscan-registry.py` |
+| peer 重定工具（已废弃，仅留档） | `.patch-tools/refscan.mjs` |
 | 冒烟测试脚本 | `.patch-tools/smoke-local.sh` |
 | 工具说明 | `.patch-tools/README.md` |
+| CI 冒烟工作流 | `.github/workflows/smoke-test.yml` |
+| CI 发布工作流 | `.github/workflows/release.yml` |
+
+> peer 重定工具存在两代实现：`refscan.mjs`（扫描**已安装目录树**）经复核证明方法是**循环论证**的——
+> 一个从未被安装的包，在安装结果里自然也找不到「缺失」，因此它会漏报。
+> 本次实测中它报告「缺失 0 个」，而真实缺失 3 个。
+> 权威实现改为 `refscan-registry.py`（遍历 **npm registry 依赖闭包**），当前结果为 **71 项待补**。
+> `refscan.mjs` 保留仅为留档对比，**不要再用**。
 
 ---
 
 ## 八、遗留与建议
 
 1. **发版**：本次仅推送分支，**未打 tag、未触发 Release 构建**。
+   当前 CI 冒烟已全绿，打 tag 的前提条件已具备。
    如需发版：`git tag 0.1.5-rc.2 && git push origin 0.1.5-rc.2`
    （CI 会校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`）。
-2. **CI 验证**：本次冒烟测试在**本地**完成。建议打 tag 后由 GitHub Actions
-   跑一遍跨平台验证（Windows + Linux RT job）。
+2. **CI 验证**：已由 GitHub Actions 完成——Run #22 的
+   `smoke` 与 `regression-node-resolution-unix` 两个 job **全部步骤通过**（详见 4.2）。
 3. **`--host 0.0.0.0` 的安全提示**：已在 README「安全须知」与变更要点中明确
    「仅限可信内网，禁止对公网开放」。若后续对安全要求提高，可考虑改为默认
    `127.0.0.1`、由用户在配置中显式开启局域网访问。
 4. **skill-badge 补丁已失效**：`dsh-skill-badge/lib/index.js` 不再出现在本次变更集中，
    说明其定制内容与上游一致（无需改动），已确认文件内仍含 `USB Harness` 定制文案。
+5. **`refscan.mjs` 建议删除**：该方法论已被证明不可靠（循环论证），
+   保留在仓库内存在被误用的风险。当前以「已废弃」标注留档，
+   后续可考虑直接删除，只保留 `refscan-registry.py`。

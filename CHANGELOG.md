@@ -100,7 +100,7 @@
   +     if (Test-Path $DshCli) { & $NodeExe $DshCli @DshArgs }
   ```
 - **根因**：`Start-Cli` 调用的是**裸 `dsh`**。dsh 0.1.5 起取消了「无默认执行档位」的行为，
-  裸跑必然报错；且上游**不提供交互式 TUI**，可用档位仅有 `web` / `headless` / `acp` / `sdk`。
+  裸跑必然报错；且上游**不提供开箱即用的交互式终端对话档位**，自带档位仅有 `web` / `headless` / `acp` / `sdk`。
 - **修复**：改为 `Invoke-Dsh --profile headless $task`，并补充任务输入、空输入（回车取消）、
   退出码与错误日志回显。该模式正式定位为「**单次任务**」：输入一个任务，
   dsh 跑完一次会话后打印答案并退出。
@@ -173,7 +173,12 @@
   日志写入 `data/logs/dsh-cli.log`。
 
 > **定位修正（2026-09-17 补记）**：本项最初按「交互式 TUI」设计，但 dsh 0.1.5 的
-> 执行档位中**并不存在交互式 TUI**（`headless` = 跑一次任务、打印答案、退出）。
+> 执行档位中**并不存在开箱即用的交互式 TUI**（`headless` = 跑一次任务、打印答案、退出）。
+> 注：dsh 本身**是**一个 CLI（`bin: lib/bin.js`），只是它自带的档位里没有「终端多轮对话」这一种。
+> 上游架构上支持通过 `--from-default-profile` 新建自定义档位，但**未发布 TUI 前端包**
+> （已实测 `@deepseek-ai/dsh-client-tui` / `dsh-app-tui` 等均不存在于 npm）。
+> 上游 help 里出现的 `--profile tui` 只是**演示如何新建档位**的示例文字，实测报
+> `profile "tui" does not exist`。
 > 因此该模式重新定位为「**CLI 单次任务**」：启动后提示输入任务，跑完打印答案即退出；
 > 需要持续多轮对话请用 Web 界面。菜单、状态面板、提示文案已同步更正。
 

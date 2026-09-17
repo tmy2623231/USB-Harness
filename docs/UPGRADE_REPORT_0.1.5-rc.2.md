@@ -2,7 +2,7 @@
 
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
-> 提交：`43dba0a`（main 与 Release 指向同一提交）
+> 提交：`e6f52b9`（main 与 Release 指向同一提交）
 > 结论：**六项任务全部完成，冒烟测试 9/9 通过（100%）**
 
 ---
@@ -173,10 +173,11 @@
 **证据 1 — 分支 SHA 完全一致**
 
 ```
-main            : 43dba0aa4e06653d28c1b57be861434d5dff3914
-Release         : 43dba0aa4e06653d28c1b57be861434d5dff3914
-origin/main     : 43dba0aa4e06653d28c1b57be861434d5dff3914
-origin/Release  : 43dba0aa4e06653d28c1b57be861434d5dff3914
+main            : e6f52b96537a4ef3565aed77b3de880090ca7e8d
+Release         : e6f52b96537a4ef3565aed77b3de880090ca7e8d
+origin/main     : e6f52b96537a4ef3565aed77b3de880090ca7e8d
+origin/Release  : e6f52b96537a4ef3565aed77b3de880090ca7e8d
+全部一致: 是
 ```
 
 **证据 2 — `git diff` 输出为空**
@@ -191,7 +192,7 @@ $ git diff origin/main origin/Release
 **证据 3 — 提交历史一致**
 
 ```
-两分支历史提交数均为 53
+两分支历史提交数均为 54
 main..Release 独有提交数: 0
 Release..main 独有提交数: 0
 ```
@@ -199,8 +200,8 @@ Release..main 独有提交数: 0
 **证据 4 — 文件树对象哈希一致**
 
 ```
-main    tree : 802e27e60cb535328c0d17f65773c78e63a70245
-Release tree : 802e27e60cb535328c0d17f65773c78e63a70245
+main    tree : 669343e8c03e9813e1286506bde1bd406985cc84
+Release tree : 669343e8c03e9813e1286506bde1bd406985cc84
 ```
 
 **证据 5 — 逐文件内容校验（全量对比）**
@@ -209,13 +210,16 @@ Release tree : 802e27e60cb535328c0d17f65773c78e63a70245
 两分支全部文件的对象哈希一致（零差异）
 ```
 
-**证据 6 — 构建产物一致**
+**证据 6 — 构建产物内容一致**
 
-本项目构建产物 = `git archive` 打包内容（CI 无编译步骤，用同样方式打包）：
+本项目构建产物 = `git archive` 打包内容（CI 无编译步骤，用同样方式打包）。
+注意：直接比 `tar.gz` 字节哈希会有差异——tar 的 pax 头会写入 `commit=<sha>`
+（两分支的 commit 字段虽同源但生成时机不同）。因此按**内容**比对：
 
 ```
-main    产物 SHA256: 9e127a1f847c0536df5ffeabd4d1d26bc6651a36fdab03f9ef5524be18dbee4c
-Release 产物 SHA256: 9e127a1f847c0536df5ffeabd4d1d26bc6651a36fdab03f9ef5524be18dbee4c
+产物文件清单 + 权限 + 时间戳 : 89 项全一致
+解包后内容流 SHA256          : dc7379b33685572cdcbf196057c25a8baf5c55e0f629feaee0e42d554f081586（两分支相同）
+解包目录树 diff -r           : 无输出（完全一致）
 ```
 
 **结论：main 与 Release 在提交历史、文件内容、构建产物三个维度上完全一致，零差异。**

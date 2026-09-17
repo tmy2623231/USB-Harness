@@ -340,7 +340,7 @@ $ git ls-tree -r main    | sort > m.txt
 $ git ls-tree -r Release | sort > r.txt
 $ diff m.txt r.txt
 # -> 输出为空
-# 实测：差异行数 0；两分支文件数均为 54
+# 实测：差异行数 0；两分支文件数相等（均为 53）
 ```
 
 `ls-tree -r` 的输出含每个文件的 blob 对象哈希，因此该比对等价于**逐文件内容全量比对**。
@@ -356,7 +356,7 @@ $ git archive main           | tar -x -C /tmp/f1
 $ git archive origin/Release | tar -x -C /tmp/f2
 $ diff -r /tmp/f1 /tmp/f2
 # -> 输出为空
-# 实测：差异行数 0；产物文件数 54 : 54
+# 实测：差异行数 0；两分支产物文件数相等（均为 53）
 ```
 
 > 若需要产物内容流的单一指纹，可用（两分支输出必须相同）：

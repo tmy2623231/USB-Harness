@@ -323,6 +323,7 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | 兼容性矩阵、已验证项与逐条版本变更清单 |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查 |
 | [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md) | 发布同步规范（dsh 升级时如何更新本文档） |
+| [docs/UPGRADE_REPORT_0.1.5-rc.2.md](docs/UPGRADE_REPORT_0.1.5-rc.2.md) | 本次升级变更清单（移植内容 / 冲突差异 / 测试结果 / 分支验证 / 隐私清理） |
 | [CHANGELOG.md](CHANGELOG.md) | 本项目版本更新日志 |
 
 ## License

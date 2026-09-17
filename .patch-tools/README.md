@@ -12,7 +12,9 @@
 | `rebuild-patch.py` | 品牌补丁重建（旧快照 → 新基线 + 定制意图） | **在用** |
 | `refscan-registry.py` | 遍历注册表依赖闭包，重定 peer 补齐清单 | **在用（权威方法）** |
 | `smoke-local.sh` | 本地端到端冒烟测试（9 用例） | **在用** |
-| `refscan.mjs` | 扫描已安装树找缺失 import | **已废弃**——循环论证，见下文 |
+
+> 历史工具 `refscan.mjs`（扫描已安装树找缺失 import）**已从仓库删除**——
+> 它的方法属循环论证，会给出「缺失 0 个」的假阳性结果（见下文 §refscan.mjs 为何不可信）。
 
 ---
 
@@ -120,7 +122,10 @@ python .patch-tools/refscan-registry.py --dsh-version 0.1.5-rc.2 --json     # �
 > `ETARGET: No matching version found`，**整个 peer 补齐步骤失败**。
 > 判据函数 `is_dsh_family()` 用的是版本范围，不是包名。
 
-### ⚠️ refscan.mjs 已废弃 — 它是循环论证，不可信
+### ⚠️ refscan.mjs 为何不可信（已删除）
+
+> **该文件已从仓库移除**，此节保留为方法论记录，说明为什么「扫描安装结果」
+> 这一类做法必然不可靠。
 
 旧工具 `refscan.mjs` 扫描的是**已安装的 `node_modules` 树**，找「被 import 但解析不到」
 的包。这个逻辑是自证的：
@@ -134,11 +139,12 @@ python .patch-tools/refscan-registry.py --dsh-version 0.1.5-rc.2 --json     # �
 > 这三个包确实需要，只是从未被装上，因此从未出现在被扫描的树里。
 > **用安装结果验证安装完整性，必然漏报。**
 
-文件保留仅供参考对照，**不要再用于重定清单**。
-
 > 注：`refscan.mjs` 时代还存在第二个坑——「跑一次看报错」只能报出 1 个缺失包
 > （子模块懒加载），因此当时把静态扫描当作改进。但静态扫描只是把「漏报」从
 > 懒加载变成了循环论证，仍未解决根本问题。
+
+正确做法是 `refscan-registry.py`：期望清单从**独立的元数据源**
+（npm registry 的依赖闭包）推导，而不是从安装结果反推。
 
 ---
 

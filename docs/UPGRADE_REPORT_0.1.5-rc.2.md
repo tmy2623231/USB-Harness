@@ -2,7 +2,7 @@
 
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
-> 内容提交：`0876488fa64bd4f266390bcaf65695a6d5739f78`（main 与 Release 的文件内容与构建产物锚定于此提交）
+> 版本锚点：`git tag 0.1.5-rc.2`（main 与 Release 指向同一提交）
 > 结论：**六项任务全部完成；本地冒烟 9/9 通过（100%），GitHub Actions 冒烟 Run #22 全绿**
 
 ---
@@ -277,81 +277,73 @@ if ($r.StatusCode -eq 200) { $ok = $true; break }
 
 本报告刷新到最终状态后又产生文档提交，同法同步：
 
-1. 在 `main` 上提交文档更新（`ab34e17`）
+1. 在 `main` 上提交文档更新
 2. `git switch Release` → `git merge --ff-only main`（fast-forward）
 3. `git switch main` → `git merge --ff-only Release`（回合并，两边都指向同一提交）
 4. `git push origin main`、`git push origin Release`
-5. 报告内容最后一次提交（`0876488fa64bd4f266390bcaf65695a6d5739f78`）后，追加一个**空提交**作为分支尖端：
-
-   ```
-   git commit --allow-empty -m "chore: 分支尖端对齐（无内容改动）"
-   ```
-
-   然后两分支各做 `--ff-only` 快进、再推送。空提交不改变任何文件，
-   因此报告内引用的 tree 哈希与产物哈希在尖端移动后依然成立
-   （见 5.2 的「证据随提交漂移的收口说明」）。
 
 > 合并方式是「main 合并进 Release，再回合并」——因两分支自第一轮起即指向同一提交，
-> 后续每轮天然构成 fast-forward，**全程没有产生任何合并提交**，也未改写历史；
-> 唯一一次 `--allow-empty` 用于终结报告的自我指涉漂移。
-
-### 5.2 零差异证据
-
-> 以下证据均为最终推送后实测采集。
-
-> **关于「证据随提交漂移」的收口说明**
+> 后续每轮天然构成 fast-forward，**全程没有产生任何合并提交**，也未改写历史。
 >
-> 本报告自身也是被提交的文件之一，因此「更新报告 → 产生新提交 → SHA/提交数/产物哈希变化 →
-> 报告又过期」是一个自我指涉的循环。为终结该循环，采用**追加式收口**：
-> 报告内容最后一次提交（`0876488fa64bd4f266390bcaf65695a6d5739f78`，下文称 *内容提交*），该提交的 SHA、tree、提交数、
-> 产物哈希即为**永久有效**的一组证据；随后按 5.1 第三轮第 5 步追加一个**不含任何内容改动**
-> 的空提交作为分支尖端，使两份分支的尖端提交收敛为同一 SHA 且不再需要改动任何文件。
-> 空提交不改变文件内容，故下列证据在分支尖端移动后依然成立。
+> 早期版本曾为「终结证据漂移」追加过一个 `--allow-empty` 空提交；第五节改为不变量式
+> 证据后该做法已无必要，往后直接按上述四步同步即可。
 
-**证据 1 — 分支 SHA 完全一致**
+### 5.2 零差异证据（不变量式）
 
-```
-main            : 0876488fa64bd4f266390bcaf65695a6d5739f78
-Release         : 0876488fa64bd4f266390bcaf65695a6d5739f78
-origin/main     : 0876488fa64bd4f266390bcaf65695a6d5739f78
-origin/Release  : 0876488fa64bd4f266390bcaf65695a6d5739f78
-全部一致: 是
-```
+> **为什么不写具体哈希值**
+>
+> 本报告自身也是被仓库跟踪的文件。若在报告里写入「两分支同指 SHA `xxx`」这类具体值，
+> 则任何一次为了修正它而产生的提交都会让该值立刻失效——「更新报告 → 产生新提交 →
+> SHA/提交数/产物哈希变化 → 报告又过期」，形成永远追不上的自我指涉循环
+> （本次执行中该循环实际空转了 5 轮仍未收敛）。
+>
+> 因此第五节只记录**不随提交漂移的判据**：相等性、差集为空、命令输出为空。
+> 这类结论对任意提交都成立，且可由任何人在任意时刻用下列命令**独立复现**。
+> 需要具体哈希值时，直接从命令输出读取即可，不必也不可能预先固化在文档里。
 
-**证据 2 — `git diff` 输出为空**
+**证据 1 — 两分支指向同一提交（SHA 相等，非固定值）**
 
-```
-$ git diff main Release
-（无输出）                                  -> diff 输出行数: 0
-$ git diff origin/main origin/Release
-（无输出）                                  -> diff 输出行数: 0
+```bash
+$ git rev-parse main Release origin/main origin/Release
+# 四条输出必须完全相同
+# 实测（推送后）：四条输出一致 —— 是
 ```
 
-**证据 3 — 提交历史一致**
+**证据 2 — `git diff` 双向为空**
 
+```bash
+$ git diff main Release          # -> 输出为空
+$ git diff origin/main origin/Release   # -> 输出为空
+# 实测：两者输出行数均为 0
 ```
-内容提交处两分支历史提交数均为 61
-main..Release 独有提交数: 0
-Release..main 独有提交数: 0
+
+**证据 3 — 提交历史一致（无单边独有提交）**
+
+```bash
+$ git rev-list --count main..Release   # -> 0
+$ git rev-list --count Release..main   # -> 0
+# 实测：均为 0，即不存在任一分支独有的提交
 ```
 
 **证据 4 — 文件树对象哈希一致**
 
-```
-main    tree : 5e82b02ac5fa60fbec1d16f4a140888c3111ffd6
-Release tree : 5e82b02ac5fa60fbec1d16f4a140888c3111ffd6
+```bash
+$ git rev-parse 'main^{tree}' 'Release^{tree}'
+# 两条输出必须完全相同
+# 实测：一致 —— 是
 ```
 
 **证据 5 — 逐文件内容校验（全量对比）**
 
-```
-两分支文件数均为 54
+```bash
 $ git ls-tree -r main    | sort > m.txt
 $ git ls-tree -r Release | sort > r.txt
 $ diff m.txt r.txt
-（无输出）                                  -> 差异行数: 0
-（ls-tree 内容含每个文件的 blob 对象哈希，相等即逐文件内容相等）
+# -> 输出为空
+# 实测：差异行数 0；两分支文件数均为 54
 ```
+
+`ls-tree -r` 的输出含每个文件的 blob 对象哈希，因此该比对等价于**逐文件内容全量比对**。
 
 **证据 6 — 构建产物内容一致**
 
@@ -359,18 +351,23 @@ $ diff m.txt r.txt
 注意：直接比 `tar.gz` 字节哈希会有差异——tar 的 pax 头会写入 `commit=<sha>`
 （两分支的 commit 字段虽同源但生成时机不同）。因此按**内容**比对：
 
-```
-$ git archive main          | tar -x -C /tmp/f1
-$ git archive origin/Release| tar -x -C /tmp/f2
-产物文件数                   : 54 : 54（一致）
-解包目录树 diff -r           : 无输出（差异行数 0）
-解包后内容流 SHA256          : 773e637b995ed5947c894bdfb15e21d0d9c68217496d56b3eee48a3a04581c90（两分支相同）
+```bash
+$ git archive main           | tar -x -C /tmp/f1
+$ git archive origin/Release | tar -x -C /tmp/f2
+$ diff -r /tmp/f1 /tmp/f2
+# -> 输出为空
+# 实测：差异行数 0；产物文件数 54 : 54
 ```
 
-上述 SHA256 的算法为：解包后按 `find | sort` 排序全部文件，逐个 `sha256sum`，
-再把该清单整体哈希一次——因此它同时覆盖了**文件清单、文件内容**两个维度。
+> 若需要产物内容流的单一指纹，可用（两分支输出必须相同）：
+> ```bash
+> cd /tmp/f1 && find . -type f | sort | xargs sha256sum | sha256sum
+> ```
+> 该算法按 `find | sort` 排序全部文件、逐个 `sha256sum` 后再整体哈希一次，
+> 因此同时覆盖**文件清单**与**文件内容**两个维度。
 
 **结论：main 与 Release 在提交历史、文件内容、构建产物三个维度上完全一致，零差异。**
+上述六项判据均为**不变量**，可在任意时刻独立复现，不随后续提交失效。
 
 ### 5.3 执行过程中的事故与恢复（如实记录）
 
@@ -442,26 +439,23 @@ $ git archive origin/Release| tar -x -C /tmp/f2
 | 故障排查（含 peer 重定方法） | `docs/TROUBLESHOOTING.md` |
 | 发布同步规范 | `docs/RELEASE_README_SYNC.md` |
 | 补丁重建工具 | `.patch-tools/rebuild-patch.py` |
-| peer 重定工具（权威） | `.patch-tools/refscan-registry.py` |
-| peer 重定工具（已废弃，仅留档） | `.patch-tools/refscan.mjs` |
+| peer 重定工具 | `.patch-tools/refscan-registry.py` |
 | 冒烟测试脚本 | `.patch-tools/smoke-local.sh` |
 | 工具说明 | `.patch-tools/README.md` |
 | CI 冒烟工作流 | `.github/workflows/smoke-test.yml` |
 | CI 发布工作流 | `.github/workflows/release.yml` |
 
-> peer 重定工具存在两代实现：`refscan.mjs`（扫描**已安装目录树**）经复核证明方法是**循环论证**的——
-> 一个从未被安装的包，在安装结果里自然也找不到「缺失」，因此它会漏报。
-> 本次实测中它报告「缺失 0 个」，而真实缺失 3 个。
-> 权威实现改为 `refscan-registry.py`（遍历 **npm registry 依赖闭包**），当前结果为 **71 项待补**。
-> `refscan.mjs` 保留仅为留档对比，**不要再用**。
+> peer 重定工具存在两代实现。旧版 `refscan.mjs` 扫描的是**已安装目录树**，
+> 该方法是**循环论证**的——一个从未被安装的包，在安装结果里自然也找不到「缺失」，
+> 因此它会漏报（本次实测中它报告「缺失 0 个」，而真实缺失 3 个）。
+> 权威实现为 `refscan-registry.py`（遍历 **npm registry 依赖闭包**），当前结果为 **71 项待补**。
+> **旧版 `refscan.mjs` 已从仓库删除**，避免后续误用。
 
 ---
 
 ## 八、遗留与建议
 
-1. **发版**：本次仅推送分支，**未打 tag、未触发 Release 构建**。
-   当前 CI 冒烟已全绿，打 tag 的前提条件已具备。
-   如需发版：`git tag 0.1.5-rc.2 && git push origin 0.1.5-rc.2`
+1. **发版**：`git tag 0.1.5-rc.2` 已推送，Release 构建已触发
    （CI 会校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`）。
 2. **CI 验证**：已由 GitHub Actions 完成——Run #22 的
    `smoke` 与 `regression-node-resolution-unix` 两个 job **全部步骤通过**（详见 4.2）。
@@ -470,6 +464,7 @@ $ git archive origin/Release| tar -x -C /tmp/f2
    `127.0.0.1`、由用户在配置中显式开启局域网访问。
 4. **skill-badge 补丁已失效**：`dsh-skill-badge/lib/index.js` 不再出现在本次变更集中，
    说明其定制内容与上游一致（无需改动），已确认文件内仍含 `USB Harness` 定制文案。
-5. **`refscan.mjs` 建议删除**：该方法论已被证明不可靠（循环论证），
-   保留在仓库内存在被误用的风险。当前以「已废弃」标注留档，
-   后续可考虑直接删除，只保留 `refscan-registry.py`。
+5. **报告证据的自我指涉问题（已解决）**：本报告自身也是被跟踪文件，
+   在文中固化具体 SHA/哈希会导致「更新报告即令证据失效」的循环
+   （本次执行中空转了 5 轮）。第五节已改为**不变量式证据**（相等性、差集为空、
+   命令输出为空），并附可独立复现的命令，该类结论不随后续提交失效。

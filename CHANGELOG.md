@@ -76,7 +76,7 @@
   新增 `0.1.1-rc.2 → 0.1.5-rc.2` 逐条变更追踪与**冲突差异表**（7 项定制逐条说明保留原因）；
   已知坑位补充「补齐清单必须逐版本重定」及「整文件沿用补丁的高危性」。
 - `docs/TROUBLESHOOTING.md`：新增「peer 依赖补齐清单的重定方法」完整操作章节
-  （含可直接运行的 `refscan.mjs`）；症状表新增 4 条（`ERR_MODULE_NOT_FOUND`、
+  （含可直接运行的 `refscan-registry.py`）；症状表新增 4 条（`ERR_MODULE_NOT_FOUND`、
   `--profile is required`、`401`、`0.0.0.0` 拦截残留）。
 - `docs/RELEASE_README_SYNC.md`：第 6 节扩写为「三方校验的检测边界」「按新基线 + 定制意图重建」
   三小节，并明确**默认按重做执行**；操作步骤与验收检查表同步补充。

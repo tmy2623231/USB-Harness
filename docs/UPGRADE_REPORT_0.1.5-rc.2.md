@@ -2,7 +2,7 @@
 
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
-> 提交：`f07dc48`（main 与 Release 同一提交）
+> 提交：`43dba0a`（main 与 Release 指向同一提交）
 > 结论：**六项任务全部完成，冒烟测试 9/9 通过（100%）**
 
 ---
@@ -173,24 +173,25 @@
 **证据 1 — 分支 SHA 完全一致**
 
 ```
-main            : f07dc489835ccdb45a7469470cc73f5299798913
-Release         : f07dc489835ccdb45a7469470cc73f5299798913
-origin/main     : f07dc489835ccdb45a7469470cc73f5299798913
-origin/Release  : f07dc489835ccdb45a7469470cc73f5299798913
+main            : 43dba0aa4e06653d28c1b57be861434d5dff3914
+Release         : 43dba0aa4e06653d28c1b57be861434d5dff3914
+origin/main     : 43dba0aa4e06653d28c1b57be861434d5dff3914
+origin/Release  : 43dba0aa4e06653d28c1b57be861434d5dff3914
 ```
 
-**证据 2 — `git diff main Release` 输出为空**
+**证据 2 — `git diff` 输出为空**
 
 ```
 $ git diff main Release
-（无输出）
-diff 输出行数: 0
+（无输出）                                  -> diff 输出行数: 0
+$ git diff origin/main origin/Release
+（无输出）                                  -> diff 输出行数: 0
 ```
 
 **证据 3 — 提交历史一致**
 
 ```
-两分支历史提交数均为 52
+两分支历史提交数均为 53
 main..Release 独有提交数: 0
 Release..main 独有提交数: 0
 ```
@@ -198,14 +199,14 @@ Release..main 独有提交数: 0
 **证据 4 — 文件树对象哈希一致**
 
 ```
-main    tree : b14325915be12e35acbccaae82575a2d4066bf9b
-Release tree : b14325915be12e35acbccaae82575a2d4066bf9b
+main    tree : 802e27e60cb535328c0d17f65773c78e63a70245
+Release tree : 802e27e60cb535328c0d17f65773c78e63a70245
 ```
 
-**证据 5 — 逐文件内容校验（52 个文件对象哈希全量对比）**
+**证据 5 — 逐文件内容校验（全量对比）**
 
 ```
-两分支 52 个文件的对象哈希全部一致（零差异）
+两分支全部文件的对象哈希一致（零差异）
 ```
 
 **证据 6 — 构建产物一致**
@@ -213,9 +214,8 @@ Release tree : b14325915be12e35acbccaae82575a2d4066bf9b
 本项目构建产物 = `git archive` 打包内容（CI 无编译步骤，用同样方式打包）：
 
 ```
-main    产物 SHA256: 3190a8b9bdd3e31074ad1415095c4f8d9cc896f36419bf3431988ac06b4479d9
-Release 产物 SHA256: 3190a8b9bdd3e31074ad1415095c4f8d9cc896f36419bf3431988ac06b4479d9
-（固定 mtime 后内容哈希）269c0bd9cdd2de7a34958346855a9b2a82aaa35b92360d11635518838143aaba（两分支相同）
+main    产物 SHA256: 9e127a1f847c0536df5ffeabd4d1d26bc6651a36fdab03f9ef5524be18dbee4c
+Release 产物 SHA256: 9e127a1f847c0536df5ffeabd4d1d26bc6651a36fdab03f9ef5524be18dbee4c
 ```
 
 **结论：main 与 Release 在提交历史、文件内容、构建产物三个维度上完全一致，零差异。**

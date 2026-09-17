@@ -102,7 +102,7 @@ unset CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR CODEBUDDY_TOOL_CALL_ID CODEBUDDY_SAFE
 # 用例 1：dsh --version
 # ---------------------------------------------------------------------------
 hr
-say "用例 1/7  dsh --version（超时 ${T_VERSION}s）"
+say "用例 1/8  dsh --version（超时 ${T_VERSION}s）"
 out="$(run_to $T_VERSION "$NODE" "$CLI" --version 2>&1 | tail -1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -117,7 +117,7 @@ fi
 # 用例 2：dsh --help 且品牌已替换
 # ---------------------------------------------------------------------------
 hr
-say "用例 2/7  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
+say "用例 2/8  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
 help_out="$(run_to $T_HELP "$NODE" "$CLI" --help 2>&1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -141,7 +141,7 @@ fi
 # 以 setup 脚本的 $PeerFix 为唯一数据源，逐个断言其声明的包确实落地。
 # 这样"清单写了但没装上"会在本地就炸，而不是等到 CI。
 hr
-say "用例 3/7  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
+say "用例 3/8  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
 if [ "$QUICK" = "1" ]; then
   record "peer 清单一致性" SKIP "--quick 跳过"
 else
@@ -177,7 +177,7 @@ fi
 # 用例 4：补丁基线校验（dsh_patch_compat_check.py）
 # ---------------------------------------------------------------------------
 hr
-say "用例 4/7  补丁基线校验（超时 ${T_PATCHCHECK}s）"
+say "用例 4/8  补丁基线校验（超时 ${T_PATCHCHECK}s）"
 pc_out="$(run_to $T_PATCHCHECK python scripts/dsh_patch_compat_check.py \
           --patch "brand-patch/@deepseek-ai" --base 0.1.5-rc.2 --target 0.1.5-rc.2 2>&1)"
 rc=$?
@@ -197,7 +197,7 @@ fi
 # 用例 5：headless（CLI）模式可启动到模型派发阶段
 # ---------------------------------------------------------------------------
 hr
-say "用例 5/7  headless CLI 模式（超时 ${T_HEADLESS}s）"
+say "用例 5/8  headless CLI 模式（超时 ${T_HEADLESS}s）"
 if [ "$QUICK" = "1" ]; then
   record "headless CLI 模式" SKIP "--quick 跳过"
 else
@@ -227,7 +227,7 @@ fi
 # 测的是 dsh 本身能跑 headless，而不是"启动器的 CLI 模式可用"。
 # 这个用例转而检查**启动器的调用路径本身**，堵住该盲区。
 hr
-say "用例 6/7  启动器 CLI 分支传参（静态检查）"
+say "用例 6/8  启动器 CLI 分支传参（静态检查）"
 LAUNCH_PS1="scripts/launch-windows.ps1"
 if [ ! -f "$LAUNCH_PS1" ]; then
   record "启动器 CLI 传参" FAIL "找不到 $LAUNCH_PS1"
@@ -246,10 +246,51 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 用例 7：web 服务能真正起来并返回 200
+# 用例 7：brand-patch 的浏览器端补丁能真实求值（回归：曾漏声明构造函数参数）
+# ---------------------------------------------------------------------------
+# 【背景 — 这个用例为什么必须存在】
+# brand-patch 里的 dsh-client-ui-permission-presets/lib/client.js 是**整文件快照**，
+# 其中我们的定制往 permissionDefaultOf / 控制器里穿了 locale 查找函数 t，
+# 但**忘了把 t 加进构造函数形参**：
+#     constructor(describeFace, ctx, schema) { this.t = t; }   <-- t 未声明
+# 后果：浏览器端 apply() 抛 ReferenceError: t is not defined，Web 整页
+#       "Failed to load plugins —— @deepseek-ai/dsh-client-ui-permission-presets"。
+#
+# 关键点：这是**运行时才会暴露**的缺陷——
+#   * `node --check` 只做语法解析，ReferenceError 属于语义/运行时问题，查不出；
+#   * 原有的 17 项补丁基线校验只看"定制意图在不在"，也不检查 JS 是否可执行；
+#   * CLI 侧（--version / --help / headless）完全不加载浏览器端 bundle，自然全绿。
+# 所以必须**真的把模块求值一次**，让它自己跑出错误。
+hr
+say "用例 7/8  brand-patch 浏览器端模块可求值（超时 ${T_PATCHCHECK}s）"
+PERM_JS="brand-patch/@deepseek-ai/dsh-client-ui-permission-presets/lib/client.js"
+EVAL_TOOL=".patch-tools/eval-client-module.mjs"
+if [ ! -f "$PERM_JS" ]; then
+  record "补丁浏览器端可求值" FAIL "找不到 $PERM_JS"
+elif [ ! -f "$EVAL_TOOL" ]; then
+  record "补丁浏览器端可求值" FAIL "找不到求值工具 $EVAL_TOOL"
+else
+  ev_out="$(run_to "$T_PATCHCHECK" "$NODE" "$EVAL_TOOL" "$PERM_JS" 2>&1)"
+  rc=$?
+  printf '%s\n' "$ev_out" >> "$LOG"
+  if [ $rc -eq 124 ]; then
+    record "补丁浏览器端可求值" TIMEOUT ">${T_PATCHCHECK}s 未返回"
+  elif [ $rc -eq 0 ] && printf '%s' "$ev_out" | grep -q '^PASS'; then
+    record "补丁浏览器端可求值" PASS "$(printf '%s' "$ev_out" | grep '^PASS' | head -1)"
+  elif [ $rc -eq 0 ] && printf '%s' "$ev_out" | grep -q '^SKIP'; then
+    # 替身 ctx 能力不足：不属于补丁缺陷，按 SKIP 记账（不伪装成 PASS）
+    record "补丁浏览器端可求值" SKIP "$(printf '%s' "$ev_out" | grep '^SKIP' | head -1)"
+  else
+    errline="$(printf '%s' "$ev_out" | grep -E 'ReferenceError|SyntaxError|FAIL' | head -1)"
+    record "补丁浏览器端可求值" FAIL "${errline:-rc=$rc 未通过}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 用例 8：web 服务能真正起来并返回 200
 # ---------------------------------------------------------------------------
 hr
-say "用例 7/7  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
+say "用例 8/8  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
 if [ "$QUICK" = "1" ]; then
   record "web 服务 HTTP" SKIP "--quick 跳过"
 else

@@ -137,6 +137,38 @@ jobs:
           }
           Write-Host "启动器 CLI 传参 ✓（Start-Cli 已显式传 --profile headless）"
 
+      - name: 补丁浏览器端模块可求值断言
+        shell: pwsh
+        run: |
+          # 【为什么必须断言这个】
+          # brand-patch 下的 client.js 是**整文件快照**，其中的定制若引用了
+          # 未声明的标识符，只会在**浏览器端运行时**炸：
+          #   ReferenceError: t is not defined
+          # 症状是 Web 页面整页 "Failed to load plugins"。
+          #
+          # 为什么既有检查挡不住：
+          #   * `node --check` 只做语法解析，跨行引用错误查不出；
+          #   * CLI 侧（--version / --help / headless）根本不加载浏览器端 bundle，
+          #     所以 CLI 冒烟全绿也可能是 Web 整页白屏；
+          #   * 补丁基线断言只回答「定制意图在不在」，不回答「代码能不能跑」。
+          #
+          # 实测事故：dsh-client-ui-permission-presets/lib/client.js 里定制往控制器
+          # 穿了 locale 查找函数 t，却漏把它加进构造函数形参。
+          # 本步骤真的把模块求值一次，让它自己跑出错误。
+          $tool = '.patch-tools/eval-client-module.mjs'
+          $mod  = 'brand-patch/@deepseek-ai/dsh-client-ui-permission-presets/lib/client.js'
+          if (-not (Test-Path $tool)) { throw "找不到求值工具 $tool" }
+          if (-not (Test-Path $mod))  { throw "找不到被检模块 $mod" }
+          $out = & node $tool $mod 2>&1 | Out-String
+          Write-Host $out
+          if ($out -match 'ReferenceError|SyntaxError|FAIL') {
+            throw "补丁浏览器端模块求值失败（见上方日志）"
+          }
+          if ($out -notmatch 'PASS|SKIP') {
+            throw "补丁浏览器端模块求值未给出明确结论"
+          }
+          Write-Host "补丁浏览器端模块可求值 ✓"
+
       - name: 补丁基线断言
         shell: pwsh
         env:

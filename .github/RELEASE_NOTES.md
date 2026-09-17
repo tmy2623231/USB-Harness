@@ -1,10 +1,28 @@
-## USB Harness 0.1.5-rc.2.1 — 完整包（含运行时，下载即用）
+## USB Harness 0.1.5-rc.2.2 — 完整包（含运行时，下载即用）
 
-> 适配 dsh `0.1.5-rc.2`，版本号跟随适配的 dsh 版本；`.1` 为包装热修复号，**不涉及上游变更**。
+> 适配 dsh `0.1.5-rc.2`，版本号跟随适配的 dsh 版本；`.2` 为包装热修复号，**不涉及上游变更**。
+>
+> **如果你已下载 `0.1.5-rc.2.1`，请务必换成本版**——`.1` 的 Web 界面打不开。
 
-### 本版修复：Windows 上 CLI 单次任务模式 100% 失败
+### 本版修复：Web 页面 "Failed to load plugins"（严重）
 
-若你在 `0.1.5-rc.2` 的 Windows 包里切到 CLI 模式并启动，会立即看到：
+打开 Web 页面时显示：
+
+```
+Failed to load plugins
+@deepseek-ai/dsh-client-ui-permission-presets
+failed to apply loader entry 204619: (…): t is not defined
+```
+
+**原因**：一个品牌定制文件（权限预设的浏览器端模块）在改造时漏声明了一个
+函数形参，导致浏览器加载插件时抛 `ReferenceError`。**修复**：补上该形参。
+
+> 该缺陷**只影响 Web 界面**；CLI / 单次任务路径不加载这个模块，所以看起来是好的。
+> 换成本版后 Web 界面即可正常打开。
+
+### 上一版（`.1`）修复了什么：Windows 上 CLI 单次任务 100% 失败
+
+若你在更早的包里切到 CLI 模式并启动，会立即看到：
 
 ```
 node.exe : error: --profile <name> is required
@@ -17,7 +35,22 @@ node.exe : error: --profile <name> is required
 `web` / `headless` / `acp` / `sdk`，因此本模式重定位为「**CLI 单次任务**」：
 输入一个任务，跑完一次会话后打印答案并退出。想要多轮对话请用 Web 界面。
 
-> Web 界面用户不受本缺陷影响，无需为此升级；已在用 CLI 模式的请改用本版。
+### ⚠️ 首次使用必须自己配一次模型
+
+**本包不内置任何模型凭据**（有意为之），所以第一次打开必须：
+
+> **设置 → 模型 → 添加自定义提供方** → 填 API 地址 / 密钥 → 获取可用模型 → 保存
+
+在此之前，你会看到下面这些**正常**提示，不要误判成崩溃：
+
+| 提示 | 含义 |
+|------|------|
+| `dsh: NO_ADAPTER: no adapter registered for provider "pi-ai"` | 插件树已加载成功，只是没配模型 |
+| Web 对话报模型不可用 | 同上，去设置里配好即可 |
+| 控制台红字 `error:`（PowerShell 渲染 stderr） | 多数是警告被渲染成红字，非故障 |
+
+**判断口径**：Web 首页能打开、插件能加载 = 程序没问题，只差模型配置。
+**真正要警惕的是浏览器出现 `Failed to load plugins`**——那才是程序缺陷。
 
 ### 上游对齐：dsh 0.1.1-rc.2 → 0.1.5-rc.2
 

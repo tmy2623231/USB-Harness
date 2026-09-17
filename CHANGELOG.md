@@ -13,6 +13,78 @@
 
 ---
 
+## [0.1.5-rc.2.2] — 2026-09-17
+
+> **包装热修复**：不涉及上游 dsh 变更。修复 `0.1.5-rc.2.1` 产物中
+> **Web 界面无法加载插件**的严重缺陷。**所有 `.1` 用户请升级到本版。**
+
+### 修复（Web 页面 "Failed to load plugins" —— 严重）
+
+- **现象**：打开 Web 页面显示
+  ```
+  Failed to load plugins
+  @deepseek-ai/dsh-client-ui-permission-presets
+  failed to apply loader entry 204619: (…): t is not defined
+  ```
+  浏览器控制台：`ReferenceError: t is not defined`。
+- **根因**：`brand-patch/@deepseek-ai/dsh-client-ui-permission-presets/lib/client.js`
+  是我们的定制文件。定制意图是把 locale 查找函数 `t` 贯穿到
+  `permissionDefaultOf` 与控制器，以便**预设标签走本地化**；
+  但只改了 3 处调用，**漏把 `t` 加进构造函数形参**：
+
+  ```diff
+  - constructor(describeFace, ctx, schema) {      // ← 形参没有 t
+  + constructor(describeFace, ctx, schema, t) {
+      this.describeFace = describeFace;
+      this.ctx = ctx;
+      this.schema = schema;
+      this.t = t;                                 // ← 引用了不存在的主张
+    }
+  ```
+  调用点也需同步补传：
+
+  ```diff
+  - new PermissionPresetSettingsController(ctx.settingsScope.describe(), ctx, ctx.settingsSchema)
+  + new PermissionPresetSettingsController(ctx.settingsScope.describe(), ctx, ctx.settingsSchema, t)
+  ```
+- **影响面**：**仅影响 Web 界面**（该模块只在浏览器端加载）。
+  CLI / headless 路径不加载此模块，因此 CLI 侧看起来一切正常——
+  这也是它此前躲过全部检查的原因。
+
+### 修复（三道既有检查为何都没拦住）
+
+| 检查 | 为什么没拦住 |
+|------|--------------|
+| `node --check` 语法检查 | `ReferenceError` 是**运行时**语义错误，语法完全合法 |
+| 补丁基线校验（17 项意图断言） | 只回答「定制意图在不在」，不回答「代码能不能跑」 |
+| CLI 冒烟（--version / --help / headless） | **根本不加载浏览器端 bundle** |
+
+- **新增用例 7「brand-patch 浏览器端模块可求值」**（本地冒烟，用例数 10 → 11）
+  与对应 CI 步骤 **「补丁浏览器端模块可求值断言」**：
+  用最小模块环境**真的把 `client.js` 求值一次**，让它自己跑出运行时错误。
+- 新增工具 `.patch-tools/eval-client-module.mjs`，判定为三态：
+  - `FAIL` —— `ReferenceError`（补丁自身引用了未声明的标识符）→ 必须修
+  - `PASS` —— `apply()` 执行完成
+  - `SKIP` —— 抛出 `TypeError`（检查工具的替身 ctx 能力不足，非补丁缺陷）
+  
+  三态设计是刻意的：把「工具自身的局限」和「被检代码的缺陷」分开，
+  避免误报累积后工具被当成"狼来了"而失效。
+- 已做**负对照验证**：对未修复的文件运行该工具，确实报
+  `FAIL: apply() 抛 ReferenceError -> t is not defined`（精确复现用户症状）。
+
+### 修复（README 补充"首次必须配模型"的说明）
+
+- 明确写出**本项目不内置模型凭据**，首次使用需自行配置一次模型，属预期行为。
+- 新增「还没配模型时会看到哪些'像报错'的提示」对照表，说明
+  `NO_ADAPTER: no adapter registered for provider "pi-ai"` 与 PowerShell 红字
+  都属正常，**真正需要警惕的是浏览器出现 `Failed to load plugins`**。
+
+### 验证
+
+- 本地冒烟：**用例数 11 / 通过 11 / 失败 0 / 通过率 100%**。
+
+---
+
 ## [0.1.5-rc.2.1] — 2026-09-17
 
 > **包装热修复**：不涉及上游 dsh 变更，仅修复 `0.1.5-rc.2` 发布产物中的一个启动缺陷。

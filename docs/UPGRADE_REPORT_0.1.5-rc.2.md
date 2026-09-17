@@ -3,7 +3,8 @@
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
 > 版本锚点：`git tag 0.1.5-rc.2`（main 与 Release 指向同一提交）
-> 结论：**六项任务全部完成；本地冒烟 10/10（100%），CI 冒烟 Run #29 全绿（含新增启动器断言步骤），发版构建 Run #9 成功**
+> 结论：**六项任务全部完成；本地冒烟 11/11（100%），CI 冒烟全绿（含新增启动器与补丁求值两个断言步骤），发版构建成功**
+> 打补丁：`0.1.5-rc.2.1`（启动器 CLI 修复）→ `0.1.5-rc.2.2`（Web 插件加载修复）
 
 ---
 
@@ -229,13 +230,128 @@ hl_out="$(run_to $T_HEADLESS "$NODE" "$CLI" --profile headless "..." 2>&1)"
 因此正常路径下用户不会看到 401。仅在手动抄地址时容易漏掉 `?token=`。
 已在 README「安全须知」补充明确的排查小节。
 
+### 3.7 第二例用户报障：Web 页面 "Failed to load plugins"（2026-09-17 补记）
+
+用户报告 Web 页面显示：
+
+```
+Failed to load plugins
+@deepseek-ai/dsh-client-ui-permission-presets
+failed to apply loader entry 204619: (…): t is not defined
+```
+
+浏览器控制台：`ReferenceError: t is not defined`。
+
+#### 问题 D — 补丁文件漏声明构造函数形参（严重，影响 Web 界面）
+
+**定位过程**：从报错堆栈里的 `client.js:17:29` 反查，确认是
+`brand-patch/@deepseek-ai/dsh-client-ui-permission-presets/lib/client.js`
+（我们的定制文件，非上游文件）。将该文件与上游 0.1.5-rc.2 原包逐行 diff，
+差异共 4 处，全部是**我们的定制**：
+
+```diff
+- function permissionDefaultOf(view, schema) {
++ function permissionDefaultOf(view, schema, t) {
+      …
+-     ? displayPermissionPreset(choice.value, described)
++     ? displayPermissionPreset(choice.value, described, t)
+      …
+      this.schema = schema;
++     this.t = t;                  // ← 引用了不存在的 t
+      …
+-     const resolved = permissionDefaultOf(view, this.schema);
++     const resolved = permissionDefaultOf(view, this.schema, this.t);
+```
+
+**根因**：定制意图是让预设标签走本地化，因此把 locale 查找函数 `t` 贯穿下去；
+但只改了 3 处调用，**漏把 `t` 加进构造函数形参**——
+`constructor(describeFace, ctx, schema)` 里没有 `t`，于是 `this.t = t` 引用未声明标识符。
+
+`t` 在被调用（`t("unavailable")`）时才抛错，因此报错行号落在
+`lib/client.js:17`（esbuild 打包后的行号），而非赋值所在行。
+
+**修复**（两处，缺一不可）：
+
+```diff
+- constructor(describeFace, ctx, schema) {
++ constructor(describeFace, ctx, schema, t) {
+```
+
+```diff
+- new PermissionPresetSettingsController(ctx.settingsScope.describe(), ctx, ctx.settingsSchema)
++ new PermissionPresetSettingsController(ctx.settingsScope.describe(), ctx, ctx.settingsSchema, t)
+```
+
+**已扫描全部 17 个补丁文件**确认无同类问题——对每个文件做「上游 vs 补丁」逐行 diff，
+只有本文件存在此类新增的未声明引用。
+
+#### 问题 E — 三道既有检查为何都没拦住
+
+| 检查 | 为什么没拦住 |
+|------|--------------|
+| `node --check` 语法检查 | `ReferenceError` 是**运行时**语义错误，语法完全合法 |
+| 补丁基线校验（17 项意图断言） | 只回答「定制意图在不在」，不回答「代码能不能跑」 |
+| CLI 冒烟（`--version` / `--help` / headless） | **根本不加载浏览器端 bundle**，这条路径永远看不到该错误 |
+
+换言之：**所有既有检查都只覆盖了"服务端/构建期"视角，
+而该缺陷只存在于"浏览器运行时"视角**。
+
+#### 修复措施
+
+新增工具 `.patch-tools/eval-client-module.mjs`：
+在最小模块环境里**真的把 `client.js` 求值一次**，让它自己跑出运行时错误。
+
+判定为**三态**（这是刻意设计）：
+
+| 结果 | 条件 | 含义 |
+|------|------|------|
+| `FAIL` | 抛 `ReferenceError` | 补丁自身引用了未声明的标识符 → 必须修 |
+| `PASS` | `apply()` 执行完成 | 该模块可正常加载 |
+| `SKIP` | 抛 `TypeError` | 检查工具的替身 ctx 能力不足，**非补丁缺陷** |
+
+> 三态的必要性：浏览器 bundle 依赖 dsh 客户端运行时的完整 ctx
+> （`provide` / `slots` / `settingsScope` / 各类 store）。替身一旦不够像就会抛
+> `TypeError: ctx.xxx is not a function` 这类**工具自身局限**。
+> 若不与真实缺陷区分开，工具会持续误报，很快就被当成"狼来了"而失效——
+> 一个总在报警的检查等于没有检查。
+
+**负对照验证**（证明工具确有检出能力）：
+
+```
+对未修复文件运行：
+  FAIL: apply() 抛 ReferenceError（补丁自身引用了未声明的标识符）
+    -> t is not defined
+    at new PermissionPresetSettingsController (…/client.js:283:14)
+```
+
+与用户浏览器里的症状**逐字一致**（同一文件、同一符号、同一根因）。
+
+**接入点**：本地冒烟用例 8（用例数 10 → 11）+ CI 步骤「补丁浏览器端模块可求值断言」。
+
+#### 问题 F — 用户追问"首次不该先让配模型吗"
+
+用户的疑问是合理的：CLI 报 `NO_ADAPTER: no adapter registered for provider "pi-ai"`，
+看起来像"没配置就报错"。
+
+**结论：这是预期行为，不是缺陷。** 本项目刻意不内置任何模型凭据
+（隐私清理的要求），因此首次必须自行配置一次模型。
+
+但**文档此前确实没把这件事说明白**，导致用户无法区分
+「设计如此」与「出故障了」。已在 README 第 3 节补充：
+
+- 明确写「本项目不内置任何模型凭据，首次必须自己配一次模型」；
+- 新增对照表，说明 `NO_ADAPTER`、Web 对话报模型不可用、
+  PowerShell 把 stderr 渲染成红字 `error:` 均属正常；
+- 给出判断口径：**Web 首页能打开 + 插件能加载 = 程序没问题，只差模型配置；
+  真正要警惕的是浏览器出现 `Failed to load plugins`**。
+
 ---
 
 ## 四、冒烟测试结果
 
 ### 4.1 本地冒烟（`bash .patch-tools/smoke-local.sh`）
 
-**最终结果**：**用例数 10 / 通过 10 / 失败 0 / 通过率 100% / 退出码 0**
+**最终结果**：**用例数 11 / 通过 11 / 失败 0 / 通过率 100% / 退出码 0**
 
 | # | 用例 | 结果 | 判定依据 |
 |---|------|------|----------|
@@ -245,14 +361,15 @@ hl_out="$(run_to $T_HEADLESS "$NODE" "$CLI" --profile headless "..." 2>&1)"
 | 4 | **`$PeerFix` 清单一致性** | PASS | **77 项全部落地**（前向校验，见下） |
 | 5 | 补丁基线校验 | PASS | 安全 **17** / 需确认 0 / 阻断 0 / 异常 0 |
 | 6 | headless CLI 模式 | PASS | 插件树加载成功（止于模型派发：无 API Key） |
-| 7 | **启动器 CLI 分支传参** | PASS | `Start-Cli` 已显式传 `--profile headless`（新增，见 3.5-C） |
-| 8 | web 服务启动 | PASS | 已监听 3080 端口族；局域网地址已发布 |
-| 9 | web 首页 HTTP | PASS | HTTP 200（`token → 303 + Set-Cookie → cookie → 200` 全链路通过） |
-| 10 | web 首页标题 / 静态资源 | PASS | `<title>USB Harness</title>`；4 个 JS/CSS 资源全部 HTTP 200 |
+| 7 | **启动器 CLI 分支传参** | PASS | `Start-Cli` 已显式传 `--profile headless`（见 3.5-C） |
+| 8 | **补丁浏览器端可求值** | PASS | `apply()` 执行完成、未抛运行时错误（注册字典 3 处）（新增，见 3.7-E） |
+| 9 | web 服务启动 | PASS | 已监听端口族；局域网地址已发布 |
+| 10 | web 首页 HTTP | PASS | HTTP 200（`token → 303 + Set-Cookie → cookie → 200` 全链路通过） |
+| 11 | web 首页标题 / 静态资源 | PASS | `<title>USB Harness</title>`；4 个 JS/CSS 资源全部 HTTP 200 |
 
 **品牌泄漏复查**：首页 HTML 中 `deepseek` 出现 **486 次，其中 486 次为 `@deepseek-ai/` 包名路径** → **品牌零泄漏**。
 
-> **无跳过、无注释、无屏蔽**：全部 **10** 个用例真实执行。
+> **无跳过、无注释、无屏蔽**：全部 **11** 个用例真实执行。
 > 脚本对每一步都加了 `timeout` 硬超时（60s / 60s / 30s / 300s / 180s / 120s），
 > 任一步超时标记为 FATAL 并计入统计，不静默跳过。
 
@@ -265,6 +382,11 @@ hl_out="$(run_to $T_HEADLESS "$NODE" "$CLI" --profile headless "..." 2>&1)"
 因此本地与 CI 都漏掉了这个必然失败的功能缺陷——详见 3.5-C。
 该用例已通过负对照验证（还原为裸调用时正确判定 FAIL）。
 
+**用例 8 为新增（2026-09-17 补记）**：守护「brand-patch 的浏览器端补丁能真实求值」。
+前 7 个用例全部只覆盖 **node 侧**（CLI / 启动器 / 补丁基线文本），
+而 Web 崩溃发生在**浏览器运行时**，静态检查与 node 侧执行都看不到——详见 3.7-E。
+该用例已通过负对照验证（还原为漏声明参数时正确判定 FAIL）。
+
 ### 4.2 GitHub Actions 冒烟（`.github/workflows/smoke-test.yml`）
 
 | 提交 | Run | 结果 | 失败点 |
@@ -273,12 +395,15 @@ hl_out="$(run_to $T_HEADLESS "$NODE" "$CLI" --profile headless "..." 2>&1)"
 | `0aaeab7` | #21 | 失败 | 启动 dsh web 并探测 HTTP 200 |
 | `bd7be89` | #22 | 成功 | —（全部步骤通过） |
 | `f9c42fc` | #27 | 成功 | —（全部步骤通过，2m 04s） |
-| **`4a29e09`** | **#29** | **成功（最终）** | **—（全部步骤通过，1m 49s；含新增启动器断言）** |
+| `4a29e09` | #29 | 成功 | —（全部步骤通过，1m 49s；含新增启动器断言） |
+| `06758e2` | #30 | 成功 | —（全部步骤通过） |
+| `fa9dcbf` | #31 | 成功 | —（0.1.5-rc.2.1 发版条目；含新增启动器断言） |
+| **（本次 `0.1.5-rc.2.2` 提交）** | **待触发** | **待验** | **含新增「补丁浏览器端模块可求值断言」步骤** |
 
-Run #29（最终提交，含 CLI 修复与本文档全部改动）两个 job 均通过：
+Run #31（`0.1.5-rc.2.1` 发版提交）两个 job 均通过：
 
 ```
-JOB smoke                          -> success   (1m 45s)
+JOB smoke                          -> success
    OK  检出代码 / 读取锁定版本 / 下载并解压便携 Node.js
    OK  从安装脚本解析 peer 列表并安装
    OK  安装完整性断言
@@ -288,13 +413,16 @@ JOB smoke                          -> success   (1m 45s)
    OK  启动 dsh web 并探测 HTTP 200
    OK  检查更新脚本冒烟（-CheckOnly 退出码 ∈ {0,1,2}）
    OK  回归测试：dsh 不依赖 PATH 找 node（Windows）
-JOB regression-node-resolution-unix -> success   (12s)
+JOB regression-node-resolution-unix -> success
 ```
 
-> 新增断言步骤的落地闭环：该步骤在 Run #29 的 GitHub 步骤列表中**实际出现且状态为
+`0.1.5-rc.2.2` 提交在 `补丁基线断言` 与 `就绪标记生成` 之间**插入**
+`补丁浏览器端模块可求值断言`（见 3.7-E 与 `.patch-tools/eval-client-module.mjs`）。
+
+> 断言步骤的落地闭环：新增断言在 GitHub 步骤列表中**实际出现且状态为
 > success**，说明它不是一个只写进 YAML 却从未被执行的装饰步骤。
-> 与之配套的本地用例 6 已做**负对照验证**——把 `Start-Cli` 临时改回裸 `Invoke-Dsh`
-> 后断言确实 FAIL，证明该断言具备真实检出能力（见 3.5-C）。
+> 与之配套的本地用例已做**负对照验证**——把代码临时改回缺陷状态后断言确实 FAIL，
+> 证明该断言具备真实检出能力（见 3.5-C 与 3.7-E）。
 
 > 关于页面上出现的 "10 errors" 标注：那是**负对照用例的预期输出**，不是失败。
 > 这些用例刻意走错误路径并断言报错内容，因此运行日志里必然打印错误文本；

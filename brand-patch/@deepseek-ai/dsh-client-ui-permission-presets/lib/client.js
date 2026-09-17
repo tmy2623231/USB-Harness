@@ -276,7 +276,7 @@ window.__ModuleLoader__.load({
 			* carries the `defaultPreset` write.
 			* @param schema - settings-owned schema operations.
 			*/
-			constructor(describeFace, ctx, schema) {
+			constructor(describeFace, ctx, schema, t) {
 				this.describeFace = describeFace;
 				this.ctx = ctx;
 				this.schema = schema;
@@ -458,7 +458,7 @@ window.__ModuleLoader__.load({
 				zh,
 				en
 			}), "ui-permission: settings row dictionaries");
-			const controller = new PermissionPresetSettingsController(ctx.settingsScope.describe(), ctx, ctx.settingsSchema);
+			const controller = new PermissionPresetSettingsController(ctx.settingsScope.describe(), ctx, ctx.settingsSchema, t);
 			const load = () => controller.load();
 			const select = (preset) => controller.select(preset);
 			const injected = () => ({

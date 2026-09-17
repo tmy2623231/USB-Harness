@@ -97,20 +97,26 @@ curl -sL "https://api.github.com/repos/deepseek-ai/deepseek-harness/tags?per_pag
 
 ## 5. 操作步骤
 
-> 版本号跟随 dsh：Release tag 名必须等于锁定的 dsh 版本（如 `0.1.1-rc.2`），
-> 或 dsh 版本 + 包装补丁号（如 `0.1.1-rc.2.1`，仅用于本项目独立热修复）；
+> 版本号跟随 dsh：Release tag 名必须等于锁定的 dsh 版本（如 `0.1.5-rc.2`），
+> 或 dsh 版本 + 包装补丁号（如 `0.1.5-rc.2.1`，仅用于本项目独立热修复）；
 > CI 会强制校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`，不一致直接构建失败。
 
 1. **定版本**：确认当前锁定版本与目标版本（npm `dist-tags.latest`）。
 2. **取变更**：调用 compare API，拿到 commits 与 files（含 patch）。
 3. **分类**：按第 2 节归入五类，逐条记录"变更点 → 用户影响 → 需要的动作"。
 4. **判补丁**：按第 6 节校验 `brand-patch` 基线，决定沿用还是重做。
+   **默认按「重做」执行**：整文件沿用上一版补丁产物会静默回滚该文件的所有上游修复。
+   正确做法是「新上游基线 + 重新施加定制意图」重建（工具见第 6 节）。
 5. **改版本**：同步 `scripts/setup-windows.ps1`、`scripts/setup-unix.sh` 的版本变量（**补丁基线必须与版本号一致**）。
-6. **改 README**：按第 3 节逐区块更新，遵守第 4 节约束。
-7. **改关联文档**：`docs/COMPATIBILITY.md`（验证表 + 完整变更清单）、`docs/ARCHITECTURE.md`（若涉及架构决策）。
-8. **自检**：`bash -n scripts/setup-unix.sh`；ps1 语法解析；全文搜旧版本号确认无残留引用。
-9. **发版**：`git tag <dsh版本[.N]> && git push origin <dsh版本[.N]>`（触发 CI 构建并创建 Release，tag 名=包内 HARNESS_VERSION）。
-10. **出清单**：按第 7 节输出改动清单。
+6. **重定 peer 清单**：按 `docs/TROUBLESHOOTING.md#peer-依赖补齐清单的重定方法` 做静态说明符扫描，
+   用实测结果替换 `$PeerFix` / `PEERS`（**不可照抄上一版；不可靠"跑一次看缺哪个"**，会漏报）。
+7. **改 README**：按第 3 节逐区块更新，遵守第 4 节约束。
+8. **改关联文档**：`docs/COMPATIBILITY.md`（验证表 + 完整变更清单）、`docs/ARCHITECTURE.md`（若涉及架构决策）、
+   `docs/TROUBLESHOOTING.md`（新增症状）、`scripts/COMMANDS.md`（命令变化）。
+9. **跑冒烟**：`bash .patch-tools/smoke-local.sh`，须全部通过、不得跳过任何用例。
+10. **自检**：`bash -n scripts/setup-unix.sh`；ps1 语法解析；全文搜旧版本号确认无残留引用。
+11. **发版**：`git tag <dsh版本[.N]> && git push origin <dsh版本[.N]>`（触发 CI 构建并创建 Release，tag 名=包内 HARNESS_VERSION）。
+12. **出清单**：按第 7 节输出改动清单。
 
 ---
 
@@ -119,12 +125,14 @@ curl -sL "https://api.github.com/repos/deepseek-ai/deepseek-harness/tags?per_pag
 `brand-patch` 内的文件是针对**具体 dsh 版本**改写的。版本号与补丁基线不一致会导致
 「装 A 版、打 B 版补丁」——补丁引用了新版才有的导出，启动直接 `ERR_MODULE_NOT_FOUND`。
 
+### 6.1 三方校验：`patch / 旧版 / 新版` 对比
+
 使用 `dsh_patch_compat_check.py` 做 `patch / 旧版 / 新版` 三方对比：
 
 ```bash
 python dsh_patch_compat_check.py \
   --patch "<仓库>/brand-patch/@deepseek-ai" \
-  --base 0.1.1-rc.1 --target 0.1.1-rc.2
+  --base 0.1.1-rc.2 --target 0.1.5-rc.2
 ```
 
 判定：
@@ -134,6 +142,35 @@ python dsh_patch_compat_check.py \
 | 全部 OK | 补丁相对新旧两版均无变化，或补丁基线已等于目标版本 | 只改版本号，补丁不动 |
 | 存在 CHK | 目标版改过该文件 | 逐个 diff，确认是否覆盖新修复 |
 | 存在 BLOCK | 目标版已无此文件 | 必须基于新版重做补丁 |
+
+### 6.2 该工具的检测边界（重要）
+
+`dsh_patch_compat_check.py` **只比较「补丁 vs 上游」**，它**无法回答「定制意图是否还在」**。
+
+> 实测事故：`startup.js` 的定制是删除上游那句 `program.error("error: --host 0.0.0.0 ...")`。
+> 补丁重建后该文件被当成「仅品牌改名」处理，删除动作丢失，但三方校验仍报 **OK**——
+> 因为文件内容与新上游一致，只是定制没了。结果是 Web 服务**直接起不来**。
+>
+> 因此必须补一道**功能断言**：对每个定制点，用**字面量查找**确认它在补丁产物里
+> 存在（或已按意图移除），**找不到就报错退出，绝不静默跳过**。
+
+### 6.3 正确姿势：按「新基线 + 定制意图」重建
+
+**不要整文件沿用上一版的补丁产物。** 补丁文件是「某版本上游文件的整文件快照」，
+直接沿用等于把该文件在新版本里的**全部上游修复一起回滚**。
+
+> 实测：`brand-patch` 的 17 个文件里，有 **9 个**是上一版的整文件快照，属于上述高危情况。
+
+正确流程：把定制拆成可校验的**意图（intent）**清单，逐个在新上游基线上重新施加：
+
+| 意图类型 | 语义 | 失败行为 |
+|----------|------|----------|
+| `sub` | 字面量替换（品牌改名等） | 目标串不存在 → 报错 |
+| `anchor` | 在指定锚点插入代码块 | 锚点找不到 → 报错 |
+| `block_or_fail` | 整块替换（导入语句等结构性改动） | 结构不匹配 → 报错 |
+| `allow_all_interfaces` | 移除上游对 `--host 0.0.0.0` 的拦截 | 若未逐字命中且文件里仍有 `0.0.0.0` → **报错**（说明上游改了写法，需人工核对） |
+
+本项目工具：`.patch-tools/rebuild-patch.py`（`--base` / `--target` / `--write` / `--diff`）。
 
 **版本号与补丁基线必须同时修改**——这是本项目最容易踩的坑，已写入 `docs/COMPATIBILITY.md` 的已知坑位。
 
@@ -156,9 +193,13 @@ python dsh_patch_compat_check.py \
 ## 8. 验收检查表
 
 - [ ] 两处版本变量已改为目标版本，且与 `brand-patch` 基线一致
+- [ ] `brand-patch` 已按「新基线 + 定制意图」**重建**（非整文件沿用），且每个定制点都有功能断言
+- [ ] `$PeerFix` / `PEERS` 已按静态说明符扫描**重定**，缺失数为 0
 - [ ] 五类变更均已分类，无遗漏、无凭空推测
 - [ ] 所有破坏性变更都给了旧用法标注 + 替代方案
 - [ ] 功能特性、安装升级、版本与依赖、命令/参数示例、兼容性说明五个区块均已检查
+- [ ] 与上游的定制差异已**逐条列出并说明原因**（冲突时保留定制）
 - [ ] 现有结构与标题层级未被破坏，仍有效的内容未被删除
 - [ ] 脚本语法自检通过，全文无旧版本号残留引用
+- [ ] 冒烟测试全绿（用例数 / 通过率），无跳过、无注释、无屏蔽
 - [ ] 改动清单已输出，逐条可追溯到上游变更

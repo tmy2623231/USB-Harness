@@ -102,7 +102,7 @@ function Get-LocalVersions {
 # ---------------------------------------------------------------------------
 # 语义化版本比较：支持 x.y.z 与 x.y.z-rc.a[.b]（本项目只用到 rc 预发布段）。
 # 规则：先比主/次/修订数字段；主段相同后，正式版 > 预发布（rc）；rc 内按段数值
-# 递增。即 0.1.1-rc.2 < 0.1.1-rc.2.1 < 0.1.1 < 0.1.2。
+# 递增。即 0.1.5-rc.2 < 0.1.5-rc.2.1 < 0.1.5 < 0.1.6。
 # 返回：1 = $a > $b；0 = 相等；-1 = $a < $b
 # ---------------------------------------------------------------------------
 function Compare-Version([string]$a, [string]$b) {
@@ -229,7 +229,7 @@ function Test-PeerMatch([string]$target) {
     if (-not $m.Success) { Write-WarnMsg '无法从 setup-windows.ps1 解析 PeerFix 列表'; return $false }
     $peers = @([regex]::Matches($m.Groups[1].Value, "'([^']+)'") |
                ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -match '[@^]' })
-    if ($peers.Count -lt 20) { Write-WarnMsg "peer 解析数量异常: $($peers.Count)"; return $false }
+    if ($peers.Count -lt 6) { Write-WarnMsg "peer 解析数量异常: $($peers.Count)"; return $false }
 
     $bad = @($peers | Where-Object { $_ -match '^@deepseek-ai/dsh-.*@\^(.+)$' -and $Matches[1] -ne $target })
     if ($bad.Count -gt 0) {

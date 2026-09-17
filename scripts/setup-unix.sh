@@ -10,7 +10,7 @@ set -euo pipefail
 # 项目根目录 = scripts/ 的上一级
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE_VERSION="${NODE_VERSION:-22.23.2}"
-DSH_VERSION="${DSH_VERSION:-0.1.1-rc.2}"
+DSH_VERSION="${DSH_VERSION:-0.1.5-rc.2}"
 
 # 平台/架构
 case "$(uname -s)" in
@@ -102,19 +102,27 @@ else
 
   # 已知坑位：多个 dsh 子包把彼此声明为 peerDependencies，主包 bundle 未包含，
   # --legacy-peer-deps 会跳过它们，导致启动报 ERR_MODULE_NOT_FOUND。显式补齐。
-  # rc.2 下该问题依然存在，补齐列表版本串已与 rc.2 对齐。
-  echo "[2.5] 补齐 dsh 缺失的 peer 依赖包（已知 25 个）..."
+  # 列表按 0.1.5-rc.2 实测结果重定：对安装树里全部 @deepseek-ai/* 的 import 说明符
+  # 逐个做模块解析，凡解析不到的即为缺失项（详见 docs/TROUBLESHOOTING.md）。
+  # 重定后多数旧条目已随主包打进依赖树，无需再列；缺失项由 19 个变为 26 个。
+  echo "[2.5] 补齐 dsh 缺失的 peer 依赖包（已知 26 个）..."
   PEERS=(
-    '@deepseek-ai/dsh-invariants@^0.1.1-rc.2' '@deepseek-ai/dsh-scope@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-fs@^0.1.1-rc.2' '@deepseek-ai/dsh-atomic-write@^0.1.1-rc.2'
-    '@deepseek-ai/cordis-plugin-group@^1.0.1' '@deepseek-ai/dsh-shell@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-sandbox@^0.1.1-rc.2' '@deepseek-ai/dsh-bash-local@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-compaction@^0.1.1-rc.2' '@deepseek-ai/dsh-workflow@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-code-runtime@^0.1.1-rc.2' '@deepseek-ai/dsh-timeout@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-session-telemetry@^0.1.1-rc.2' '@deepseek-ai/dsh-anonymous-user-id@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-authorization@^0.1.1-rc.2' '@deepseek-ai/dsh-output-retention@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-session-title-llm@^0.1.1-rc.2' '@deepseek-ai/dsh-spill@^0.1.1-rc.2'
-    '@deepseek-ai/dsh-subagent-in-process-driver@^0.1.1-rc.2' '@cfworker/json-schema@^4.1.1'
+    # --- 仅以 peerDependencies 声明、主包未纳入依赖树的子包（必须补） ---
+    "@deepseek-ai/dsh-anonymous-user-id@$DSH_VERSION" "@deepseek-ai/dsh-attachment@$DSH_VERSION"
+    "@deepseek-ai/dsh-bash-local@$DSH_VERSION" "@deepseek-ai/dsh-client-store@$DSH_VERSION"
+    "@deepseek-ai/dsh-client-ui-dockkit@$DSH_VERSION" "@deepseek-ai/dsh-client-ui-primitives@$DSH_VERSION"
+    "@deepseek-ai/dsh-client-ui-slots@$DSH_VERSION" "@deepseek-ai/dsh-code-runtime@$DSH_VERSION"
+    "@deepseek-ai/dsh-compaction@$DSH_VERSION" "@deepseek-ai/dsh-fs@$DSH_VERSION"
+    "@deepseek-ai/dsh-hook-protocol@$DSH_VERSION" "@deepseek-ai/dsh-jobs@$DSH_VERSION"
+    "@deepseek-ai/dsh-output-retention@$DSH_VERSION" "@deepseek-ai/dsh-sandbox@$DSH_VERSION"
+    "@deepseek-ai/dsh-sdk-protocol@$DSH_VERSION" "@deepseek-ai/dsh-session-persistence@$DSH_VERSION"
+    "@deepseek-ai/dsh-session-query@$DSH_VERSION" "@deepseek-ai/dsh-session-telemetry@$DSH_VERSION"
+    "@deepseek-ai/dsh-session-title-llm@$DSH_VERSION" "@deepseek-ai/dsh-settings@$DSH_VERSION"
+    "@deepseek-ai/dsh-shell@$DSH_VERSION" "@deepseek-ai/dsh-spill@$DSH_VERSION"
+    "@deepseek-ai/dsh-subagent-in-process-driver@$DSH_VERSION" "@deepseek-ai/dsh-util-time@$DSH_VERSION"
+    "@deepseek-ai/dsh-util-workspace-path@$DSH_VERSION" "@deepseek-ai/dsh-workflow@$DSH_VERSION"
+    # --- 主包依赖树里已存在，但版本号独立于 dsh 的第三方包 ---
+    '@deepseek-ai/cordis-plugin-group@^1.0.1' '@cfworker/json-schema@^4.1.1'
     # react 必须锁 18.x：dsh-web-frontend 依赖 react@^18.2.0，用 latest 会拉到 19.x（跨大版本不兼容）
     'react@^18.3.1' 'react-dom@^18.3.1' 'bufferutil@^4.0.1' 'utf-8-validate@^5.0.2'
     '@types/react@^18.3.12'

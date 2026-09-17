@@ -17,16 +17,15 @@
 #   model: deepseek-v4-pro          # 按你的实际可用模型填写
 #   reasoningEffort: max            # 按需
 
-# ---- 例 2：OpenAI 兼容网关（自定义 provider，如自建 Bifrost / 阿里云百炼兼容端点）----
+# ---- 例 2：OpenAI 兼容网关（自定义 provider，自建网关 / 云端兼容端点均可）----
 # providers:
 #   my-gateway:                     # provider id，创建后不可重命名，只能替换
 #     apiKeyEnv: GATEWAY_API_KEY    # 从环境变量读取密钥（可选，也可用 Web UI 保存）
 #     api: openai-completions       # 协议：OpenAI 兼容
 #     baseURL: https://your-gateway.example.com/v1
 #     models:
-#       - id: qwen3.8-max           # 网关暴露的模型 id（按实际填写）
-#       - id: deepseek-v4-flash
-#       - id: gemma4
+#       - id: your-model-id-1       # 网关暴露的模型 id（按实际填写）
+#       - id: your-model-id-2
 
 # ---- 例 3：本地 Ollama（OpenAI 兼容端点）----
 # providers:
@@ -34,8 +33,7 @@
 #     api: openai-completions
 #     baseURL: http://127.0.0.1:11434/v1
 #     models:
-#       - id: gemma4
-#       - id: qwen3.8-max
+#       - id: your-local-model-id   # `ollama list` 里的模型名
 
 # ---- 说明 ----
 # - 字段名与嵌套层级在开发者预览期内可能变动，配置前请核对当前版本文档。

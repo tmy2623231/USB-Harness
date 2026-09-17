@@ -6,6 +6,11 @@ window.__ModuleLoader__.load({
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		let react_jsx_runtime = require("react/jsx-runtime");
 		//#region lib/types/client/Brand.js
+		/**
+		* Render the official mark with the presentation requested by its host surface.
+		* @param props - Host-supplied mark presentation.
+		* @returns the official whale mark.
+		*/
 		function OfficialBrandMark({ size = 24, className }) {
 			return (0, react_jsx_runtime.jsx)("svg", {
 				width: size,
@@ -22,6 +27,10 @@ window.__ModuleLoader__.load({
 				]
 			});
 		}
+		/**
+		* Render the official name artwork without its independently slotted mark.
+		* @returns the official name wordmark.
+		*/
 		function OfficialBrandName() {
 			return (0, react_jsx_runtime.jsx)("span", {
 				children: "USB Harness",
@@ -30,13 +39,19 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region lib/types/client/index.js
+		/** Required service: the UI slot registry. */
 		const inject = ["slots"];
+		/**
+		* Fill the sidebar brand slots as one declaration-aware registration set. The
+		* conversation hero stays on its declaring package's animated fish fallback,
+		* so the official build registers nothing there.
+		* @param ctx - Client root context.
+		*/
 		function apply(ctx) {
-			ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.inject("sidebar.brand.name", () => ctx.slots.inject("conversation.hero.brand.mark", function* () {
+			ctx.slots.inject("sidebar.brand.mark", () => ctx.slots.inject("sidebar.brand.name", function* () {
 				yield ctx.slots.register({ name: "sidebar.brand.mark" }, OfficialBrandMark);
 				yield ctx.slots.register({ name: "sidebar.brand.name" }, OfficialBrandName);
-				yield ctx.slots.register({ name: "conversation.hero.brand.mark" }, OfficialBrandMark);
-			})));
+			}));
 		}
 		//#endregion
 		exports.apply = apply;
@@ -44,3 +59,5 @@ window.__ModuleLoader__.load({
 		return module.exports;
 	}
 });
+
+//# sourceMappingURL=client.js.map

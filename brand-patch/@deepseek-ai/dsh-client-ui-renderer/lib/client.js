@@ -12,6 +12,7 @@ window.__ModuleLoader__.load({
 		let react_dom_client = require("react-dom/client");
 		let react_jsx_runtime = require("react/jsx-runtime");
 		let _deepseek_ai_dsh_client_ui_slots = require("@deepseek-ai/dsh-client-ui-slots");
+		let _deepseek_ai_cordis = require("@deepseek-ai/cordis");
 		//#region ../../../node_modules/.pnpm/use-sync-external-store@1.2.0_react@18.3.1/node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.min.js
 		/**
 		* @license React
@@ -159,40 +160,45 @@ window.__ModuleLoader__.load({
 			};
 		}
 		//#endregion
-		//#region lib/types/client/session-provider.js
-		/** Internal React bindings for the renderer host and active session provide bundle. */
-		/**
-		* A missing-provider assembly error: the shell wired the tree wrong. The slot
-		* error boundary rethrows this class so misassembly stays fail-loud while
-		* registrant errors (inject factories, entry components) are contained
-		* per entry.
-		*/
+		//#region lib/types/client/bindings.js
+		/** Internal React bindings for renderer hosts and standard-source scopes. */
+		/** Missing renderer assembly dependency. */
 		var SlotAssemblyError = class extends Error {};
 		/** In-package renderer host context. */
 		const HostContext = (0, react.createContext)(null);
 		/**
-		* Read the installed renderer host; throws outside the rendered root tree
-		* (framework components must not render detached from the renderer).
+		* Read the installed renderer host.
 		* @returns the host API.
 		*/
 		function useHost() {
 			const host = (0, react.useContext)(HostContext);
-			if (!host) throw new SlotAssemblyError("slot machinery rendered outside the installed renderer tree");
+			if (host === null) throw new SlotAssemblyError("slot machinery rendered outside the installed renderer tree");
 			return host;
 		}
-		const BindingContext = (0, react.createContext)(null);
-		/** Read the current-session-optional bundle supplied at the root. */
-		function useSessionMaybeProvideInfo() {
-			const info = (0, react.useContext)(BindingContext);
-			if (!info) throw new SlotAssemblyError("session-aware slot rendered outside the root binding provider");
-			return info;
+		const RootBindingContext = (0, react.createContext)(null);
+		const ScopeBindingContext = (0, react.createContext)(null);
+		/**
+		* Read the root standard-source binding.
+		* @returns the current root binding.
+		*/
+		function useRootBinding() {
+			const binding = (0, react.useContext)(RootBindingContext);
+			if (binding === null) throw new SlotAssemblyError("slot rendered outside the root standard-source provider");
+			return binding;
 		}
 		/**
-		* Identity-stable selector hook per host observable. uSES resubscribes when
-		* the subscribe reference changes, so the bound hook must be created once per
-		* source — cached here by source identity (sources are host-owned singletons).
-		* @param source - host-provided observable.
-		* @returns the cached selector hook.
+		* Read the current-session-optional binding.
+		* @returns a binding whose key is absent when no Session is selected.
+		*/
+		function useScopeBinding() {
+			const binding = (0, react.useContext)(ScopeBindingContext);
+			if (binding === null) throw new SlotAssemblyError("scoped slot rendered outside its scope provider");
+			return binding;
+		}
+		/**
+		* Bind one observable source to an identity-stable selector Hook.
+		* @param source - observable source.
+		* @returns cached selector Hook.
 		*/
 		function observableHook(source) {
 			let hook = hookCache.get(source);
@@ -207,7 +213,11 @@ window.__ModuleLoader__.load({
 			getSnapshot: () => void 0,
 			subscribe: () => () => {}
 		};
-		/** Bind a source that disappears with the current session to an optional selector hook. */
+		/**
+		* Bind an optional source without changing Hook call order.
+		* @param source - current source, or absence.
+		* @returns selector Hook returning `undefined` while absent.
+		*/
 		function maybeObservableHook(source) {
 			if (source !== void 0) return observableHook(source);
 			return useAbsentSnapshot;
@@ -216,54 +226,43 @@ window.__ModuleLoader__.load({
 			observableHook(absentSource)(() => void 0);
 		}
 		/**
-		* The useProjection framework seat (docs/subsystems/session-projection.md), one bound
-		* function per provide bundle (cached by info identity — components may hold
-		* it across renders). Key-addressed: the key resolves a per-session value
-		* face off the projection store; the bound selector hook comes from the same
-		* per-source cache as every other kit hook, so exactly one uSES subscription
-		* runs per call and the subscribe reference stays stable per key. A key no
-		* baseline or frame has carried (or a no-session bundle) reads `undefined` —
-		* capability absence — keeping the hook order constant.
+		* Bind an open-key source family.
+		* @param source - keyed resolver, or absence for an optional scope.
+		* @returns cached keyed selector Hook.
 		*/
-		function projectionHook(info) {
-			let hook = projectionHookCache.get(info);
+		function keyedObservableHook(source) {
+			if (source === void 0) return absentKeyedHook;
+			let hook = keyedHookCache.get(source);
 			if (hook === void 0) {
-				hook = (key, selector, eq) => {
-					return observableHook(info.projections?.faceOf(key) ?? absentSource)(selector ?? ((value) => value), eq);
+				hook = (key, selector, equal) => {
+					return observableHook(source(key) ?? absentSource)(selector ?? identity, equal);
 				};
-				projectionHookCache.set(info, hook);
+				keyedHookCache.set(source, hook);
 			}
 			return hook;
 		}
-		const projectionHookCache = /* @__PURE__ */ new WeakMap();
-		/**
-		* Root-level binding provider. It follows current selection without a key;
-		* per-entry identity is the outlet's adoption bookkeeping (SessionMaybeEntry):
-		* a blank-born incarnation adopts the first session without remounting, and
-		* every later transition (switch or loss) remounts like a strict entry.
-		*/
-		function SessionMaybeProvider({ children }) {
-			const info = observableHook(useHost().sessions.provideInfo)((s) => s);
-			return (0, react_jsx_runtime.jsx)(BindingContext.Provider, {
-				value: info,
+		const keyedHookCache = /* @__PURE__ */ new WeakMap();
+		const identity = (value) => value;
+		const absentKeyedHook = (_key, selector, equal) => observableHook(absentSource)(selector ?? identity, equal);
+		/** Subscribe the tree to the atomically assembled root standard-source roster. */
+		function RootStandardProvider({ children }) {
+			const binding = observableHook(useHost().root)((value) => value);
+			return (0, react_jsx_runtime.jsx)(RootBindingContext.Provider, {
+				value: binding,
 				children
 			});
 		}
-		/**
-		* Framework-wired session area: subscribes to the host's current provide
-		* source and remounts the body under `key={sessionId}` so a session switch
-		* rebuilds the session subtree. This dependency-inverted layer uses plain
-		* string ids; `PropsRuntime` applies the branded type at the component
-		* boundary.
-		*/
-		function SessionProvider({ empty, children }) {
-			const info = observableHook(useHost().sessions.provideInfo)((s) => s);
-			const id = info.sessionId;
-			if (id === void 0) return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: empty?.() ?? null });
-			return (0, react_jsx_runtime.jsx)(BindingContext.Provider, {
-				value: info,
-				children: children(id)
-			}, id);
+		/** Subscribe to the scope roster before resolving and binding its current adapter. */
+		function ScopeProvider({ scope, children }) {
+			const host = useHost();
+			observableHook(host.scopeRevision)((value) => value);
+			const adapter = host.scope(scope);
+			if (adapter === void 0) throw new SlotAssemblyError(`scope '${scope}' rendered without an installed adapter`);
+			const binding = observableHook(adapter.current)((value) => value);
+			return (0, react_jsx_runtime.jsx)(ScopeBindingContext.Provider, {
+				value: binding,
+				children
+			});
 		}
 		//#endregion
 		//#region lib/types/client/scoped-slots.js
@@ -323,7 +322,7 @@ window.__ModuleLoader__.load({
 		}
 		/**
 		* Inject results cache: root entries per entry, session entries per
-		* (entry x provide bundle). WeakMap keys are entry/info objects (both
+		* (entry x scope binding). WeakMap keys are entry/binding objects (both
 		* identity-stable per registration/session scope), so cache lifetime rides
 		* the same axes as the values it memoizes.
 		*/
@@ -331,26 +330,28 @@ window.__ModuleLoader__.load({
 		const sessionInjectCache = /* @__PURE__ */ new WeakMap();
 		const sessionMaybeInjectCache = /* @__PURE__ */ new WeakMap();
 		const EMPTY_INJECTED_PROPS = {};
-		function runInject(entry, info, actions) {
+		function runInject(entry, binding, actions) {
 			const inject = entry.inject;
 			if (!inject) return EMPTY_INJECTED_PROPS;
 			const args = [];
-			if (info !== void 0) args.push(info.sessionId);
+			if (binding !== void 0) args.push(binding.key);
 			if (actions !== void 0) args.push(actions);
-			return bindInjectHooks(inject(...args));
+			return bindInjectSources(inject(...args));
 		}
-		/**
-		* Normalize one entry-owned inject face on its existing cache axis. Its hooks
-		* compartment remains the original Observable-only contract.
-		*/
-		function bindInjectHooks(face) {
+		/** Bind one entry-owned inject face on its existing cache axis. */
+		function bindInjectSources(face) {
 			const sources = face["hooks"];
-			if (sources === void 0) return face;
-			const { hooks: _hooks, ...rest } = face;
+			const keyedSources = face["keyedHooks"];
+			if (sources === void 0 && keyedSources === void 0) return face;
+			const { hooks: _hooks, keyedHooks: _keyedHooks, ...rest } = face;
 			const bound = rest;
-			for (const [name, source] of Object.entries(sources)) {
-				const hookName = `use${name[0]?.toUpperCase() ?? ""}${name.slice(1)}`;
+			for (const [name, source] of Object.entries(sources ?? {})) {
+				const hookName = (0, _deepseek_ai_dsh_client_ui_slots.standardHookPropName)(name);
 				bound[hookName] = observableHook(source);
+			}
+			for (const [name, source] of Object.entries(keyedSources ?? {})) {
+				const hookName = (0, _deepseek_ai_dsh_client_ui_slots.standardHookPropName)(name);
+				bound[hookName] = keyedObservableHook(source);
 			}
 			return bound;
 		}
@@ -371,7 +372,7 @@ window.__ModuleLoader__.load({
 			const props = rest;
 			let factories;
 			for (const [name, definition] of Object.entries(definitions)) {
-				const hookName = `use${name[0]?.toUpperCase() ?? ""}${name.slice(1)}`;
+				const hookName = (0, _deepseek_ai_dsh_client_ui_slots.standardHookPropName)(name);
 				if (typeof definition === "function") {
 					factories ??= {};
 					factories[name] = definition;
@@ -388,7 +389,7 @@ window.__ModuleLoader__.load({
 		function bindSlotHookFactories(factories, standard, hookContext) {
 			const hooks = {};
 			for (const [name, factory] of Object.entries(factories)) {
-				const hookName = `use${name[0]?.toUpperCase() ?? ""}${name.slice(1)}`;
+				const hookName = (0, _deepseek_ai_dsh_client_ui_slots.standardHookPropName)(name);
 				hooks[hookName] = factory(standard, hookContext);
 			}
 			return hooks;
@@ -401,29 +402,29 @@ window.__ModuleLoader__.load({
 			}
 			return props;
 		}
-		function cachedSessionInject(entry, info, actions) {
-			let perInfo = sessionInjectCache.get(entry);
-			if (!perInfo) {
-				perInfo = /* @__PURE__ */ new WeakMap();
-				sessionInjectCache.set(entry, perInfo);
+		function cachedSessionInject(entry, binding, actions) {
+			let perBinding = sessionInjectCache.get(entry);
+			if (!perBinding) {
+				perBinding = /* @__PURE__ */ new WeakMap();
+				sessionInjectCache.set(entry, perBinding);
 			}
-			let props = perInfo.get(info);
+			let props = perBinding.get(binding);
 			if (!props) {
-				props = runInject(entry, info, actions);
-				perInfo.set(info, props);
+				props = runInject(entry, binding, actions);
+				perBinding.set(binding, props);
 			}
 			return props;
 		}
-		function cachedSessionMaybeInject(entry, info, actions) {
-			let perInfo = sessionMaybeInjectCache.get(entry);
-			if (!perInfo) {
-				perInfo = /* @__PURE__ */ new WeakMap();
-				sessionMaybeInjectCache.set(entry, perInfo);
+		function cachedSessionMaybeInject(entry, binding, actions) {
+			let perBinding = sessionMaybeInjectCache.get(entry);
+			if (!perBinding) {
+				perBinding = /* @__PURE__ */ new WeakMap();
+				sessionMaybeInjectCache.set(entry, perBinding);
 			}
-			let props = perInfo.get(info);
+			let props = perBinding.get(binding);
 			if (!props) {
-				props = runInject(entry, info, actions);
-				perInfo.set(info, props);
+				props = runInject(entry, binding, actions);
+				perBinding.set(binding, props);
 			}
 			return props;
 		}
@@ -530,40 +531,58 @@ window.__ModuleLoader__.load({
 				return this.props.children;
 			}
 		};
-		const standardPropsCache = /* @__PURE__ */ new WeakMap();
-		/** Stable official-props object used by contextual Hook factories. */
-		function standardProps(host, scope, info) {
-			let cache = standardPropsCache.get(host);
-			if (cache === void 0) {
-				cache = {
-					root: {
-						useSessions: observableHook(host.sessions.list),
-						useWorkspaces: observableHook(host.workspaces.list)
-					},
-					session: /* @__PURE__ */ new WeakMap(),
-					sessionMaybe: /* @__PURE__ */ new WeakMap()
-				};
-				standardPropsCache.set(host, cache);
+		const rootStandardCache = /* @__PURE__ */ new WeakMap();
+		const sessionStandardCache = /* @__PURE__ */ new WeakMap();
+		const sessionMaybeStandardCache = /* @__PURE__ */ new WeakMap();
+		/** Materialize one binding into stable framework Hook and plain-prop seats. */
+		function materializeStandardBinding(binding, optional) {
+			const standard = { ...binding.props };
+			for (const [name, source] of Object.entries(binding.hooks)) {
+				if (source === void 0 && !optional) throw new SlotAssemblyError(`strict standard hook '${name}' has no source`);
+				standard[(0, _deepseek_ai_dsh_client_ui_slots.standardHookPropName)(name)] = optional ? maybeObservableHook(source) : observableHook(source);
 			}
-			if (scope === "root") return cache.root;
-			if (info === void 0) throw new SlotAssemblyError(`scope '${scope}' rendered without session provide info`);
-			const byInfo = scope === "session" ? cache.session : cache.sessionMaybe;
-			let standard = byInfo.get(info);
-			if (standard !== void 0) return standard;
-			standard = { ...cache.root };
-			for (const [name, source] of Object.entries(info.hooks)) {
-				const hookName = `use${name[0]?.toUpperCase() ?? ""}${name.slice(1)}`;
-				if (scope === "session-maybe") standard[hookName] = maybeObservableHook(source);
-				else {
-					if (source === void 0) throw new SlotAssemblyError(`strict session hook '${name}' has no source`);
-					standard[hookName] = observableHook(source);
-				}
+			for (const [name, source] of Object.entries(binding.keyedHooks)) {
+				if (source === void 0 && !optional) throw new SlotAssemblyError(`strict keyed standard hook '${name}' has no source resolver`);
+				standard[(0, _deepseek_ai_dsh_client_ui_slots.standardHookPropName)(name)] = keyedObservableHook(source);
 			}
-			Object.assign(standard, info.props);
-			standard["sessionId"] = info.sessionId;
-			standard["useProjection"] = projectionHook(info);
-			byInfo.set(info, standard);
 			return standard;
+		}
+		/** Stable official-props object used by contextual Hook factories. */
+		function standardProps(scope, rootBinding, scopeBinding) {
+			let root = rootStandardCache.get(rootBinding);
+			if (root === void 0) {
+				root = materializeStandardBinding(rootBinding, false);
+				rootStandardCache.set(rootBinding, root);
+			}
+			if (scope === "root") return root;
+			if (scopeBinding === void 0) throw new SlotAssemblyError(`scope '${scope}' rendered without a standard-source binding`);
+			const cache = scope === "session" ? sessionStandardCache : sessionMaybeStandardCache;
+			let perScope = cache.get(rootBinding);
+			if (perScope === void 0) {
+				perScope = /* @__PURE__ */ new WeakMap();
+				cache.set(rootBinding, perScope);
+			}
+			let standard = perScope.get(scopeBinding);
+			if (standard !== void 0) return standard;
+			standard = {
+				...root,
+				...materializeStandardBinding(scopeBinding, scope === "session-maybe")
+			};
+			perScope.set(scopeBinding, standard);
+			return standard;
+		}
+		const scopeAreaCache = /* @__PURE__ */ new WeakMap();
+		/** Bind one domain-owned scope area renderer to the current scope binding. */
+		function scopeAreaProvider(adapter) {
+			let Provider = scopeAreaCache.get(adapter);
+			if (Provider !== void 0) return Provider;
+			if (adapter.renderArea === void 0) throw new SlotAssemblyError("scope 'session' adapter does not provide its area renderer");
+			const renderArea = adapter.renderArea.bind(adapter);
+			Provider = function ScopeAreaProvider(props) {
+				return renderArea(useScopeBinding(), props);
+			};
+			scopeAreaCache.set(adapter, Provider);
+			return Provider;
 		}
 		/**
 		* Standard-kit synthesis shared by both scope branches: the global
@@ -577,15 +596,16 @@ window.__ModuleLoader__.load({
 		* per source (observableHook), so spreading a fresh kit object per render
 		* never churns child subscriptions.
 		*/
-		function standardKit(host, entry, scope, info) {
-			const standard = standardProps(host, scope, info);
+		function standardKit(host, entry, scope, rootBinding, scopeBinding) {
+			const standard = standardProps(scope, rootBinding, scopeBinding);
 			const kit = { ...standard };
 			if (entry.locale !== void 0) {
 				const face = host.locale;
 				if (face === void 0) throw new SlotAssemblyError(`entry declares locale namespace '${entry.locale}' but no locale face is installed (locale plugin missing from the composition?)`);
 				kit["t"] = localeSeat(face, entry.locale);
 			}
-			const store = scope === "session-maybe" && info?.sessionId === void 0 ? void 0 : host.storeOf(entry, info?.sessionId);
+			const scopedStoreBinding = scopeBinding?.key === void 0 ? void 0 : scopeBinding;
+			const store = host.storeOf(entry, scopedStoreBinding);
 			if (store !== void 0) {
 				kit["useStore"] = observableHook(store);
 				kit["actions"] = store.actions;
@@ -593,7 +613,11 @@ window.__ModuleLoader__.load({
 			if (entry.children !== void 0) {
 				kit["renderSlot"] = boundRenderSlot(host, entry);
 				if (Object.values(entry.children).some((spec) => spec.kind === "chain")) kit["renderSlotChain"] = boundRenderSlotChain(host, entry);
-				if (Object.values(entry.children).some((spec) => spec.scope === "session")) kit["SessionProvider"] = SessionProvider;
+				if (Object.values(entry.children).some((spec) => spec.scope === "session")) {
+					const adapter = host.scope("session");
+					if (adapter === void 0) throw new SlotAssemblyError("entry declares a session child without an installed 'session' scope adapter");
+					kit["SessionProvider"] = scopeAreaProvider(adapter);
+				}
 			}
 			return {
 				kit,
@@ -644,17 +668,19 @@ window.__ModuleLoader__.load({
 				hasHookContext
 			});
 		}
-		function SessionEntry({ entry, ownerProps, info, slotKey, slotInjected, hookContext, hasHookContext }) {
+		function SessionEntry({ entry, ownerProps, binding, slotKey, slotInjected, hookContext, hasHookContext }) {
 			const host = useHost();
+			const rootBinding = useRootBinding();
 			const Comp = entry.component;
-			const { kit, standard, actions } = standardKit(host, entry, "session", info);
-			return renderEntry(slotKey, Comp, kit, standard, cachedSessionInject(entry, info, actions), slotInjected, ownerProps, hookContext, hasHookContext);
+			const { kit, standard, actions } = standardKit(host, entry, "session", rootBinding, binding);
+			return renderEntry(slotKey, Comp, kit, standard, cachedSessionInject(entry, binding, actions), slotInjected, ownerProps, hookContext, hasHookContext);
 		}
-		function SessionMaybeEntryBody({ entry, ownerProps, info, slotKey, slotInjected, hookContext, hasHookContext }) {
+		function SessionMaybeEntryBody({ entry, ownerProps, binding, slotKey, slotInjected, hookContext, hasHookContext }) {
 			const host = useHost();
+			const rootBinding = useRootBinding();
 			const Comp = entry.component;
-			const { kit, standard, actions } = standardKit(host, entry, "session-maybe", info);
-			return renderEntry(slotKey, Comp, kit, standard, cachedSessionMaybeInject(entry, info, actions), slotInjected, ownerProps, hookContext, hasHookContext);
+			const { kit, standard, actions } = standardKit(host, entry, "session-maybe", rootBinding, binding);
+			return renderEntry(slotKey, Comp, kit, standard, cachedSessionMaybeInject(entry, binding, actions), slotInjected, ownerProps, hookContext, hasHookContext);
 		}
 		/**
 		* Session-maybe identity: adoption — the ONLY behavior (there is no
@@ -670,23 +696,23 @@ window.__ModuleLoader__.load({
 		* store, hooks) — the existing layering rule, now load-bearing.
 		*/
 		function SessionMaybeEntry({ entry, ownerProps, slotKey, slotInjected, hookContext, hasHookContext }) {
-			const info = useSessionMaybeProvideInfo();
+			const binding = useScopeBinding();
 			const [state, setState] = (0, react.useState)(FIRST_INCARNATION);
 			let { adopted, epoch } = state;
-			if (info.sessionId !== void 0 && adopted === void 0) {
-				adopted = info.sessionId;
+			if (binding.key !== void 0 && adopted === void 0) {
+				adopted = binding.key;
 				setState({
 					adopted,
 					epoch
 				});
-			} else if (adopted !== void 0 && info.sessionId !== void 0 && info.sessionId !== adopted) {
-				adopted = info.sessionId;
+			} else if (adopted !== void 0 && binding.key !== void 0 && binding.key !== adopted) {
+				adopted = binding.key;
 				epoch += 1;
 				setState({
 					adopted,
 					epoch
 				});
-			} else if (adopted !== void 0 && info.sessionId === void 0) {
+			} else if (adopted !== void 0 && binding.key === void 0) {
 				adopted = void 0;
 				epoch += 1;
 				setState({
@@ -697,7 +723,7 @@ window.__ModuleLoader__.load({
 			return (0, react_jsx_runtime.jsx)(SessionMaybeEntryBody, {
 				entry,
 				ownerProps,
-				info,
+				binding,
 				slotKey,
 				slotInjected,
 				hookContext,
@@ -710,26 +736,27 @@ window.__ModuleLoader__.load({
 		};
 		function RootEntry({ entry, ownerProps, slotKey, slotInjected, hookContext, hasHookContext }) {
 			const host = useHost();
+			const rootBinding = useRootBinding();
 			const Comp = entry.component;
-			const { kit, standard, actions } = standardKit(host, entry, "root", void 0);
+			const { kit, standard, actions } = standardKit(host, entry, "root", rootBinding, void 0);
 			return renderEntry(slotKey, Comp, kit, standard, cachedRootInject(entry, actions), slotInjected, ownerProps, hookContext, hasHookContext);
 		}
 		function StrictSessionEntry({ slotKey, entry, ownerProps, slotInjected, hookContext, hasHookContext, onEntryError }) {
-			const info = useSessionMaybeProvideInfo();
-			if (info.sessionId === void 0) return null;
+			const binding = useScopeBinding();
+			if (binding.key === void 0) throw new SlotAssemblyError(`strict session slot '${slotKey}' rendered without a scope binding`);
 			return (0, react_jsx_runtime.jsx)(SlotErrorBoundary, {
 				slotKey,
 				onEntryError,
 				children: (0, react_jsx_runtime.jsx)(SessionEntry, {
 					entry,
 					ownerProps,
-					info,
+					binding,
 					slotKey,
 					slotInjected,
 					hookContext,
 					hasHookContext
 				})
-			}, info.sessionId);
+			}, binding.key);
 		}
 		/**
 		* Anchor style shared by every outlet wrapper: `display:contents` keeps the
@@ -745,16 +772,16 @@ window.__ModuleLoader__.load({
 			return (0, react_jsx_runtime.jsx)("div", {
 				"data-slot": slotKey,
 				style: ANCHOR_STYLE,
-				children: renderOutletContent(host, slotKey, ownerProps, opts, useSessionMaybeProvideInfo())
+				children: renderOutletContent(host, slotKey, ownerProps, opts, useScopeBinding())
 			});
 		}
 		/** Kind dispatch behind the outlet anchor (single/keyed/list/chain, fallbacks, crash faces). */
-		function renderOutletContent(host, slotKey, ownerProps, opts, sessionInfo) {
+		function renderOutletContent(host, slotKey, ownerProps, opts, scopeBinding) {
 			const spec = host.specOf(slotKey);
 			if (!spec) return null;
-			const strictSessionAbsent = spec.scope === "session" && sessionInfo.sessionId === void 0;
-			if (strictSessionAbsent && (spec.kind !== "chain" || !opts?.overlay)) return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: opts?.fallback ?? null });
-			const entries = strictSessionAbsent ? [] : host.entriesOf(slotKey);
+			if (spec.kind === "chain" && opts?.fallbackOnly === true) return renderChainResult(slotKey, null, opts);
+			if (spec.scope === "session" && scopeBinding.key === void 0) throw new SlotAssemblyError(`strict session slot '${slotKey}' rendered without a scope binding`);
+			const entries = host.entriesOf(slotKey);
 			const slotInjected = cachedSlotInject(spec.inject);
 			const guarded = (entry, key, owner = ownerProps) => {
 				const hasHookContext = opts !== void 0 && Object.hasOwn(opts, "hookContext");
@@ -819,12 +846,7 @@ window.__ModuleLoader__.load({
 						break;
 					}
 				}
-				if (opts?.overlay) return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)("div", {
-					"data-chain-overlay-fallback": slotKey,
-					style: { display: elected === null ? "contents" : "none" },
-					children: opts.fallback ?? null
-				}), elected] });
-				return elected ?? (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: opts?.fallback ?? null });
+				return renderChainResult(slotKey, elected, opts);
 			}
 			const rows = host.entriesOfSlot(slotKey).map((entry) => ({
 				entry,
@@ -845,6 +867,15 @@ window.__ModuleLoader__.load({
 			if (opts?.only !== void 0) list = list.filter((item) => item.id === opts.only);
 			if (list.length === 0) return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: opts?.fallback ?? null });
 			return (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: list.map((item, i) => item.entry !== void 0 ? guarded(item.entry, `e${entryKeyOf(item.entry)}`) : (0, react_jsx_runtime.jsx)("div", { "data-slot-error": slotKey }, `x${item.id ?? i}`)) });
+		}
+		/** Render a chain election while preserving the overlay fallback's tree position. */
+		function renderChainResult(slotKey, elected, opts) {
+			if (!opts?.overlay) return elected ?? (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: opts?.fallback ?? null });
+			return (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)("div", {
+				"data-chain-overlay-fallback": slotKey,
+				style: { display: elected === null ? "contents" : "none" },
+				children: opts.fallback ?? null
+			}), elected] });
 		}
 		/** Root outlet: the shell's single ctx-level render entry — an unregistered 'root' is a boot-order failure, never a silent blank. */
 		function RootOutlet({ ownerProps }) {
@@ -876,7 +907,7 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/**
-		* Build the renderer the shell installs into the runtime SlotRegistry
+		* Build the renderer installed into the `ui-renderer` SlotRegistry
 		* (ctx.slots.install(createSlotRenderer()) at boot; the service owns the
 		* install/renderSlot contract and the double-install/not-installed throws).
 		* @returns the renderer.
@@ -885,27 +916,12 @@ window.__ModuleLoader__.load({
 			return { renderRoot(host, ownerProps) {
 				return (0, react_jsx_runtime.jsx)(HostContext.Provider, {
 					value: host,
-					children: (0, react_jsx_runtime.jsx)(SessionMaybeProvider, { children: (0, react_jsx_runtime.jsx)(RootOutlet, { ownerProps }) })
+					children: (0, react_jsx_runtime.jsx)(RootStandardProvider, { children: (0, react_jsx_runtime.jsx)(ScopeProvider, {
+						scope: "session-maybe",
+						children: (0, react_jsx_runtime.jsx)(RootOutlet, { ownerProps })
+					}) })
 				});
 			} };
-		}
-		//#endregion
-		//#region lib/types/client/DocumentTitle.js
-		/**
-		* Project the selected durable session title into the browser title and
-		* restore the build-selected product title when unmounted.
-		* @param props - Selected session title projection.
-		* @returns No rendered content.
-		*/
-		function DocumentTitle({ title }) {
-			const productTitle = "USB Harness";
-			(0, react.useEffect)(() => {
-				document.title = title === void 0 ? productTitle : `${title} — ${productTitle}`;
-				return () => {
-					document.title = productTitle;
-				};
-			}, [productTitle, title]);
-			return null;
 		}
 		//#endregion
 		//#region lib/types/client/app.js
@@ -916,18 +932,463 @@ window.__ModuleLoader__.load({
 		*/
 		function buildRenderApp(deps) {
 			const { ctx } = deps;
-			const sessions = ctx.get("sessions");
-			if (sessions === void 0) throw new Error("ui renderer: sessions service unavailable");
-			const useSessions = bindSnapshotSelector(sessions.list);
-			const SessionDocumentTitle = () => {
-				const title = useSessions((state) => {
-					const id = state.current;
-					return id === void 0 ? void 0 : state.byId[id]?.title;
-				});
-				return (0, react_jsx_runtime.jsx)(DocumentTitle, { ...title === void 0 ? {} : { title } });
-			};
-			return () => (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [(0, react_jsx_runtime.jsx)(SessionDocumentTitle, {}), ctx.slots.renderSlot("root", {})] });
+			return () => ctx.slots.renderSlot("root", {});
 		}
+		//#endregion
+		//#region lib/types/client/registry.js
+		/**
+		* SlotRegistry: the renderer-owned Cordis service over the pure
+		* SlotCore (ui-slots owns registration semantics, the declaration ledger,
+		* the load-time validations, and the unload cascade). This layer owns what
+		* needs a live application: the 'slots/changed' event bridge, register and
+		* declaration injection through the caller's ctx.effect (fiber unload
+		* collects both), the renderer installation contract (install()/renderSlot('root') +
+		* the SlotRendererHost face), and the store INSTANCE axis — handle x scope
+		* key -> create/cache, dropped with the last holding entry, session instances
+		* cleared (with persisted state) on scope death.
+		*/
+		/** Instance key for root-scoped store records (session records key by session id, so the literal cannot collide). */
+		const ROOT_INSTANCE_KEY = "root";
+		/** cordis Service layer of the slot system; see the module doc for the split with SlotCore. */
+		var SlotRegistry = class extends _deepseek_ai_cordis.Service {
+			_core = new _deepseek_ai_dsh_client_ui_slots.SlotCore();
+			/** Store-instance axis: handle -> mounted scope, refcount, resolved instances. */
+			_stores = /* @__PURE__ */ new Map();
+			/** Latest live Context generation for each scoped store key. */
+			_storeScopeOwners = /* @__PURE__ */ new Map();
+			_renderer;
+			_locale;
+			_host;
+			_rootContributions = [];
+			_rootListeners = /* @__PURE__ */ new Set();
+			_rootBinding = {
+				key: void 0,
+				hooks: {},
+				keyedHooks: {},
+				props: {}
+			};
+			_rootSource = {
+				getSnapshot: () => this._rootBinding,
+				subscribe: (listener) => {
+					this._rootListeners.add(listener);
+					return () => {
+						this._rootListeners.delete(listener);
+					};
+				}
+			};
+			_scopes = /* @__PURE__ */ new Map();
+			_scopeRevision = 0;
+			_scopeListeners = /* @__PURE__ */ new Set();
+			_scopeRevisionSource = {
+				getSnapshot: () => this._scopeRevision,
+				subscribe: (listener) => {
+					this._scopeListeners.add(listener);
+					return () => {
+						this._scopeListeners.delete(listener);
+					};
+				}
+			};
+			/**
+			* @param ctx - owning root context.
+			*/
+			constructor(ctx) {
+				super(ctx, "slots");
+				this._core.onMutate((key) => {
+					ctx.emit("slots/changed", key);
+				});
+			}
+			/**
+			* Install an effect for each declaration lifetime of a slot. The callback
+			* runs synchronously when the declaration already exists; otherwise it runs
+			* inside the declaring `register()` call after the declaration is committed.
+			* Collapse disposes the effect and a later declaration runs it again.
+			* Callback effects are synchronous disposers; iterable effects install
+			* transactionally and dispose in reverse order. The controller belongs to
+			* the caller's fiber, so plugin unload cancels a pending wait and removes any
+			* active contribution.
+			*
+			* @param key - declared SlotMap key to depend on.
+			* @param callback - creates one disposer or an iterable of disposers.
+			* @returns idempotent disposer for the wait and active effect.
+			* @throws callback setup failures synchronously when the slot is already declared.
+			*/
+			inject(key, callback) {
+				const ctx = this.ctx;
+				const disposeController = ctx.effect(() => {
+					let active;
+					let activeEpoch;
+					let stopped = false;
+					let unsubscribe = () => {};
+					const stop = () => {
+						if (stopped) return;
+						stopped = true;
+						unsubscribe();
+						const dispose = active;
+						active = void 0;
+						activeEpoch = void 0;
+						dispose?.();
+					};
+					const reconcile = () => {
+						if (stopped) return;
+						const spec = this._core.specDynamic(key);
+						const epoch = this._core.declarationEpoch(key);
+						if (active !== void 0 && activeEpoch === epoch) return;
+						const dispose = active;
+						active = void 0;
+						activeEpoch = void 0;
+						dispose?.();
+						if (spec === void 0) return;
+						const disposeEffect = ctx.effect(callback, `slots.inject(${JSON.stringify(key)}): declaration`);
+						active = () => {
+							disposeEffect();
+						};
+						activeEpoch = epoch;
+					};
+					const changed = () => {
+						try {
+							reconcile();
+						} catch (error) {
+							if (error?.code === "INACTIVE_EFFECT") {
+								stop();
+								return;
+							}
+							stop();
+							const failure = error instanceof Error ? error : new Error(String(error));
+							queueMicrotask(() => {
+								throw failure;
+							});
+						}
+					};
+					unsubscribe = this._core.subscribeDeclaration(key, changed);
+					try {
+						reconcile();
+					} catch (error) {
+						stop();
+						throw error;
+					}
+					return stop;
+				}, `slots.inject(${JSON.stringify(key)})`);
+				return () => {
+					disposeController();
+				};
+			}
+			/**
+			* Install the shell's renderer (ui-renderer's createSlotRenderer product).
+			* Boot-once: a second install throws. Runs through the caller's ctx.effect,
+			* so shell fiber unload uninstalls the renderer.
+			* @param renderer - the outlet machinery implementing SlotRenderer.
+			*/
+			install(renderer) {
+				if (this._renderer !== void 0) throw new Error("slot renderer already installed (install() is boot-once)");
+				this.ctx.effect(() => {
+					this._renderer = renderer;
+					return () => {
+						if (this._renderer === renderer) this._renderer = void 0;
+					};
+				}, "slots.install()");
+			}
+			/**
+			* Install the locale face backing the `t` standard seat (the locale
+			* plugin's product; same boot-once discipline as the renderer install).
+			* Runs through the caller's ctx.effect, so the installing fiber's unload
+			* uninstalls the face.
+			* @param face - namespace binder + revision observable.
+			*/
+			installLocale(face) {
+				if (this._locale !== void 0) throw new Error("locale face already installed (installLocale() is boot-once)");
+				this.ctx.effect(() => {
+					this._locale = face;
+					return () => {
+						if (this._locale === face) this._locale = void 0;
+					};
+				}, "slots.installLocale()");
+			}
+			/**
+			* Contribute domain-owned root data. Hook names must be globally unique;
+			* registration and disposal republish one atomic root binding.
+			* @param contribution - bare sources and stable props.
+			* @returns disposer owned by the caller's Cordis fiber.
+			*/
+			provideRoot(contribution) {
+				const dispose = this.ctx.effect(() => {
+					this._rootContributions.push(contribution);
+					try {
+						this.rebuildRootBinding();
+					} catch (error) {
+						this._rootContributions.pop();
+						throw error;
+					}
+					return () => {
+						const index = this._rootContributions.indexOf(contribution);
+						if (index === -1) return;
+						this._rootContributions.splice(index, 1);
+						this.rebuildRootBinding();
+					};
+				}, "slots.provideRoot()");
+				return () => {
+					dispose();
+				};
+			}
+			/**
+			* Install the owner adapter for one strict scope. Its optional counterpart
+			* resolves through the same adapter.
+			* @param scope - strict scope name.
+			* @param adapter - current/resolved binding source and release notifications.
+			*/
+			installScope(scope, adapter) {
+				if (this._scopes.has(scope)) throw new Error(`slot scope '${scope}' already has an adapter`);
+				this.ctx.effect(() => {
+					this._scopes.set(scope, adapter);
+					this.publishScopeRevision();
+					return () => {
+						if (this._scopes.get(scope) === adapter) {
+							this._scopes.delete(scope);
+							this.publishScopeRevision();
+						}
+					};
+				}, `slots.installScope(${JSON.stringify(scope)})`);
+			}
+			/**
+			* Bind all scoped Store handles to one owner Context lifetime. The cleanup
+			* materializes an otherwise-unused handle before clearing it, because a
+			* previous application run may have persisted state for a Slot that this
+			* scope never rendered. Rebinding the same key transfers cleanup ownership
+			* to the newest Context generation.
+			*
+			* @param binding - materialized scope identity and its owning Context.
+			*/
+			bindStoreScope(binding) {
+				if (this._storeScopeOwners.get(binding.key) === binding.ctx) return;
+				this._storeScopeOwners.set(binding.key, binding.ctx);
+				binding.ctx.effect(() => () => {
+					if (this._storeScopeOwners.get(binding.key) !== binding.ctx) return;
+					this._storeScopeOwners.delete(binding.key);
+					this.clearStoreScope(binding.key);
+				}, `slots: store scope ${binding.key}`);
+			}
+			/**
+			* The single ctx-level render entry: the shell renders 'root'; every other
+			* key renders inside components through the props renderSlot face. All
+			* three guards are fail-loud boot-order checks, no fallback.
+			* @param key - must be 'root' (runtime-enforced for dynamically composed callers).
+			* @param owner - owner share for the root entry (the shell supplies {}).
+			* @returns the rendered root tree.
+			*/
+			renderSlot(key, owner) {
+				if (key !== "root") throw new Error(`ctx-level renderSlot only renders 'root' (got "${key}"); child slots render through the component props face`);
+				if (this._renderer === void 0) throw new Error("slot renderer not installed — boot must call ctx.slots.install(createSlotRenderer()) before rendering 'root'");
+				if (this._core.entries("root").length === 0) throw new Error("'root' has no registration — a layout entry must register into 'root' before the shell renders it");
+				return this._renderer.renderRoot(this.hostFace(), owner);
+			}
+			/**
+			* Snapshot entries for a key (render-erased view; stable reference between mutations).
+			* @param key - SlotMap key.
+			* @returns registered entries.
+			*/
+			entries(key) {
+				return this._core.entries(key);
+			}
+			/**
+			* Shadowing winners per cell for a key: the first live (non-abdicated)
+			* entry of each cell in priority order — what outlets render; chain keys
+			* pass through unchanged (election consumes every entry). The raw
+			* {@link SlotsService.entries} view stays the inspection surface. Fresh
+			* array per call, not a uSES getSnapshot source.
+			* @param key - SlotMap key.
+			* @returns the winning entry per occupied cell.
+			*/
+			entriesOfSlot(key) {
+				return this._core.entriesOfSlot(key);
+			}
+			/**
+			* Export the current JSON-safe Slot declaration tree for read-only inspection.
+			* @param root - exact live Slot root; omitted returns all roots.
+			* @returns selected Slot trees.
+			*/
+			snapshot(root) {
+				return this._core.snapshot(root);
+			}
+			/**
+			* Observe entry boundary crashes (every render-time entry failure the
+			* boundaries contain, abdicating or not) — the supervision seam for
+			* plugins mirroring contribution health. Fires synchronously per report,
+			* after the registry mutated for abdicating crashes. Callers own the
+			* disposer (wire it through ctx.effect for fiber-lifetime cleanup, as with
+			* {@link SlotsService.subscribe}).
+			* @param fn - called with the slot key, the crashed entry, the crash
+			* cause, and `abdicated`: whether the crash retired the entry from its cell.
+			* @returns unsubscribe.
+			*/
+			onEntryError(fn) {
+				return this._core.onEntryError(fn);
+			}
+			/**
+			* Look up a declared spec (register-declared or the built-in 'root').
+			* @param key - SlotMap key.
+			* @returns spec or undefined.
+			*/
+			spec(key) {
+				return this._core.spec(key);
+			}
+			/**
+			* Subscribe to a key's registration changes (microtask-batched).
+			* @param key - SlotMap key.
+			* @param fn - change callback.
+			* @returns unsubscribe.
+			*/
+			subscribe(key, fn) {
+				return this._core.subscribe(key, fn);
+			}
+			/**
+			* Version counter for uSES pairing.
+			* @param key - SlotMap key.
+			* @returns current version.
+			*/
+			getVersion(key) {
+				return this._core.getVersion(key);
+			}
+			/** Delegating registration path: factory minting + registrant stamp + core write + instance-axis bookkeeping. */
+			_register(options, component) {
+				const store = typeof options.store === "function" ? options.store() : options.store;
+				const registrant = options.registrant ?? this.ctx.fiber?.name;
+				const erased = {
+					...options,
+					...store !== void 0 ? { store } : {},
+					...registrant !== void 0 ? { registrant } : {}
+				};
+				const dispose = this._core.register(erased, component);
+				if (store !== void 0) {
+					const scope = this._core.specDynamic(options.name).scope;
+					this._acquire(store, scope);
+				}
+				let disposed = false;
+				return () => {
+					if (disposed) return;
+					disposed = true;
+					dispose();
+					if (store !== void 0) this._release(store);
+				};
+			}
+			/** Build the domain-neutral host face once; installed adapters remain live through getters. */
+			hostFace() {
+				if (this._host !== void 0) return this._host;
+				const service = this;
+				this._host = {
+					subscribe: (key, fn) => this._core.subscribe(key, fn),
+					getVersion: (key) => this._core.getVersion(key),
+					entriesOf: (key) => this._core.entries(key),
+					entriesOfSlot: (key) => this._core.entriesOfSlot(key),
+					reportEntryError: (key, entry, error, info) => {
+						this._core.reportEntryError(key, entry, error, info);
+					},
+					specOf: (key) => this._core.specDynamic(key),
+					isLive: (entry) => this._core.isLive(entry),
+					storeOf: (entry, scopeBinding) => entry.store === void 0 ? void 0 : this.resolveStore(entry.store, scopeBinding),
+					root: this._rootSource,
+					scopeRevision: this._scopeRevisionSource,
+					scope: (scope) => service._scopes.get(scope === "session-maybe" ? "session" : scope),
+					get locale() {
+						return service._locale;
+					}
+				};
+				return this._host;
+			}
+			/** Validate and atomically publish the current root contribution roster. */
+			rebuildRootBinding() {
+				const hooks = {};
+				const keyedHooks = {};
+				const props = {};
+				const finalProps = /* @__PURE__ */ new Set();
+				for (const contribution of this._rootContributions) {
+					copyUnique("hook", hooks, contribution.hooks, finalProps, _deepseek_ai_dsh_client_ui_slots.standardHookPropName);
+					copyUnique("keyed hook", keyedHooks, contribution.keyedHooks, finalProps, _deepseek_ai_dsh_client_ui_slots.standardHookPropName);
+					copyUnique("prop", props, contribution.props, finalProps, (name) => name);
+				}
+				this._rootBinding = {
+					key: void 0,
+					hooks,
+					keyedHooks,
+					props
+				};
+				for (const listener of [...this._rootListeners]) try {
+					listener();
+				} catch (error) {
+					console.error("root standard-source subscriber failed:", error);
+				}
+			}
+			/** Publish one installed-scope roster transition after the map is authoritative. */
+			publishScopeRevision() {
+				this._scopeRevision += 1;
+				for (const listener of [...this._scopeListeners]) try {
+					listener();
+				} catch (error) {
+					console.error("scope-adapter subscriber failed:", error);
+				}
+			}
+			/** Resolve (create or reuse) the store instance for a registered handle under a scope key. */
+			resolveStore(handle, scopeBinding) {
+				const record = this._stores.get(handle);
+				if (record === void 0) throw new Error("store handle is not registered (entry unloaded, or the handle never went through register)");
+				let key;
+				if (record.scope === "root") key = ROOT_INSTANCE_KEY;
+				else {
+					if (scopeBinding === void 0) throw new Error(`${record.scope} store resolution requires a session id`);
+					key = scopeBinding.key;
+					this.bindStoreScope(scopeBinding);
+				}
+				let instance = record.instances.get(key);
+				if (instance === void 0) {
+					instance = record.scope === "root" ? handle.create() : handle.create(key);
+					record.instances.set(key, instance);
+				}
+				return instance;
+			}
+			/** Clear every live non-root Store handle for one dead scope key. */
+			clearStoreScope(key) {
+				for (const [handle, record] of this._stores) {
+					if (record.scope === "root") continue;
+					(record.instances.get(key) ?? handle.create(key)).clearPersisted();
+					record.instances.delete(key);
+				}
+			}
+			/** Bind (or re-reference) a handle on the axis; cross-scope conflicts already threw in the core. */
+			_acquire(handle, scope) {
+				const record = this._stores.get(handle);
+				if (record === void 0) {
+					this._stores.set(handle, {
+						scope,
+						refs: 1,
+						instances: /* @__PURE__ */ new Map()
+					});
+					return;
+				}
+				record.refs += 1;
+			}
+			/** Drop one reference; the last holder's unload drops the record (instances go with it — engine stores need no explicit dispose). */
+			_release(handle) {
+				const record = this._stores.get(handle);
+				/* v8 ignore next -- defensive: release only runs from a disposer whose
+				* register acquired the same handle, so the record must exist; kept so a
+				* future call site cannot underflow the axis. */
+				if (record === void 0) return;
+				record.refs -= 1;
+				if (record.refs !== 0) return;
+				this._stores.delete(handle);
+			}
+		};
+		function copyUnique(kind, target, values, finalProps, propNameOf) {
+			if (values === void 0) return;
+			for (const [name, value] of Object.entries(values)) {
+				const propName = propNameOf(name);
+				if (finalProps.has(propName)) throw new Error(`duplicate root standard ${kind} '${name}' at prop '${propName}'`);
+				finalProps.add(propName);
+				target[name] = value;
+			}
+		}
+		SlotRegistry.prototype.register = function register(rawOptions, component) {
+			const options = rawOptions;
+			return this.ctx.effect(() => this["_register"](options, component), "slots.register()");
+		};
 		//#endregion
 		//#region lib/types/client/index.js
 		/**
@@ -936,7 +1397,7 @@ window.__ModuleLoader__.load({
 		* kernel after the complete client roster settles.
 		*/
 		/** Services required before application assembly. */
-		const inject = ["slots", "sessions"];
+		const inject = [];
 		/** Hydrate the kernel-owned loading DOM before replacing it with the application. */
 		function BootHandoff(props) {
 			const [ready, setReady] = (0, react.useState)(false);
@@ -971,7 +1432,7 @@ window.__ModuleLoader__.load({
 		* @param ctx - Plugin context.
 		*/
 		function apply(ctx) {
-			ctx.slots.install(createSlotRenderer());
+			new SlotRegistry(ctx).install(createSlotRenderer());
 			ctx.reflect.provide("uiRenderer", { mount: (container) => {
 				const root = mountApp(container, buildRenderApp({ ctx }));
 				return () => {
@@ -980,6 +1441,7 @@ window.__ModuleLoader__.load({
 			} });
 		}
 		//#endregion
+		exports.SlotRegistry = SlotRegistry;
 		exports.apply = apply;
 		exports.inject = inject;
 		return module.exports;

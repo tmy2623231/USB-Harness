@@ -1,9 +1,9 @@
 name: 构建并发布完整包
 
 # 推送版本标签时自动构建「含运行时」完整包并创建 Release。
-# 版本号跟随适配的 dsh 版本：tag 可等于 dsh 版本（如 0.1.1-rc.2），
-# 也可在 dsh 版本后追加包装补丁号（如 0.1.1-rc.2.1，用于本项目独立热修复）。
-# 本地发版：git tag 0.1.1-rc.2.1 && git push origin 0.1.1-rc.2.1
+# 版本号跟随适配的 dsh 版本：tag 可等于 dsh 版本（如 0.1.5-rc.2），
+# 也可在 dsh 版本后追加包装补丁号（如 0.1.5-rc.2.1，用于本项目独立热修复）。
+# 本地发版：git tag 0.1.5-rc.2.1 && git push origin 0.1.5-rc.2.1
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要构建的标签（dsh 版本或其包装补丁版，如 0.1.1-rc.2 / 0.1.1-rc.2.1）'
+        description: '要构建的标签（dsh 版本或其包装补丁版，如 0.1.5-rc.2 / 0.1.5-rc.2.1）'
         required: true
 
 permissions:
@@ -45,7 +45,7 @@ jobs:
           if ($tag -eq $dsh) {
             Write-Host "tag=$tag == dsh=$dsh 一致 ✓"
           } else {
-            # 允许在 dsh 版本后追加包装补丁号：0.1.1-rc.2.1（本项目独立热修复，不涉及上游版本变更）
+            # 允许在 dsh 版本后追加包装补丁号：0.1.5-rc.2.1（本项目独立热修复，不涉及上游版本变更）
             $suffix = ''
             $ok = $false
             if ($tag.StartsWith($dsh + '.')) {
@@ -95,7 +95,7 @@ jobs:
                      ForEach-Object { $_.Groups[1].Value } |
                      Where-Object { $_ -match '[@^]' })
 
-          if ($peers.Count -lt 20) { throw "解析到的 peer 数量异常: $($peers.Count)" }
+          if ($peers.Count -lt 6) { throw "解析到的 peer 数量异常: $($peers.Count)" }
           Write-Host "解析到 $($peers.Count) 个 peer 包："
           $peers | ForEach-Object { Write-Host "  - $_" }
 

@@ -7,15 +7,53 @@ import { AnonymousEntries, NamedEntries, ScopedLayers, scopeTarget } from "@deep
 *
 * @module @deepseek-ai/dsh-system-prompt
 */
+const SECTION_ORDERS = {
+	HARNESS_IDENTITY: -1e3,
+	DEPLOYMENT_PERSONA_PREFIX: 0,
+	PLAN_POLICY: 500,
+	TEAM_POLICY: 600,
+	PTC_ONLY: 800,
+	FILE_REFERENCE: 900,
+	TOOL_BASH: 1e3,
+	TOOL_PWSH: 1010,
+	TOOL_READ: 1100,
+	TOOL_WRITE: 1200,
+	TOOL_EDIT: 1300,
+	TOOL_GLOB: 1400,
+	TOOL_GREP: 1500,
+	TOOL_JOBS: 1600,
+	TOOL_PTY: 1700,
+	TOOL_WEB_SEARCH: 2e3,
+	TOOL_WEB_FETCH: 2100,
+	TOOL_LSP: 2200,
+	TOOL_SESSION_QUERY: 2300,
+	TOOL_GOAL: 2400,
+	TOOL_CORDIS: 2500,
+	TOOL_WORKFLOW: 2600,
+	TOOL_RALPH: 2700,
+	TOOL_SUBAGENT: 2800,
+	TOOL_REPORT: 2900,
+	TOOLS_SDK: 5e3,
+	DELIVERABLE_FILE_REFERENCES: 9e3,
+	STRUCTURED_OUTPUT: 9900,
+	HARNESS_SOURCE: 1e4,
+	WEB_SURFACE: 10100,
+	DEPLOYMENT_PERSONA_SUFFIX: 10200
+};
+const CONTEXT_ORDERS = {
+	SANDBOX_POLICY: 110,
+	APPROVAL_POLICY: 115,
+	SUBAGENT_DELEGATION: 120
+};
 /**
-* The deployment persona's section name and order. Exported because a
+* The deployment persona prefix's section name. Exported because a
 * composition can replace this slot — an agent preset shadows the
 * deployment's persona with its own — and both sides naming the same section
 * is what makes the replacement work rather than duplicate.
 */
-const PERSONA_SECTION = "deployment:persona";
-/** Prompt order of the persona slot; the first section a model reads. */
-const PERSONA_ORDER = 0;
+const PERSONA_PREFIX_SECTION = "deployment:persona-prefix";
+/** Deployment persona suffix section name shared by global and scoped contributions. */
+const PERSONA_SUFFIX_SECTION = "deployment:persona-suffix";
 /** Valid variable names: how they are written between the braces. */
 const VARIABLE_NAME = /^[a-z][a-z0-9_]*$/;
 /** A complete `{{...}}` reference group at the scan position (validated after). */
@@ -50,9 +88,17 @@ function orderTools(tools, toolOrder, knownNames) {
 	const rest = tools.filter((tool) => !listed.has(tool.name)).sort(compareToolNames);
 	return toolOrder.flatMap((name) => name === "<unlisted-tools>" ? rest : tools.filter((tool) => tool.name === name));
 }
-/** Lexicographic (code-unit) name comparison — locale-independent, so the order is identical on every machine. */
+/** Code-unit name comparison — locale-independent, so the order is identical on every machine. */
+function compareNames(a, b) {
+	return a < b ? -1 : a > b ? 1 : 0;
+}
+/** Order prompt sections by their explicit placement, then deterministically by name. */
+function comparePromptSections(a, b) {
+	return a.order - b.order || compareNames(a.name, b.name);
+}
+/** Order tool schemas lexicographically by name. */
 function compareToolNames(a, b) {
-	return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+	return compareNames(a.name, b.name);
 }
 /**
 * Interpolate strict `{{variable}}` references, drop empty sections, and join
@@ -153,7 +199,8 @@ var SystemPrompt = class extends Service {
 	static Config = z.object({
 		includeHarnessIdentity: z.boolean().default(true),
 		includeRuntimeContext: z.boolean().default(true),
-		persona: z.string().default(""),
+		personaPrefix: z.string().default(""),
+		personaSuffix: z.string().default(""),
 		toolOrder: z.array(z.string()).default(void 0)
 	});
 	layers = new ScopedLayers((scope) => new PromptLayer(scope), () => {
@@ -165,13 +212,18 @@ var SystemPrompt = class extends Service {
 		this.toolOrder = validateToolOrder(config.toolOrder);
 		if (config.includeHarnessIdentity ?? true) this.section({
 			name: "harness:identity",
-			order: -100,
+			order: this.getSectionOrder("HARNESS_IDENTITY"),
 			text: "You are an AI agent powered by USB Harness."
 		});
 		this.section({
-			name: PERSONA_SECTION,
-			order: 0,
-			text: config.persona ?? ""
+			name: PERSONA_PREFIX_SECTION,
+			order: this.getSectionOrder("DEPLOYMENT_PERSONA_PREFIX"),
+			text: config.personaPrefix ?? ""
+		});
+		this.section({
+			name: PERSONA_SUFFIX_SECTION,
+			order: this.getSectionOrder("DEPLOYMENT_PERSONA_SUFFIX"),
+			text: config.personaSuffix ?? ""
 		});
 		if (!(config.includeRuntimeContext ?? true)) this.suppressRuntimeContext();
 	}
@@ -186,6 +238,22 @@ var SystemPrompt = class extends Service {
 	section(section) {
 		if (!Number.isFinite(section.order)) throw new TypeError(`prompt section "${section.name}" order must be a finite number`);
 		return this.layers.effect(this.ctx, (layer) => layer.sections.insert(section.name, section), { label: "systemPrompt.section()" });
+	}
+	/**
+	* Resolve the centrally owned placement of a repository prompt section.
+	* @param name - stable section placement name.
+	* @returns the section's numeric sort order.
+	*/
+	getSectionOrder(name) {
+		return SECTION_ORDERS[name];
+	}
+	/**
+	* Resolve the centrally owned placement of a repository runtime context.
+	* @param name - stable context placement name.
+	* @returns the context's numeric sort order.
+	*/
+	getContextOrder(name) {
+		return CONTEXT_ORDERS[name];
 	}
 	/**
 	* Register ordered dynamic context in the calling context's scope. Scoped
@@ -260,7 +328,7 @@ var SystemPrompt = class extends Service {
 			collected.push(...schemas);
 			for (const name of acceptedKnownNames) knownNames.add(name);
 		}
-		const sectionDefinitions = [...sectionByName.values()].sort((a, b) => a.order - b.order);
+		const sectionDefinitions = [...sectionByName.values()].sort(comparePromptSections);
 		const completeSections = sectionDefinitions.filter((section) => section.complete === true);
 		if (completeSections.length > 1) throw new Error(`multiple complete prompt sections are active: ${completeSections.map((section) => JSON.stringify(section.name)).join(", ")}`);
 		let completeSection;
@@ -290,4 +358,4 @@ var SystemPrompt = class extends Service {
 	}
 };
 //#endregion
-export { PERSONA_ORDER, PERSONA_SECTION, SystemPrompt, SystemPrompt as default, TOOL_ORDER_REST, joinContextSections, renderContextSections, renderContextSnapshot, renderPrompt };
+export { PERSONA_PREFIX_SECTION, PERSONA_SUFFIX_SECTION, SystemPrompt, SystemPrompt as default, TOOL_ORDER_REST, joinContextSections, renderContextSections, renderContextSnapshot, renderPrompt };

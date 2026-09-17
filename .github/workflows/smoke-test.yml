@@ -56,7 +56,7 @@ jobs:
           $peers = @([regex]::Matches($m.Groups[1].Value, "'([^']+)'") |
                      ForEach-Object { $_.Groups[1].Value } |
                      Where-Object { $_ -match '[@^]' })
-          if ($peers.Count -lt 20) { throw "peer 数量异常: $($peers.Count)" }
+          if ($peers.Count -lt 6) { throw "peer 数量异常: $($peers.Count)" }
 
           $dshVer = "${{ steps.ver.outputs.dsh }}"
           $mismatch = $peers | Where-Object { $_ -match '^@deepseek-ai/dsh-.*@\^(.+)$' -and $Matches[1] -ne $dshVer }

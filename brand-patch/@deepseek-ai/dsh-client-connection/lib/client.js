@@ -4,13 +4,822 @@ window.__ModuleLoader__.load({
 		var module = { exports: {} };
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-		//#region lib/types/client/connection.js
-		const CONNECTION_DEFAULTS = {
-			backoffBaseMs: 500,
-			backoffFactor: 2,
-			backoffMaxMs: 1e4,
-			streamOpenTimeoutMs: 3e3
+		//#region ../../../vendor/cosmokit/lib/index.js
+		/** Return true when a value is `null` or `undefined`. */
+		function isNullable(value) {
+			return value === null || value === void 0;
+		}
+		/** Return true for non-array object values. */
+		function isPlainObject(data) {
+			return data && typeof data === "object" && !Array.isArray(data);
+		}
+		/** Filter object entries and return a new object. */
+		function filterKeys(object, filter) {
+			return Object.fromEntries(Object.entries(object).filter(([key, value]) => filter(key, value)));
+		}
+		/** Map object values while preserving the original key set. */
+		function mapValues(object, transform) {
+			return Object.fromEntries(Object.entries(object).map(([key, value]) => [key, transform(value, key)]));
+		}
+		/** Pick selected keys from an object, optionally including `undefined` values. */
+		function pick(source, keys, forced) {
+			if (!keys) return { ...source };
+			const result = {};
+			for (const key of keys) if (forced || source[key] !== void 0) result[key] = source[key];
+			return result;
+		}
+		/** Test values using `instanceof` with a `toStringTag` fallback. */
+		function is(type, value) {
+			if (arguments.length === 1) return (value) => is(type, value);
+			return type in globalThis && value instanceof globalThis[type] || Object.prototype.toString.call(value).slice(8, -1) === type;
+		}
+		function isArrayBufferLike(value) {
+			return is("ArrayBuffer", value) || is("SharedArrayBuffer", value);
+		}
+		function isArrayBufferSource(value) {
+			return isArrayBufferLike(value) || ArrayBuffer.isView(value);
+		}
+		/** Binary source detection and base64/hex conversion helpers. */
+		var Binary;
+		(function(Binary) {
+			Binary.is = isArrayBufferLike;
+			Binary.isSource = isArrayBufferSource;
+			function fromSource(source) {
+				if (ArrayBuffer.isView(source)) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
+				else return source;
+			}
+			Binary.fromSource = fromSource;
+			function toBase64(source) {
+				source = fromSource(source);
+				if (typeof Buffer !== "undefined") return Buffer.from(source).toString("base64");
+				let binary = "";
+				const bytes = new Uint8Array(source);
+				for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+				return btoa(binary);
+			}
+			Binary.toBase64 = toBase64;
+			function fromBase64(source) {
+				if (typeof Buffer !== "undefined") return fromSource(Buffer.from(source, "base64"));
+				return Uint8Array.from(atob(source), (c) => c.charCodeAt(0));
+			}
+			Binary.fromBase64 = fromBase64;
+			function toHex(source) {
+				source = fromSource(source);
+				if (typeof Buffer !== "undefined") return Buffer.from(source).toString("hex");
+				return Array.from(new Uint8Array(source), (byte) => byte.toString(16).padStart(2, "0")).join("");
+			}
+			Binary.toHex = toHex;
+			function fromHex(source) {
+				if (typeof Buffer !== "undefined") return fromSource(Buffer.from(source, "hex"));
+				const hex = source.length % 2 === 0 ? source : source.slice(0, source.length - 1);
+				const buffer = [];
+				for (let i = 0; i < hex.length; i += 2) buffer.push(parseInt(`${hex[i]}${hex[i + 1]}`, 16));
+				return Uint8Array.from(buffer).buffer;
+			}
+			Binary.fromHex = fromHex;
+		})(Binary || (Binary = {}));
+		Binary.fromBase64;
+		Binary.toBase64;
+		Binary.fromHex;
+		Binary.toHex;
+		/** Deep-clone common JavaScript values while preserving prototypes and cycles. */
+		function clone(source, refs = /* @__PURE__ */ new Map()) {
+			if (!source || typeof source !== "object") return source;
+			if (is("Date", source)) return new Date(source.valueOf());
+			if (is("RegExp", source)) return new RegExp(source.source, source.flags);
+			if (isArrayBufferLike(source)) return source.slice(0);
+			if (ArrayBuffer.isView(source)) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
+			const cached = refs.get(source);
+			if (cached) return cached;
+			if (Array.isArray(source)) {
+				const result = [];
+				refs.set(source, result);
+				source.forEach((value, index) => {
+					result[index] = Reflect.apply(clone, null, [value, refs]);
+				});
+				return result;
+			}
+			const result = Object.create(Object.getPrototypeOf(source));
+			refs.set(source, result);
+			for (const key of Reflect.ownKeys(source)) {
+				const descriptor = { ...Reflect.getOwnPropertyDescriptor(source, key) };
+				if ("value" in descriptor) descriptor.value = Reflect.apply(clone, null, [descriptor.value, refs]);
+				Reflect.defineProperty(result, key, descriptor);
+			}
+			return result;
+		}
+		/** Deeply compare arrays, dates, regexps, buffers, and plain object fields. */
+		function deepEqual(a, b, strict) {
+			if (a === b) return true;
+			if (!strict && isNullable(a) && isNullable(b)) return true;
+			if (typeof a !== typeof b) return false;
+			if (typeof a !== "object") return false;
+			if (!a || !b) return false;
+			function check(test, then) {
+				return test(a) ? test(b) ? then(a, b) : false : test(b) ? false : void 0;
+			}
+			return check(Array.isArray, (a, b) => a.length === b.length && a.every((item, index) => deepEqual(item, b[index]))) ?? check(is("Date"), (a, b) => a.valueOf() === b.valueOf()) ?? check(is("RegExp"), (a, b) => a.source === b.source && a.flags === b.flags) ?? check(isArrayBufferLike, (a, b) => {
+				if (a.byteLength !== b.byteLength) return false;
+				const viewA = new Uint8Array(a);
+				const viewB = new Uint8Array(b);
+				for (let i = 0; i < viewA.length; i++) if (viewA[i] !== viewB[i]) return false;
+				return true;
+			}) ?? Object.keys({
+				...a,
+				...b
+			}).every((key) => deepEqual(a[key], b[key], strict));
+		}
+		/** Time constants plus parsing and formatting helpers. */
+		var Time;
+		(function(Time) {
+			Time.millisecond = 1;
+			Time.second = 1e3;
+			Time.minute = Time.second * 60;
+			Time.hour = Time.minute * 60;
+			Time.day = Time.hour * 24;
+			Time.week = Time.day * 7;
+			let timezoneOffset = (/* @__PURE__ */ new Date()).getTimezoneOffset();
+			function setTimezoneOffset(offset) {
+				timezoneOffset = offset;
+			}
+			Time.setTimezoneOffset = setTimezoneOffset;
+			function getTimezoneOffset() {
+				return timezoneOffset;
+			}
+			Time.getTimezoneOffset = getTimezoneOffset;
+			function getDateNumber(date = /* @__PURE__ */ new Date(), offset) {
+				if (typeof date === "number") date = new Date(date);
+				if (offset === void 0) offset = timezoneOffset;
+				return Math.floor((date.valueOf() / Time.minute - offset) / 1440);
+			}
+			Time.getDateNumber = getDateNumber;
+			function fromDateNumber(value, offset) {
+				const date = new Date(value * Time.day);
+				if (offset === void 0) offset = timezoneOffset;
+				return new Date(+date + offset * Time.minute);
+			}
+			Time.fromDateNumber = fromDateNumber;
+			const numeric = /\d+(?:\.\d+)?/.source;
+			const timeRegExp = new RegExp(`^${[
+				"w(?:eek(?:s)?)?",
+				"d(?:ay(?:s)?)?",
+				"h(?:our(?:s)?)?",
+				"m(?:in(?:ute)?(?:s)?)?",
+				"s(?:ec(?:ond)?(?:s)?)?"
+			].map((unit) => `(${numeric}${unit})?`).join("")}$`);
+			function parseTime(source) {
+				const capture = timeRegExp.exec(source);
+				if (!capture) return 0;
+				return (parseFloat(capture[1]) * Time.week || 0) + (parseFloat(capture[2]) * Time.day || 0) + (parseFloat(capture[3]) * Time.hour || 0) + (parseFloat(capture[4]) * Time.minute || 0) + (parseFloat(capture[5]) * Time.second || 0);
+			}
+			Time.parseTime = parseTime;
+			function parseDate(date) {
+				const parsed = parseTime(date);
+				if (parsed) date = Date.now() + parsed;
+				else if (/^\d{1,2}(:\d{1,2}){1,2}$/.test(date)) date = `${(/* @__PURE__ */ new Date()).toLocaleDateString()}-${date}`;
+				else if (/^\d{1,2}-\d{1,2}-\d{1,2}(:\d{1,2}){1,2}$/.test(date)) date = `${(/* @__PURE__ */ new Date()).getFullYear()}-${date}`;
+				return date ? new Date(date) : /* @__PURE__ */ new Date();
+			}
+			Time.parseDate = parseDate;
+			function format(ms) {
+				const abs = Math.abs(ms);
+				if (abs >= Time.day - Time.hour / 2) return Math.round(ms / Time.day) + "d";
+				else if (abs >= Time.hour - Time.minute / 2) return Math.round(ms / Time.hour) + "h";
+				else if (abs >= Time.minute - Time.second / 2) return Math.round(ms / Time.minute) + "m";
+				else if (abs >= Time.second) return Math.round(ms / Time.second) + "s";
+				return ms + "ms";
+			}
+			Time.format = format;
+			function toDigits(source, length = 2) {
+				return source.toString().padStart(length, "0");
+			}
+			Time.toDigits = toDigits;
+			function template(template, time = /* @__PURE__ */ new Date()) {
+				return template.replace("yyyy", time.getFullYear().toString()).replace("yy", time.getFullYear().toString().slice(2)).replace("MM", toDigits(time.getMonth() + 1)).replace("dd", toDigits(time.getDate())).replace("hh", toDigits(time.getHours())).replace("mm", toDigits(time.getMinutes())).replace("ss", toDigits(time.getSeconds())).replace("SSS", toDigits(time.getMilliseconds(), 3));
+			}
+			Time.template = template;
+		})(Time || (Time = {}));
+		//#endregion
+		//#region ../../../vendor/schemastery/lib/index.mjs
+		const kSchema = Symbol.for("schemastery");
+		const kValidationError = Symbol.for("ValidationError");
+		globalThis.__schemastery_index__ ??= 0;
+		globalThis.__schemastery_refs__ = void 0;
+		var ValidationError = class extends TypeError {
+			options;
+			name = "ValidationError";
+			constructor(message, options) {
+				let prefix = "$";
+				for (const segment of options.path || []) if (typeof segment === "string") prefix += "." + segment;
+				else if (typeof segment === "number") prefix += "[" + segment + "]";
+				else if (typeof segment === "symbol") prefix += `[Symbol(${segment.toString()})]`;
+				if (prefix.startsWith(".")) prefix = prefix.slice(1);
+				super((prefix === "$" ? "" : `${prefix} `) + message);
+				this.options = options;
+			}
+			static is(error) {
+				return !!error?.[kValidationError];
+			}
 		};
+		Object.defineProperty(ValidationError.prototype, kValidationError, { value: true });
+		const Schema = function(options) {
+			const schema = function(data, options = {}) {
+				return Schema.resolve(data, schema, options)[0];
+			};
+			if (options.refs) {
+				const refs = mapValues(options.refs, (options) => new Schema(options));
+				const getRef = (uid) => refs[uid];
+				for (const key in refs) {
+					const options = refs[key];
+					options.sKey = getRef(options.sKey);
+					options.inner = getRef(options.inner);
+					options.list = options.list && options.list.map(getRef);
+					options.dict = options.dict && mapValues(options.dict, getRef);
+				}
+				return refs[options.uid];
+			}
+			Object.assign(schema, options);
+			if (typeof schema.callback === "string") try {
+				schema.callback = new Function("return " + schema.callback)();
+			} catch {}
+			Object.defineProperty(schema, "uid", { value: globalThis.__schemastery_index__++ });
+			Object.setPrototypeOf(schema, Schema.prototype);
+			schema.meta ||= {};
+			schema.toString = schema.toString.bind(schema);
+			return schema;
+		};
+		Schema.prototype = Object.create(Function.prototype);
+		Schema.prototype[kSchema] = true;
+		Object.defineProperty(Schema.prototype, "~standard", { get() {
+			return {
+				version: 1,
+				vendor: "schemastery",
+				validate: (value) => {
+					try {
+						return { value: Schema.resolve(value, this, {})[0] };
+					} catch (error) {
+						if (ValidationError.is(error)) return { issues: [{
+							message: error.message,
+							path: error.options.path
+						}] };
+						throw error;
+					}
+				}
+			};
+		} });
+		Schema.ValidationError = ValidationError;
+		Schema.prototype.toJSON = function toJSON() {
+			if (globalThis.__schemastery_refs__) {
+				globalThis.__schemastery_refs__[this.uid] ??= JSON.parse(JSON.stringify({ ...this }));
+				return this.uid;
+			}
+			globalThis.__schemastery_refs__ = { [this.uid]: { ...this } };
+			globalThis.__schemastery_refs__[this.uid] = JSON.parse(JSON.stringify({ ...this }));
+			const result = {
+				uid: this.uid,
+				refs: globalThis.__schemastery_refs__
+			};
+			globalThis.__schemastery_refs__ = void 0;
+			return result;
+		};
+		Schema.prototype.set = function set(key, value) {
+			this.dict[key] = value;
+			return this;
+		};
+		Schema.prototype.push = function push(value) {
+			this.list.push(value);
+			return this;
+		};
+		function mergeDesc(original, messages) {
+			const result = typeof original === "string" ? { "": original } : { ...original };
+			for (const locale in messages) {
+				const value = messages[locale];
+				if (value?.$description || value?.$desc) result[locale] = value.$description || value.$desc;
+				else if (typeof value === "string") result[locale] = value;
+			}
+			return result;
+		}
+		function getInner(value) {
+			return value?.$value ?? value?.$inner;
+		}
+		function extractKeys(data) {
+			return filterKeys(data ?? {}, (key) => !key.startsWith("$"));
+		}
+		Schema.prototype.i18n = function i18n(messages) {
+			const schema = Schema(this);
+			const desc = mergeDesc(schema.meta.description, messages);
+			if (Object.keys(desc).length) schema.meta.description = desc;
+			if (schema.dict) schema.dict = mapValues(schema.dict, (inner, key) => {
+				return inner.i18n(mapValues(messages, (data) => getInner(data)?.[key] ?? data?.[key]));
+			});
+			if (schema.list) schema.list = schema.list.map((inner, index) => {
+				return inner.i18n(mapValues(messages, (data = {}) => {
+					if (Array.isArray(getInner(data))) return getInner(data)[index];
+					if (Array.isArray(data)) return data[index];
+					return extractKeys(data);
+				}));
+			});
+			if (schema.inner) schema.inner = schema.inner.i18n(mapValues(messages, (data) => {
+				if (getInner(data)) return getInner(data);
+				return extractKeys(data);
+			}));
+			if (schema.sKey) schema.sKey = schema.sKey.i18n(mapValues(messages, (data) => data?.$key));
+			return schema;
+		};
+		Schema.prototype.extra = function extra(key, value) {
+			const schema = Schema(this);
+			schema.meta = {
+				...schema.meta,
+				[key]: value
+			};
+			return schema;
+		};
+		for (const key of [
+			"required",
+			"disabled",
+			"collapse",
+			"hidden",
+			"loose"
+		]) Object.assign(Schema.prototype, { [key](value = true) {
+			const schema = Schema(this);
+			schema.meta = {
+				...schema.meta,
+				[key]: value
+			};
+			return schema;
+		} });
+		Schema.prototype.deprecated = function deprecated() {
+			const schema = Schema(this);
+			schema.meta.badges ||= [];
+			schema.meta.badges.push({
+				text: "deprecated",
+				type: "danger"
+			});
+			return schema;
+		};
+		Schema.prototype.experimental = function experimental() {
+			const schema = Schema(this);
+			schema.meta.badges ||= [];
+			schema.meta.badges.push({
+				text: "experimental",
+				type: "warning"
+			});
+			return schema;
+		};
+		Schema.prototype.pattern = function pattern(regexp) {
+			const schema = Schema(this);
+			const pattern = pick(regexp, ["source", "flags"]);
+			schema.meta = {
+				...schema.meta,
+				pattern
+			};
+			return schema;
+		};
+		Schema.prototype.simplify = function simplify(value) {
+			if (deepEqual(value, this.meta.default, this.type === "dict")) return null;
+			if (isNullable(value)) return value;
+			if (this.type === "object" || this.type === "dict") {
+				const result = {};
+				for (const key in value) {
+					const item = (this.type === "object" ? this.dict[key] : this.inner)?.simplify(value[key]);
+					if (this.type === "dict" || !isNullable(item)) result[key] = item;
+				}
+				if (deepEqual(result, this.meta.default, this.type === "dict")) return null;
+				return result;
+			} else if (this.type === "array" || this.type === "tuple") {
+				const result = [];
+				value.forEach((value, index) => {
+					const schema = this.type === "array" ? this.inner : this.list[index];
+					const item = schema ? schema.simplify(value) : value;
+					result.push(item);
+				});
+				return result;
+			} else if (this.type === "intersect") {
+				const result = {};
+				for (const item of this.list) Object.assign(result, item.simplify(value));
+				return result;
+			} else if (this.type === "union") for (const schema of this.list) try {
+				Schema.resolve(value, schema, {});
+				return schema.simplify(value);
+			} catch {}
+			return value;
+		};
+		Schema.prototype.toString = function toString(inline) {
+			return formatters[this.type]?.(this, inline) ?? `Schema<${this.type}>`;
+		};
+		Schema.prototype.role = function role(role, extra) {
+			const schema = Schema(this);
+			schema.meta = {
+				...schema.meta,
+				role,
+				extra
+			};
+			return schema;
+		};
+		for (const key of [
+			"default",
+			"link",
+			"comment",
+			"description",
+			"max",
+			"min",
+			"step"
+		]) Object.assign(Schema.prototype, { [key](value) {
+			const schema = Schema(this);
+			schema.meta = {
+				...schema.meta,
+				[key]: value
+			};
+			return schema;
+		} });
+		const resolvers = {};
+		Schema.extend = function extend(type, resolve) {
+			resolvers[type] = resolve;
+		};
+		Schema.resolve = function resolve(data, schema, options = {}, strict = false) {
+			if (!schema) return [data];
+			if (options.ignore?.(data, schema)) return [data];
+			if (isNullable(data) && schema.type !== "lazy") {
+				if (schema.meta.required) throw new ValidationError(`missing required value`, options);
+				let current = schema;
+				let fallback = schema.meta.default;
+				while (current?.type === "intersect" && isNullable(fallback)) {
+					current = current.list[0];
+					fallback = current?.meta.default;
+				}
+				if (isNullable(fallback)) return [data];
+				data = clone(fallback);
+			}
+			const callback = resolvers[schema.type];
+			if (!callback) throw new ValidationError(`unsupported type "${schema.type}"`, options);
+			try {
+				return callback(data, schema, options, strict);
+			} catch (error) {
+				if (!schema.meta.loose) throw error;
+				return [schema.meta.default];
+			}
+		};
+		Schema.from = function from(source) {
+			if (isNullable(source)) return Schema.any();
+			else if ([
+				"string",
+				"number",
+				"boolean"
+			].includes(typeof source)) return Schema.const(source).required();
+			else if (source[kSchema]) return source;
+			else if (typeof source === "function") switch (source) {
+				case String: return Schema.string().required();
+				case Number: return Schema.number().required();
+				case Boolean: return Schema.boolean().required();
+				case Function: return Schema.function().required();
+				default: return Schema.is(source).required();
+			}
+			else throw new TypeError(`cannot infer schema from ${source}`);
+		};
+		Schema.lazy = function lazy(builder) {
+			const toJSON = () => {
+				if (!schema.inner[kSchema]) {
+					schema.inner = schema.builder();
+					schema.inner.meta = {
+						...schema.meta,
+						...schema.inner.meta
+					};
+				}
+				return schema.inner.toJSON();
+			};
+			const schema = new Schema({
+				type: "lazy",
+				builder,
+				inner: { toJSON }
+			});
+			return schema;
+		};
+		Schema.natural = function natural() {
+			return Schema.number().step(1).min(0);
+		};
+		Schema.percent = function percent() {
+			return Schema.number().step(.01).min(0).max(1).role("slider");
+		};
+		Schema.date = function date() {
+			return Schema.union([Schema.is(Date), Schema.transform(Schema.string().role("datetime"), (value, options) => {
+				const date = new Date(value);
+				if (isNaN(+date)) throw new ValidationError(`invalid date "${value}"`, options);
+				return date;
+			}, true)]);
+		};
+		Schema.regExp = function regExp(flag = "") {
+			return Schema.union([Schema.is(RegExp), Schema.transform(Schema.string().role("regexp", { flag }), (value, options) => {
+				try {
+					return new RegExp(value, flag);
+				} catch (e) {
+					throw new ValidationError(e.message, options);
+				}
+			}, true)]);
+		};
+		Schema.arrayBuffer = function arrayBuffer(encoding) {
+			return Schema.union([
+				Schema.is(ArrayBuffer),
+				Schema.is(SharedArrayBuffer),
+				Schema.transform(Schema.any(), (value, options) => {
+					if (Binary.isSource(value)) return Binary.fromSource(value);
+					throw new ValidationError(`expected ArrayBufferSource but got ${value}`, options);
+				}, true),
+				...encoding ? [Schema.transform(Schema.string(), (value, options) => {
+					try {
+						return encoding === "base64" ? Binary.fromBase64(value) : Binary.fromHex(value);
+					} catch (e) {
+						throw new ValidationError(e.message, options);
+					}
+				}, true)] : []
+			]);
+		};
+		Schema.extend("lazy", (data, schema, options, strict) => {
+			if (!schema.inner[kSchema]) {
+				schema.inner = schema.builder();
+				schema.inner.meta = {
+					...schema.meta,
+					...schema.inner.meta
+				};
+			}
+			return Schema.resolve(data, schema.inner, options, strict);
+		});
+		Schema.extend("any", (data) => {
+			return [data];
+		});
+		Schema.extend("never", (data, _, options) => {
+			throw new ValidationError(`expected nullable but got ${data}`, options);
+		});
+		Schema.extend("const", (data, { value }, options) => {
+			if (deepEqual(data, value)) return [value];
+			throw new ValidationError(`expected ${value} but got ${data}`, options);
+		});
+		function checkWithinRange(data, meta, description, options, skipMin = false) {
+			const { max = Infinity, min = -Infinity } = meta;
+			if (data > max) throw new ValidationError(`expected ${description} <= ${max} but got ${data}`, options);
+			if (data < min && !skipMin) throw new ValidationError(`expected ${description} >= ${min} but got ${data}`, options);
+		}
+		Schema.extend("string", (data, { meta }, options) => {
+			if (typeof data !== "string") throw new ValidationError(`expected string but got ${data}`, options);
+			if (meta.pattern) {
+				const regexp = new RegExp(meta.pattern.source, meta.pattern.flags);
+				if (!regexp.test(data)) throw new ValidationError(`expect string to match regexp ${regexp}`, options);
+			}
+			checkWithinRange(data.length, meta, "string length", options);
+			return [data];
+		});
+		function decimalShift(data, digits) {
+			const str = data.toString();
+			if (str.includes("e")) return data * Math.pow(10, digits);
+			const index = str.indexOf(".");
+			if (index === -1) return data * Math.pow(10, digits);
+			const frac = str.slice(index + 1);
+			const integer = str.slice(0, index);
+			if (frac.length <= digits) return +(integer + frac.padEnd(digits, "0"));
+			return +(integer + frac.slice(0, digits) + "." + frac.slice(digits));
+		}
+		function isMultipleOf(data, min, step) {
+			step = Math.abs(step);
+			if (!/^\d+\.\d+$/.test(step.toString())) return (data - min) % step === 0;
+			const index = step.toString().indexOf(".");
+			const digits = step.toString().slice(index + 1).length;
+			return Math.abs(decimalShift(data, digits) - decimalShift(min, digits)) % decimalShift(step, digits) === 0;
+		}
+		Schema.extend("number", (data, { meta }, options) => {
+			if (typeof data !== "number") throw new ValidationError(`expected number but got ${data}`, options);
+			checkWithinRange(data, meta, "number", options);
+			const { step } = meta;
+			if (step && !isMultipleOf(data, meta.min ?? 0, step)) throw new ValidationError(`expected number multiple of ${step} but got ${data}`, options);
+			return [data];
+		});
+		Schema.extend("boolean", (data, _, options) => {
+			if (typeof data === "boolean") return [data];
+			throw new ValidationError(`expected boolean but got ${data}`, options);
+		});
+		Schema.extend("bitset", (data, { bits, meta }, options) => {
+			let value = 0, keys = [];
+			if (typeof data === "number") {
+				value = data;
+				for (const key in bits) if (data & bits[key]) keys.push(key);
+			} else if (Array.isArray(data)) {
+				keys = data;
+				for (const key of keys) {
+					if (typeof key !== "string") throw new ValidationError(`expected string but got ${key}`, options);
+					if (key in bits) value |= bits[key];
+				}
+			} else throw new ValidationError(`expected number or array but got ${data}`, options);
+			if (value === meta.default) return [value];
+			return [value, keys];
+		});
+		Schema.extend("function", (data, _, options) => {
+			if (typeof data === "function") return [data];
+			throw new ValidationError(`expected function but got ${data}`, options);
+		});
+		Schema.extend("is", (data, { constructor }, options) => {
+			if (typeof constructor === "function") {
+				if (data instanceof constructor) return [data];
+				throw new ValidationError(`expected ${constructor.name} but got ${data}`, options);
+			} else {
+				if (isNullable(data)) throw new ValidationError(`expected ${constructor} but got ${data}`, options);
+				let prototype = Object.getPrototypeOf(data);
+				while (prototype) {
+					if (prototype.constructor?.name === constructor) return [data];
+					prototype = Object.getPrototypeOf(prototype);
+				}
+				throw new ValidationError(`expected ${constructor} but got ${data}`, options);
+			}
+		});
+		function property(data, key, schema, options) {
+			try {
+				const [value, adapted] = Schema.resolve(data[key], schema, {
+					...options,
+					path: [...options.path || [], key]
+				});
+				if (adapted !== void 0) data[key] = adapted;
+				return value;
+			} catch (e) {
+				if (!options?.autofix) throw e;
+				delete data[key];
+				return schema.meta.default;
+			}
+		}
+		Schema.extend("array", (data, { inner, meta }, options) => {
+			if (!Array.isArray(data)) throw new ValidationError(`expected array but got ${data}`, options);
+			checkWithinRange(data.length, meta, "array length", options, !isNullable(inner.meta.default));
+			return [data.map((_, index) => property(data, index, inner, options))];
+		});
+		Schema.extend("dict", (data, { inner, sKey }, options, strict) => {
+			if (!isPlainObject(data)) throw new ValidationError(`expected object but got ${data}`, options);
+			const result = {};
+			for (const key in data) {
+				let rKey;
+				try {
+					rKey = Schema.resolve(key, sKey, options)[0];
+				} catch (error) {
+					if (strict) continue;
+					throw error;
+				}
+				result[rKey] = property(data, key, inner, options);
+				data[rKey] = data[key];
+				if (key !== rKey) delete data[key];
+			}
+			return [result];
+		});
+		Schema.extend("tuple", (data, { list }, options, strict) => {
+			if (!Array.isArray(data)) throw new ValidationError(`expected array but got ${data}`, options);
+			const result = list.map((inner, index) => property(data, index, inner, options));
+			if (strict) return [result];
+			result.push(...data.slice(list.length));
+			return [result];
+		});
+		function merge(result, data) {
+			for (const key in data) {
+				if (key in result) continue;
+				result[key] = data[key];
+			}
+		}
+		Schema.extend("object", (data, { dict }, options, strict) => {
+			if (!isPlainObject(data)) throw new ValidationError(`expected object but got ${data}`, options);
+			const result = {};
+			for (const key in dict) {
+				const value = property(data, key, dict[key], options);
+				if (!isNullable(value) || key in data) result[key] = value;
+			}
+			if (!strict) merge(result, data);
+			return [result];
+		});
+		Schema.extend("union", (data, { list, toString }, options, strict) => {
+			const messages = [];
+			for (const inner of list) try {
+				return Schema.resolve(data, inner, options, strict);
+			} catch (error) {
+				messages.push(error);
+			}
+			throw new ValidationError(`expected ${toString()} but got ${JSON.stringify(data)}`, options);
+		});
+		Schema.extend("intersect", (data, { list, toString }, options, strict) => {
+			if (!list.length) return [data];
+			let result;
+			for (const inner of list) {
+				const value = Schema.resolve(data, inner, options, true)[0];
+				if (isNullable(value)) continue;
+				if (isNullable(result)) result = value;
+				else if (typeof result !== typeof value) throw new ValidationError(`expected ${toString()} but got ${JSON.stringify(data)}`, options);
+				else if (typeof value === "object") merge(result ??= {}, value);
+				else if (result !== value) throw new ValidationError(`expected ${toString()} but got ${JSON.stringify(data)}`, options);
+			}
+			if (!strict && isPlainObject(data)) merge(result, data);
+			return [result];
+		});
+		Schema.extend("transform", (data, { inner, callback, preserve }, options) => {
+			const [result, adapted = data] = Schema.resolve(data, inner, options, true);
+			if (preserve) return [callback(result)];
+			else return [callback(result), callback(adapted)];
+		});
+		const formatters = {};
+		function defineMethod(name, keys, format) {
+			formatters[name] = format;
+			Object.assign(Schema, { [name](...args) {
+				const schema = new Schema({ type: name });
+				keys.forEach((key, index) => {
+					switch (key) {
+						case "sKey":
+							schema.sKey = args[index] ?? Schema.string();
+							break;
+						case "inner":
+							schema.inner = Schema.from(args[index]);
+							break;
+						case "list":
+							schema.list = args[index].map(Schema.from);
+							break;
+						case "dict":
+							schema.dict = mapValues(args[index], Schema.from);
+							break;
+						case "bits":
+							schema.bits = {};
+							for (const key in args[index]) {
+								if (typeof args[index][key] !== "number") continue;
+								schema.bits[key] = args[index][key];
+							}
+							break;
+						case "callback": {
+							const callback = schema.callback = args[index];
+							callback["toJSON"] ||= () => callback.toString();
+							break;
+						}
+						case "constructor": {
+							const constructor = schema.constructor = args[index];
+							if (typeof constructor === "function") constructor["toJSON"] ||= () => constructor["name"];
+							break;
+						}
+						default: schema[key] = args[index];
+					}
+				});
+				if (name === "object" || name === "dict") schema.meta.default = {};
+				else if (name === "array" || name === "tuple") schema.meta.default = [];
+				else if (name === "bitset") schema.meta.default = 0;
+				return schema;
+			} });
+		}
+		defineMethod("is", ["constructor"], ({ constructor }) => {
+			if (typeof constructor === "function") return constructor.name;
+			else return constructor;
+		});
+		defineMethod("any", [], () => "any");
+		defineMethod("never", [], () => "never");
+		defineMethod("const", ["value"], ({ value }) => typeof value === "string" ? JSON.stringify(value) : value);
+		defineMethod("string", [], () => "string");
+		defineMethod("number", [], () => "number");
+		defineMethod("boolean", [], () => "boolean");
+		defineMethod("bitset", ["bits"], () => "bitset");
+		defineMethod("function", [], () => "function");
+		defineMethod("array", ["inner"], ({ inner }) => `${inner.toString(true)}[]`);
+		defineMethod("dict", ["inner", "sKey"], ({ inner, sKey }) => `{ [key: ${sKey.toString()}]: ${inner.toString()} }`);
+		defineMethod("tuple", ["list"], ({ list }) => `[${list.map((inner) => inner.toString()).join(", ")}]`);
+		defineMethod("object", ["dict"], ({ dict }) => {
+			if (Object.keys(dict).length === 0) return "{}";
+			return `{ ${Object.entries(dict).map(([key, inner]) => {
+				return `${key}${inner.meta.required ? "" : "?"}: ${inner.toString()}`;
+			}).join(", ")} }`;
+		});
+		defineMethod("union", ["list"], ({ list }, inline) => {
+			const result = list.map(({ toString: format }) => format()).join(" | ");
+			return inline ? `(${result})` : result;
+		});
+		defineMethod("intersect", ["list"], ({ list }) => {
+			return `${list.map((inner) => inner.toString(true)).join(" & ")}`;
+		});
+		defineMethod("transform", [
+			"inner",
+			"callback",
+			"preserve"
+		], ({ inner }, isInner) => inner.toString(isInner));
+		//#endregion
+		//#region lib/types/recovery-config.js
+		/** Shared validation for Host-configured and browser-local connection recovery. */
+		const MAX_TIMER_MS = 2147483647;
+		/** Schema shared by the Host plugin and the Client's recovery input parser. */
+		const ConnectionRecoveryConfigSchema = Schema.object({
+			backoffBaseMs: Schema.natural().min(1).max(MAX_TIMER_MS).default(500),
+			backoffFactor: Schema.number().min(1).max(Number.MAX_VALUE).default(2),
+			backoffMaxMs: Schema.natural().min(1).max(MAX_TIMER_MS).default(1e4),
+			generationReadyWarnMs: Schema.natural().min(1).max(MAX_TIMER_MS).default(3e3),
+			generationReadyTimeoutMs: Schema.natural().min(1).max(MAX_TIMER_MS).default(15e3)
+		});
+		/**
+		* Validate recovery input and supply every timing default before starting work.
+		* @param config - Host configuration, page bootstrap data, or direct loop options.
+		* @returns validated, complete recovery timing.
+		*/
+		function resolveConnectionConfig(config = {}) {
+			const resolved = ConnectionRecoveryConfigSchema(config);
+			if (!Number.isFinite(resolved.backoffFactor)) throw new RangeError("connection recovery backoffFactor must be finite");
+			return resolved;
+		}
+		//#endregion
+		//#region lib/types/client/connection.js
+		/** Connection generation readiness, cancellation, and continuous recovery. */
+		const MANUAL_RECONNECT = /* @__PURE__ */ new Error("connection: manual reconnect requested");
+		const NETWORK_STATE_CHANGED = /* @__PURE__ */ new Error("connection: browser network state changed");
 		function sleep(ms, signal) {
 			return new Promise((resolve) => {
 				const t = setTimeout(done, ms);
@@ -22,29 +831,35 @@ window.__ModuleLoader__.load({
 				}
 			});
 		}
+		function waitForAbort(signal) {
+			if (signal.aborted) return Promise.resolve();
+			return new Promise((resolve) => {
+				signal.addEventListener("abort", () => {
+					resolve();
+				}, { once: true });
+			});
+		}
 		/**
-		* Opens both streams and keeps iterating (pull mode: nothing reads the socket and the tap
-		* never fires unless someone for-awaits), reconnecting with exponential backoff on loss.
+		* Opens the registered generation source, reconnecting with exponential backoff on loss.
 		* State (generation/attempt) is instance-private, never in the store.
-		* The pump body feeds each frame to a sink (sink exceptions must
-		* not kill the pump — a broken business layer must not drag down the connection layer).
+		* Sink exceptions do not kill the generation loop.
 		*/
 		var ConnectionController = class {
-			api;
+			source;
 			sinks;
 			generation = 0;
 			attempt = 0;
 			current = null;
+			retryDelay = null;
 			running = false;
-			lastState = null;
+			immediateRetry = false;
+			networkAvailable = true;
+			lastState;
 			config;
-			constructor(api, sinks = {}, config = {}) {
-				this.api = api;
+			constructor(source, sinks = {}, config = {}) {
+				this.source = source;
 				this.sinks = sinks;
-				this.config = {
-					...CONNECTION_DEFAULTS,
-					...config
-				};
+				this.config = resolveConnectionConfig(config);
 			}
 			/** Idempotent: begin the connect/pump/reconnect loop. */
 			start() {
@@ -52,16 +867,50 @@ window.__ModuleLoader__.load({
 				this.running = true;
 				this.loop();
 			}
-			/** Stop the loop and abort the current generation's streams. */
+			/** Stop the loop and abort the current generation source. */
 			stop() {
 				this.running = false;
 				this.current?.abort();
 				this.current = null;
+				this.retryDelay?.abort();
+				this.retryDelay = null;
+			}
+			/** Reset the retry sequence and replace the current generation or retry delay immediately. */
+			reconnect() {
+				if (!this.running) return;
+				this.attempt = 0;
+				this.immediateRetry = true;
+				this.emitState("connecting");
+				if (!this.isRunning()) return;
+				this.current?.abort(MANUAL_RECONNECT);
+				this.retryDelay?.abort(MANUAL_RECONNECT);
+			}
+			/**
+			* Suspend automatic retries while offline and restart backoff when the network returns.
+			* @param available - whether the browser reports network access.
+			*/
+			setNetworkAvailable(available) {
+				if (this.networkAvailable === available) return;
+				this.networkAvailable = available;
+				this.attempt = 0;
+				this.immediateRetry = false;
+				if (!this.running) return;
+				this.emitState(available ? "connecting" : "disconnected");
+				if (!this.isRunning()) return;
+				this.current?.abort(NETWORK_STATE_CHANGED);
+				this.retryDelay?.abort(NETWORK_STATE_CHANGED);
+			}
+			backoffCap(attempt) {
+				const { backoffBaseMs, backoffFactor, backoffMaxMs } = this.config;
+				return Math.min(backoffMaxMs, backoffBaseMs * backoffFactor ** Math.max(0, attempt - 1));
 			}
 			backoffDelay(attempt) {
-				const { backoffBaseMs, backoffFactor, backoffMaxMs } = this.config;
-				const cap = Math.min(backoffMaxMs, backoffBaseMs * backoffFactor ** Math.max(0, attempt - 1));
+				const cap = this.backoffCap(attempt);
 				return cap / 2 + Math.random() * (cap / 2);
+			}
+			/** Re-read retry inputs after a potentially reentrant state sink. */
+			isRetryInterrupted(immediate) {
+				return this.immediateRetry || !this.networkAvailable && !immediate;
 			}
 			/** Read through a method: stop() flips the flag across awaits, so narrowing from the loop condition must not stick. */
 			isRunning() {
@@ -72,50 +921,93 @@ window.__ModuleLoader__.load({
 				return this.isRunning() && !controller.signal.aborted;
 			}
 			async loop() {
+				let retry = false;
 				while (this.running) {
+					if (!this.networkAvailable && !this.immediateRetry) {
+						const retryDelay = new AbortController();
+						this.retryDelay = retryDelay;
+						this.emitState("disconnected");
+						await waitForAbort(retryDelay.signal);
+						if (this.retryDelay === retryDelay) this.retryDelay = null;
+						if (!this.isRunning()) return;
+						retry = true;
+						continue;
+					}
+					let manualAttempt = false;
+					if (retry) {
+						const immediate = this.immediateRetry;
+						this.immediateRetry = false;
+						if (immediate) this.attempt = 0;
+						manualAttempt = immediate;
+						const attempt = ++this.attempt;
+						this.emitState("connecting");
+						if (!this.isRunning()) return;
+						if (this.isRetryInterrupted(immediate)) continue;
+						if (!immediate) {
+							const retryDelay = new AbortController();
+							this.retryDelay = retryDelay;
+							await sleep(this.backoffDelay(attempt), retryDelay.signal);
+							if (this.retryDelay === retryDelay) this.retryDelay = null;
+							if (!this.isRunning()) return;
+							if (retryDelay.signal.aborted) continue;
+						}
+						console.warn(`[connection] connection lost, retry #${String(attempt)}`);
+						this.callSink(() => {
+							this.sinks.onReconnectRequested?.();
+						});
+						if (!this.isRunning()) return;
+					}
 					const gen = ++this.generation;
 					const ac = new AbortController();
 					this.current = ac;
-					/* v8 ignore next -- initializer placeholder: the Promise executor
-					* below runs synchronously and replaces it before anyone can call it. */
-					let muxOpened = () => {};
-					/* v8 ignore next -- same placeholder pattern as muxOpened. */
-					let hostOpened = () => {};
-					const streamsOpen = Promise.all([new Promise((resolve) => {
-						muxOpened = resolve;
-					}), new Promise((resolve) => {
-						hostOpened = resolve;
-					})]);
+					let sourceReady = false;
+					let resolveReady;
+					let rejectReady;
+					let rejectSourceLost;
+					const ready = new Promise((resolve, reject) => {
+						resolveReady = resolve;
+						rejectReady = reject;
+					});
+					const sourceLost = new Promise((_resolve, reject) => {
+						rejectSourceLost = reject;
+					});
+					const reportReady = (host) => {
+						if (sourceReady || gen !== this.generation || !this.isGenerationActive(ac)) return;
+						sourceReady = true;
+						resolveReady(host);
+					};
 					const failed = new Promise((resolve) => {
 						const settle = () => {
 							if (gen === this.generation && !ac.signal.aborted) ac.abort();
 							resolve();
 						};
-						this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle);
-						this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle);
+						Promise.resolve().then(() => this.source(ac.signal, reportReady)).then(() => {
+							const error = /* @__PURE__ */ new Error("connection generation ended");
+							if (!sourceReady) rejectReady(error);
+							rejectSourceLost(error);
+							settle();
+						}, (error) => {
+							const failure = error instanceof Error ? error : new Error("connection generation failed", { cause: error });
+							if (!sourceReady) rejectReady(failure);
+							rejectSourceLost(failure);
+							settle();
+						});
 					});
 					try {
-						const timeout = new AbortController();
-						const [description] = await Promise.all([this.api.host.describe({}), Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)])]);
-						timeout.abort();
-						const descriptionResult = description.result;
-						if (!descriptionResult.ok) throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`);
+						const host = await Promise.race([waitForReady(ready, this.config, ac.signal), sourceLost]);
 						if (ac.signal.aborted) throw new Error("generation aborted during readiness handshake");
 						this.attempt = 0;
 						this.emitState("connected");
 						if (this.isGenerationActive(ac)) this.callSink(() => {
-							this.sinks.onConnected?.(descriptionResult.value);
+							this.sinks.onConnected?.(host);
 						});
-					} catch {
-						if (!ac.signal.aborted) ac.abort();
+					} catch (error) {
+						if (!ac.signal.aborted) ac.abort(error);
 					}
 					await failed;
 					if (!this.isRunning()) return;
-					this.emitState("reconnecting");
-					this.attempt += 1;
-					console.warn(`[web-runtime] connection lost, retry #${this.attempt}`);
-					const idle = new AbortController();
-					await sleep(this.backoffDelay(this.attempt), idle.signal);
+					if (manualAttempt) this.attempt = 0;
+					retry = true;
 				}
 			}
 			/** Deduplicated state emission (sink isolation applies). */
@@ -124,64 +1016,257 @@ window.__ModuleLoader__.load({
 				this.lastState = state;
 				this.callSink(() => this.sinks.onStateChange?.(state));
 			}
-			async pumpStream(stream, sink, onEnd) {
-				try {
-					for await (const envelope of stream) {
-						if (envelope.payload.type === "stream/error") break;
-						if (sink !== void 0) this.callSink(() => {
-							sink(envelope);
-						});
-					}
-				} catch {}
-				onEnd();
-			}
 			/** Sink exception isolation: a business-layer throw is logged only, never affecting pump or reconnect semantics. */
 			callSink(fn) {
 				try {
 					fn();
 				} catch (error) {
-					console.error("[web-runtime] connection sink threw:", error);
+					console.error("[connection] connection sink threw:", error);
 				}
 			}
 		};
+		/** Report a slow handshake before the hard deadline ends its generation. */
+		function waitForReady(ready, config, signal) {
+			return new Promise((resolve, reject) => {
+				let settled = false;
+				const warning = setTimeout(() => {
+					console.warn(`[connection] generation is still not ready after ${String(config.generationReadyWarnMs)}ms`);
+				}, config.generationReadyWarnMs);
+				const timeout = setTimeout(() => {
+					const error = /* @__PURE__ */ new Error(`connection generation was not ready within ${String(config.generationReadyTimeoutMs)}ms`);
+					console.warn(`[connection] ${error.message}; cancelling generation`);
+					finish({ error });
+				}, config.generationReadyTimeoutMs);
+				const aborted = () => {
+					finish({ error: new Error("connection generation aborted", { cause: signal.reason }) });
+				};
+				const finish = (outcome) => {
+					if (settled) return;
+					settled = true;
+					clearTimeout(warning);
+					clearTimeout(timeout);
+					signal.removeEventListener("abort", aborted);
+					if ("error" in outcome) reject(outcome.error);
+					else resolve(outcome.value);
+				};
+				signal.addEventListener("abort", aborted, { once: true });
+				ready.then((value) => {
+					finish({ value });
+				}, (error) => {
+					finish({ error });
+				});
+			});
+		}
 		//#endregion
-		//#region ../../llm/llm/lib/types/brand.js
+		//#region ../../util/crypto/lib/index.js
 		/**
-		* dsh-llm's owned branded ids: tool-call correlation and provider request
-		* diagnostics.
+		* Random v4 UUID, minted from `crypto.getRandomValues`.
+		* @returns the UUID string.
+		*/
+		function randomUUID() {
+			const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+			const hex = Array.from(bytes, (byte, index) => {
+				return (index === 6 ? byte & 15 | 64 : index === 8 ? byte & 63 | 128 : byte).toString(16).padStart(2, "0");
+			}).join("");
+			return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+		}
+		//#endregion
+		//#region ../../util/brand/lib/index.js
+		/**
+		* Duplicate-install-safe nominal primitive helpers.
 		*
-		* The `Branded<B>` primitive itself lives in `@deepseek-ai/dsh-brand` (a
-		* zero-dependency type-only package) so every owner of a cross-boundary id can
-		* brand it without depending on dsh-llm; see that package's README for the
-		* nominal-typing policy.
+		* A brand makes structurally identical strings or numbers non-interchangeable
+		* at the type level: a `SessionId` cannot be passed where a `ToolCallId` is
+		* expected, and an event sequence cannot be passed as a log offset. Comparison,
+		* logging, and serialization retain the underlying primitive behavior.
 		*
-		* @module @deepseek-ai/dsh-llm/brand
+		* This package owns no concrete domain value and keeps no runtime identity or mutable
+		* state, so independently installed copies produce interchangeable values.
+		*
+		* @module @deepseek-ai/dsh-brand
 		*/
 		/**
-		* Brand a message identifier.
-		* @param id - the opaque message identifier.
-		* @returns the same string, branded; no validation is performed.
+		* Apply a compile-time string brand without changing the value.
+		* @param value - string admitted by the domain that owns the target brand.
+		* @returns the same string with the requested compile-time brand.
 		*/
-		function MessageId(id) {
-			return id;
+		function brandString(value) {
+			return value;
 		}
 		/**
-		* Brand a string as a {@link CallId}.
-		* @param id - the provider-issued (or synthesized) call id.
-		* @returns the same string, branded; no validation is performed.
+		* Apply a compile-time number brand without changing the value.
+		* @param value - number admitted by the domain that owns the target brand.
+		* @returns the same number with the requested compile-time brand.
 		*/
-		function CallId(id) {
-			return id;
+		function brandNumber(value) {
+			return value;
 		}
 		//#endregion
-		//#region ../../llm/llm/lib/types/call-config.js
+		//#region ../../util/values/lib/index.js
+		/** Duplicate-install-safe JSON and immutable-value helpers. @module @deepseek-ai/dsh-util-values */
 		/**
-		* Deep-freeze a value in place with an iterative traversal, guarding cycles,
-		* so later mutation throws without imposing a JavaScript call-stack depth cap.
-		* {@link AbortSignal} objects are deliberately skipped because they are the
-		* request's live cancellation channel and freezing them breaks abort.
-		* @param value - the value to freeze in place.
-		* @returns the same value, frozen.
+		* Mark an unreachable closed-union branch.
+		* @param value - impossible value; an unhandled typed variant fails at the call site.
+		* @param context - optional switch-site label included in the failure message.
+		* @returns never; a runtime value that escaped its type always throws.
+		*/
+		function assertNever(value, context) {
+			const rendered = JSON.stringify(value) ?? String(value);
+			throw new Error(`unreachable variant${context ? ` in ${context}` : ""}: ${rendered}`);
+		}
+		/** Whether a realm-owned intrinsic prototype is backed by its native constructor. */
+		function hasIntrinsicConstructor(prototype, name) {
+			const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value;
+			if (typeof constructor !== "function") return false;
+			try {
+				return constructor.name === name && constructor.prototype === prototype && Function.prototype.toString.call(constructor) === `function ${name}() { [native code] }`;
+			} catch {
+				return false;
+			}
+		}
+		/** Whether a candidate is one realm's intrinsic `Object.prototype`. */
+		function isIntrinsicObjectPrototype(value) {
+			return Object.getPrototypeOf(value) === null && hasIntrinsicConstructor(value, "Object");
+		}
+		/** Whether an array uses one realm's intrinsic `Array.prototype`, not a subclass or forged prototype. */
+		function hasPlainArrayPrototype(value) {
+			const prototype = Object.getPrototypeOf(value);
+			if (!Array.isArray(prototype) || !hasIntrinsicConstructor(prototype, "Array")) return false;
+			const objectPrototype = Object.getPrototypeOf(prototype);
+			return typeof objectPrototype === "object" && objectPrototype !== null && isIntrinsicObjectPrototype(objectPrototype);
+		}
+		/** Whether an object is a plain or null-prototype record from any JavaScript realm. */
+		function hasPlainObjectPrototype(value) {
+			const prototype = Object.getPrototypeOf(value);
+			return prototype === null || typeof prototype === "object" && isIntrinsicObjectPrototype(prototype);
+		}
+		/** Return every JSON-visible object key, or reject own data JSON would discard. */
+		function enumerableStringKeys(value) {
+			const keys = Reflect.ownKeys(value);
+			if (keys.some((key) => typeof key !== "string" || !Object.prototype.propertyIsEnumerable.call(value, key))) return void 0;
+			return keys;
+		}
+		/** Validate lossless JSON iteratively, optionally materializing a detached snapshot. */
+		function walkJsonValue(value, detach) {
+			const ancestors = /* @__PURE__ */ new Set();
+			let root;
+			const assign = (destination, item) => {
+				if (destination === void 0) return;
+				if (destination.kind === "root") root = item;
+				else if (destination.kind === "array") destination.target[destination.index] = item;
+				else Object.defineProperty(destination.target, destination.key, {
+					value: item,
+					enumerable: true,
+					configurable: true,
+					writable: true
+				});
+			};
+			const tasks = [{
+				kind: "visit",
+				value,
+				...detach ? { destination: { kind: "root" } } : {}
+			}];
+			for (let task = tasks.pop(); task !== void 0; task = tasks.pop()) {
+				if (task.kind === "leave") {
+					ancestors.delete(task.source);
+					continue;
+				}
+				if (task.kind === "array-item") {
+					if (!Object.prototype.hasOwnProperty.call(task.source, task.index)) return void 0;
+					tasks.push({
+						kind: "visit",
+						value: task.source[task.index],
+						...task.target === void 0 ? {} : { destination: {
+							kind: "array",
+							target: task.target,
+							index: task.index
+						} }
+					});
+					continue;
+				}
+				if (task.kind === "object-property") {
+					tasks.push({
+						kind: "visit",
+						value: task.source[task.key],
+						...task.target === void 0 ? {} : { destination: {
+							kind: "object",
+							target: task.target,
+							key: task.key
+						} }
+					});
+					continue;
+				}
+				const current = task.value;
+				if (current === null) {
+					assign(task.destination, null);
+					continue;
+				}
+				if (typeof current === "boolean" || typeof current === "string") {
+					assign(task.destination, current);
+					continue;
+				}
+				if (typeof current === "number") {
+					if (!Number.isFinite(current) || Object.is(current, -0)) return void 0;
+					assign(task.destination, current);
+					continue;
+				}
+				if (typeof current !== "object") return void 0;
+				if (ancestors.has(current)) return void 0;
+				if (Array.isArray(current)) {
+					if (!hasPlainArrayPrototype(current)) return void 0;
+					const length = current.length;
+					if (Reflect.ownKeys(current).length !== length + 1) return void 0;
+					const target = detach ? [] : void 0;
+					if (target !== void 0) assign(task.destination, target);
+					ancestors.add(current);
+					tasks.push({
+						kind: "leave",
+						source: current
+					});
+					for (let index = length - 1; index >= 0; index--) tasks.push({
+						kind: "array-item",
+						source: current,
+						index,
+						...target === void 0 ? {} : { target }
+					});
+					continue;
+				}
+				if (!hasPlainObjectPrototype(current)) return void 0;
+				const keys = enumerableStringKeys(current);
+				if (keys === void 0) return void 0;
+				const target = detach ? {} : void 0;
+				if (target !== void 0) assign(task.destination, target);
+				ancestors.add(current);
+				tasks.push({
+					kind: "leave",
+					source: current
+				});
+				for (let index = keys.length - 1; index >= 0; index--) {
+					const key = keys[index];
+					/* v8 ignore next -- the loop is bounded by the captured key count. */
+					if (key === void 0) return void 0;
+					tasks.push({
+						kind: "object-property",
+						source: current,
+						key,
+						...target === void 0 ? {} : { target }
+					});
+				}
+			}
+			return detach ? root : true;
+		}
+		/**
+		* Validate and detach lossless JSON in one read per property.
+		* @param value - candidate value to validate and detach.
+		* @returns the detached snapshot, or `undefined` when the value is not losslessly JSON-serializable.
+		*/
+		function snapshotJsonValue(value) {
+			return walkJsonValue(value, true);
+		}
+		/**
+		* Deep-freeze an object graph in place while leaving live AbortSignal objects mutable.
+		* @param value - value to freeze.
+		* @returns the same value after every reachable enumerable child is frozen.
 		*/
 		function deepFreeze(value) {
 			const seen = /* @__PURE__ */ new WeakSet();
@@ -239,7 +1324,7 @@ window.__ModuleLoader__.load({
 		function createMessage(input) {
 			return freezeMessage({
 				...input,
-				id: MessageId(crypto.randomUUID())
+				id: brandString(randomUUID())
 			});
 		}
 		/**
@@ -269,6 +1354,26 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/**
+		* Create and freeze one identified system-role message holding a rendered
+		* system prompt.
+		* @param text - the complete rendered prompt; `''` records "no system prompt".
+		* @param plugin - the plugin that assembled the prompt.
+		* @returns an immutable system message with a fresh stable identity.
+		*/
+		function createSystemMessage(text, plugin) {
+			return createMessage({
+				role: "system",
+				content: text.length === 0 ? [] : [{
+					type: "text",
+					text
+				}],
+				source: {
+					kind: "plugin",
+					plugin
+				}
+			});
+		}
+		/**
 		* Create and freeze one identified tool-result message.
 		* @param input - call identity, raw result blocks, and outcome.
 		* @returns an immutable user-role tool-result message.
@@ -287,22 +1392,384 @@ window.__ModuleLoader__.load({
 				}]
 			});
 		}
+		//#endregion
+		//#region ../../llm/llm/lib/types/brand.js
 		/**
-		* Whether a stream chunk carries visible model output (the first-token
-		* boundary shared by client step timing and the whole-log sessionStats
-		* projection). Empty deltas (heartbeats, empty tool-call frames) do not count
-		* as a first token.
-		* @param chunk - the stream chunk to test.
-		* @returns true when the chunk contains a non-empty text/reasoning/tool delta.
+		* dsh-llm's owned branded ids: tool-call correlation and provider request
+		* diagnostics.
+		*
+		* The `Branded<B>` primitive and stateless constructor live in
+		* `@deepseek-ai/dsh-brand` so every owner of a cross-boundary id can brand it
+		* without depending on dsh-llm; see that package's README for the
+		* nominal-typing policy.
+		*
+		* @module @deepseek-ai/dsh-llm/brand
 		*/
-		function isTokenDelta(chunk) {
-			switch (chunk.type) {
-				case "text-delta":
-				case "reasoning-delta": return chunk.text !== "";
-				case "tool-call-delta": return chunk.argumentsDelta !== "" || chunk.name !== void 0;
-				default: return false;
+		/**
+		* Brand one loop-owned streaming attempt identifier.
+		* @param id - the opaque Agent-lifecycle-local identifier.
+		* @returns the same string with the attempt-id brand.
+		*/
+		function LlmAttemptId(id) {
+			return brandString(id);
+		}
+		//#endregion
+		//#region ../../llm/llm/lib/types/assistant-stream.js
+		/**
+		* Lossless compact representation of one model-stream attempt, plus record-level
+		* readers that answer common consumer questions without materializing members.
+		* Readers trust the static record type; expandAssistantStream is the validating
+		* path for records read at a durable boundary.
+		*/
+		function safeTime(value) {
+			if (!Number.isSafeInteger(value)) throw new TypeError(`Assistant stream time must be a safe integer, got ${String(value)}`);
+			return value;
+		}
+		function safeIndex(value, label) {
+			if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) throw new TypeError(`${label} index must be a non-negative safe integer`);
+			return value;
+		}
+		function snapshotChunk(chunk) {
+			const snapshot = snapshotJsonValue(chunk);
+			if (snapshot === void 0) throw new TypeError("Assistant stream chunk must be losslessly JSON-serializable");
+			return snapshot;
+		}
+		function safeGap(previous, next) {
+			const gap = next - previous;
+			return Number.isSafeInteger(gap) && previous + gap === next ? gap : void 0;
+		}
+		/** Incrementally compacts one attempt without retaining a second raw-chunk list. */
+		var AssistantStreamAccumulator = class {
+			records = [];
+			/**
+			* Add one timed chunk to the compact attempt stream.
+			* @param value - model chunk and its original Session timestamp.
+			* @returns a detached immutable copy for assembly and live publication.
+			*/
+			push(value) {
+				const time = safeTime(value.time);
+				const chunk = snapshotChunk(value.chunk);
+				const timed = deepFreeze({
+					time,
+					chunk
+				});
+				const previous = this.records.at(-1);
+				switch (chunk.type) {
+					case "text-delta":
+					case "reasoning-delta": {
+						safeIndex(chunk.index, chunk.type);
+						if (typeof chunk.text !== "string") throw new TypeError(`${chunk.type} text must be a string`);
+						const type = chunk.type === "text-delta" ? "text-chunks" : "reasoning-chunks";
+						const gap = previous !== void 0 && previous.type === type ? safeGap(previous.lastTime, time) : void 0;
+						if (previous !== void 0 && previous.type === type && previous.index === chunk.index && gap !== void 0) {
+							previous.dt.push(gap);
+							previous.texts.push(chunk.text);
+							previous.lastTime = time;
+						} else this.records.push({
+							type,
+							time0: time,
+							index: chunk.index,
+							dt: [],
+							texts: [chunk.text],
+							lastTime: time
+						});
+						return timed;
+					}
+					case "tool-call-delta": {
+						safeIndex(chunk.index, chunk.type);
+						if (typeof chunk.id !== "string") throw new TypeError("tool-call-delta id must be a string");
+						if (Object.hasOwn(chunk, "name") && typeof chunk.name !== "string") throw new TypeError("tool-call-delta name must be a string");
+						if (typeof chunk.argumentsDelta !== "string") throw new TypeError("tool-call-delta argumentsDelta must be a string");
+						if (chunk.id.length === 0 || chunk.name === "") {
+							this.records.push({
+								type: "chunk",
+								time,
+								chunk
+							});
+							return timed;
+						}
+						const gap = previous?.type === "tool-call-chunks" ? safeGap(previous.lastTime, time) : void 0;
+						const sameName = previous?.type === "tool-call-chunks" && Object.hasOwn(previous, "name") === Object.hasOwn(chunk, "name") && previous.name === chunk.name;
+						if (previous?.type === "tool-call-chunks" && previous.index === chunk.index && previous.id === chunk.id && sameName && gap !== void 0) {
+							previous.dt.push(gap);
+							previous.args.push(chunk.argumentsDelta);
+							previous.lastTime = time;
+						} else this.records.push({
+							type: "tool-call-chunks",
+							time0: time,
+							index: chunk.index,
+							dt: [],
+							id: chunk.id,
+							...Object.hasOwn(chunk, "name") ? { name: chunk.name } : {},
+							args: [chunk.argumentsDelta],
+							lastTime: time
+						});
+						return timed;
+					}
+					case "block-start":
+					case "block-end":
+					case "usage":
+					case "finish":
+						this.records.push({
+							type: "chunk",
+							time,
+							chunk
+						});
+						return timed;
+					default: return assertNever(chunk, "AssistantStreamAccumulator.push");
+				}
+			}
+			/**
+			* Return the current compact attempt stream.
+			* @returns a detached immutable record list suitable for a durable event.
+			*/
+			snapshot() {
+				return deepFreeze(this.records.map((record) => {
+					if (record.type === "chunk") return { ...record };
+					const { lastTime: _lastTime, ...durable } = record;
+					if (durable.type === "tool-call-chunks") return {
+						...durable,
+						dt: [...durable.dt],
+						args: [...durable.args]
+					};
+					return {
+						...durable,
+						dt: [...durable.dt],
+						texts: [...durable.texts]
+					};
+				}));
+			}
+		};
+		/**
+		* Expand compact records into the exact timed chunk sequence.
+		* @param stream - compact records from one durable Assistant settlement.
+		* @returns detached timed chunks with every original delta boundary preserved.
+		* @throws {TypeError} when a record or reconstructed timestamp is invalid.
+		*/
+		function expandAssistantStream(stream) {
+			const chunks = [];
+			for (const candidate of stream) {
+				const record = validateRecord(candidate);
+				if (record.type === "chunk") {
+					chunks.push({
+						time: record.time,
+						chunk: record.chunk
+					});
+					continue;
+				}
+				const members = record.type === "tool-call-chunks" ? record.args : record.texts;
+				let time = record.time0;
+				for (let index = 0; index < members.length; index += 1) {
+					if (index > 0) time += record.dt[index - 1];
+					let chunk;
+					if (record.type === "text-chunks") chunk = {
+						type: "text-delta",
+						index: record.index,
+						text: members[index]
+					};
+					else if (record.type === "reasoning-chunks") chunk = {
+						type: "reasoning-delta",
+						index: record.index,
+						text: members[index]
+					};
+					else chunk = {
+						type: "tool-call-delta",
+						index: record.index,
+						id: record.id,
+						...Object.hasOwn(record, "name") ? { name: record.name } : {},
+						argumentsDelta: members[index]
+					};
+					chunks.push({
+						time,
+						chunk
+					});
+				}
+			}
+			return chunks;
+		}
+		function validateRecord(value) {
+			if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError("Assistant stream record must be an object");
+			const record = value;
+			switch (record.type) {
+				case "text-chunks":
+				case "reasoning-chunks": {
+					exactKeys(record, [
+						"type",
+						"time0",
+						"index",
+						"dt",
+						"texts"
+					], record.type);
+					const texts = stringArray(record.texts, `${record.type} texts`);
+					if (texts.length === 0) throw new TypeError(`${record.type} texts must be non-empty`);
+					validateRun(record, texts.length, record.type);
+					return record;
+				}
+				case "tool-call-chunks": {
+					exactKeys(record, Object.hasOwn(record, "name") ? [
+						"type",
+						"time0",
+						"index",
+						"dt",
+						"id",
+						"name",
+						"args"
+					] : [
+						"type",
+						"time0",
+						"index",
+						"dt",
+						"id",
+						"args"
+					], record.type);
+					const args = stringArray(record.args, "tool-call-chunks args");
+					if (args.length === 0) throw new TypeError("tool-call-chunks args must be non-empty");
+					if (typeof record.id !== "string" || record.id.length === 0) throw new TypeError("tool-call-chunks id must be a non-empty string");
+					if (record.name !== void 0 && (typeof record.name !== "string" || record.name.length === 0)) throw new TypeError("tool-call-chunks name must be a non-empty string");
+					validateRun(record, args.length, record.type);
+					return record;
+				}
+				case "chunk": {
+					exactKeys(record, [
+						"type",
+						"time",
+						"chunk"
+					], "chunk");
+					const time = safeTime(record.time);
+					if (typeof record.chunk !== "object" || record.chunk === null || Array.isArray(record.chunk)) throw new TypeError("Assistant stream raw chunk must be a lossless JSON object");
+					let chunk;
+					try {
+						chunk = snapshotChunk(record.chunk);
+					} catch (error) {
+						throw new TypeError("Assistant stream raw chunk must be a lossless JSON object", { cause: error });
+					}
+					return deepFreeze({
+						type: "chunk",
+						time,
+						chunk
+					});
+				}
+				default: throw new TypeError(`Unsupported Assistant stream record ${JSON.stringify(record.type)}`);
 			}
 		}
+		function validateRun(record, members, label) {
+			safeTime(record.time0);
+			safeIndex(record.index, label);
+			if (!Array.isArray(record.dt) || record.dt.some((value) => !Number.isSafeInteger(value))) throw new TypeError(`${label} dt must contain safe integers`);
+			if (record.dt.length !== members - 1) throw new TypeError(`${label} dt length must be one less than its members`);
+			let time = record.time0;
+			for (const gap of record.dt) {
+				time += gap;
+				if (!Number.isSafeInteger(time)) throw new TypeError(`${label} member times must stay safe integers`);
+			}
+		}
+		function stringArray(value, label) {
+			if (!Array.isArray(value) || value.some((member) => typeof member !== "string")) throw new TypeError(`${label} must be a string array`);
+			return value;
+		}
+		function exactKeys(record, keys, label) {
+			if (Object.keys(record).length !== keys.length || !keys.every((key) => Object.hasOwn(record, key))) throw new TypeError(`${label} Assistant stream record must contain exactly ${keys.join(", ")}`);
+		}
+		//#endregion
+		//#region ../../core/session/lib/types/types.js
+		/**
+		* Admit a numeric value as an existing Session event position.
+		* @param value - non-negative safe integer admitted by the owning log operation.
+		* @returns the same number with the Session-sequence brand.
+		*/
+		function SessionSeq(value) {
+			if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) throw new TypeError(`SessionSeq must be a non-negative safe integer, got ${String(value)}`);
+			return brandNumber(value);
+		}
+		/**
+		* Admit a numeric value as a Session log offset.
+		* @param value - non-negative safe integer used as a gap or prefix length.
+		* @returns the same number with the Session-log-offset brand.
+		*/
+		function SessionLogOffset(value) {
+			if (!Number.isSafeInteger(value) || value < 0 || Object.is(value, -0)) throw new TypeError(`SessionLogOffset must be a non-negative safe integer, got ${String(value)}`);
+			return brandNumber(value);
+		}
+		//#endregion
+		//#region ../../core/session/lib/types/known-event-types.js
+		/**
+		* GENERATED by `scripts/gen-persistence-catalog.ts` — do not edit by hand; run
+		* `pnpm run gen-persistence-catalog` to regenerate (verified fresh by
+		* `pnpm run verify-persistence-catalog`, part of `doc-sync`).
+		* @module @deepseek-ai/dsh-session/known-event-types
+		*/
+		/**
+		* Every `SessionEventMap` member declared in this repository — the event
+		* vocabulary this build understands. The persistence read path refuses to
+		* interpret a log containing a type outside this set unless the event
+		* carries the envelope's `ignorable` marker (see `SessionEvent.ignorable`
+		* in `./types.ts`): such a log was likely written by a newer harness, and
+		* silently skipping a required event would reconstruct a wrong session.
+		* Downstream (out-of-repo) plugin events are outside this list by
+		* construction. The persisted `SessionEvent.ignorable` marker is the
+		* compatibility mechanism; event-name registration was rejected because
+		* it does not classify omission safety and would make reads
+		* composition-dependent. The rationale is in
+		* `.agents/notes/implemented/architecture/2026-08-30-retain-ignorable-external-session-events.md`.
+		*/
+		const KNOWN_SESSION_EVENT_TYPES = new Set([
+			"agent-preset/selected",
+			"agent/inbox/spliced",
+			"approval/asked",
+			"approval/decided",
+			"approval/policy",
+			"assistant/attempt",
+			"assistant/message",
+			"command/done",
+			"command/run",
+			"compaction/end",
+			"compaction/prune",
+			"compaction/start",
+			"compaction/summary",
+			"deliverables/presented",
+			"feedback/message-delete",
+			"feedback/message-put",
+			"feedback/record",
+			"goal/change",
+			"hook/invoked",
+			"hook/result",
+			"llm/retry",
+			"llm/retry-started",
+			"model/selection",
+			"permission/preset",
+			"plan/mode",
+			"request/context",
+			"request/header",
+			"sandbox/mode",
+			"schedule/change",
+			"session-log-deepseek/delivery-accepted",
+			"session/end-seed",
+			"session/title",
+			"session/title-llm-request",
+			"step/end",
+			"step/start",
+			"subagent/catalog",
+			"subagent/descriptor",
+			"subagent/model-selection-policy",
+			"system/message",
+			"team/member",
+			"team/message/delivered",
+			"team/message/queued",
+			"team/task",
+			"todo/write",
+			"tool-workflow/agent-end",
+			"tool-workflow/agent-start",
+			"tool-workflow/run-end",
+			"tool-workflow/run-start",
+			"tool/call",
+			"tool/ptc-dispatch",
+			"tool/ptc-dispatch-start",
+			"tool/result",
+			"turn/end",
+			"turn/start",
+			"user/message",
+			"web/deepseek-search-llm-request"
+		]);
 		//#endregion
 		//#region ../../core/session/lib/types/surface.js
 		/**
@@ -316,6 +1783,7 @@ window.__ModuleLoader__.load({
 		*/
 		/** Runtime counterpart of the message-producing event union. */
 		const SURFACE_EVENT_TYPES = new Set([
+			"system/message",
 			"user/message",
 			"assistant/message",
 			"tool/result"
@@ -323,14 +1791,14 @@ window.__ModuleLoader__.load({
 		/**
 		* Whether an event type can join the model-visible surface.
 		* @param type - event type to test.
-		* @returns true for one of the three message-producing event types.
+		* @returns true for one of the four message-producing event types.
 		*/
 		function isSurfaceEligibleType(type) {
 			return SURFACE_EVENT_TYPES.has(type);
 		}
 		/**
 		* Project a single event into the LLM message it derives to, or null when it
-		* produces none — a non-surface event (chunk, boundary, log-only record) or an
+		* produces none — a non-surface event (attempt, boundary, log-only record) or an
 		* empty-content assistant/message (which exists only to host usage). This is
 		* THE per-node projection rule: `Session.deriveMessages` folds it over the
 		* live surface, external reconstructors and pure projections fold the same
@@ -344,6 +1812,7 @@ window.__ModuleLoader__.load({
 		function deriveEventMessage(event) {
 			switch (event.type) {
 				case "user/message": return event.data;
+				case "system/message":
 				case "assistant/message":
 					if (event.data.message.content.length === 0) return null;
 					return event.data.message;
@@ -360,17 +1829,18 @@ window.__ModuleLoader__.load({
 		}
 		/** Whether a runtime value is a non-negative safe event sequence. */
 		function isEventSeq(value) {
-			return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+			return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 		}
 		/** Whether a runtime value is the exact positional-replacement shape. */
 		function isReplaceOp(value) {
 			const op = value;
-			return Object.keys(op).length === 3 && Object.hasOwn(op, "op") && Object.hasOwn(op, "start") && Object.hasOwn(op, "end") && op["op"] === "replace" && isEventSeq(op["start"]) && isEventSeq(op["end"]);
+			return Object.keys(op).length === 3 && Object.hasOwn(op, "op") && Object.hasOwn(op, "startSeq") && Object.hasOwn(op, "endSeq") && op["op"] === "replace" && isEventSeq(op["startSeq"]) && isEventSeq(op["endSeq"]);
 		}
 		/** Validate event-local surface eligibility and return its operation. */
 		function surfaceOpOf(event) {
 			const raw = event;
 			if (!isSurfaceEligibleType(event.type)) {
+				if (!KNOWN_SESSION_EVENT_TYPES.has(event.type) && event.ignorable === true) return;
 				if (raw.surfaceOp !== void 0) throw new Error(`session event "${event.type}" is not surface-eligible and cannot carry surfaceOp`);
 				if (raw.sourceEventSeqs !== void 0) throw new Error(`session event "${event.type}" is not surface-eligible and cannot carry sourceEventSeqs`);
 				return;
@@ -385,10 +1855,11 @@ window.__ModuleLoader__.load({
 		/** Validate cited source-event seqs against prior log entries and the replacement range. */
 		function assertProvenance(event, shadowedSeqs) {
 			const raw = event.sourceEventSeqs;
+			if (event.type === "assistant/message" && raw !== void 0) throw new Error("assistant/message embeds its source stream and cannot carry sourceEventSeqs");
 			const sources = /* @__PURE__ */ new Set();
 			if (raw !== void 0) {
 				if (!Array.isArray(raw)) throw new Error(`sourceEventSeqs on event at seq ${event.seq} must be an array when present`);
-				if (raw.length === 0 && event.type !== "assistant/message") throw new Error("sourceEventSeqs must not be empty except on assistant/message");
+				if (raw.length === 0) throw new Error("sourceEventSeqs must not be empty");
 				let nonEarlierSource;
 				for (const source of raw) {
 					if (!isEventSeq(source)) throw new Error(`session event "${event.type}" sourceEventSeqs must densely contain non-negative safe integers`);
@@ -401,13 +1872,26 @@ window.__ModuleLoader__.load({
 			const missing = shadowedSeqs.filter((seq) => !sources.has(seq));
 			if (missing.length > 0) throw new Error(`surface replace: sourceEventSeqs must include every shadowed surface node; missing ${missing.join(", ")}`);
 		}
+		/**
+		* Validate one event's surface metadata without checking membership in a log or surface.
+		* @param event - event whose marker and source sequence values are inspected.
+		* Unknown ignorable records retain opaque metadata and never change the surface.
+		* @returns the validated operation, or undefined for a log-only or unknown ignorable event.
+		* @throws when metadata violates event-local eligibility, marker, or source-sequence rules.
+		*/
+		function validateSurfaceMetadata(event) {
+			const op = surfaceOpOf(event);
+			if (op !== void 0 && op !== "append" && (op.startSeq >= event.seq || op.endSeq >= event.seq)) throw new Error(`surface replace at seq ${event.seq}: startSeq and endSeq must reference earlier events`);
+			if (op !== void 0) assertProvenance(event, []);
+			return op;
+		}
 		/** Locate one replacement range without mutating the current fold state. */
 		function replacementRange(state, op) {
-			const startIdx = state.nodes.indexOf(op.start);
-			if (startIdx === -1) throw new Error(`surface replace: start seq ${op.start} not found in surface`);
-			const endIdx = state.nodes.indexOf(op.end);
-			if (endIdx === -1) throw new Error(`surface replace: end seq ${op.end} not found in surface`);
-			if (startIdx > endIdx) throw new Error(`surface replace: start seq ${op.start} (index ${startIdx}) is after end seq ${op.end} (index ${endIdx})`);
+			const startIdx = state.nodes.indexOf(op.startSeq);
+			if (startIdx === -1) throw new Error(`surface replace: start seq ${op.startSeq} not found in surface`);
+			const endIdx = state.nodes.indexOf(op.endSeq);
+			if (endIdx === -1) throw new Error(`surface replace: end seq ${op.endSeq} not found in surface`);
+			if (startIdx > endIdx) throw new Error(`surface replace: start seq ${op.startSeq} (index ${startIdx}) is after end seq ${op.endSeq} (index ${endIdx})`);
 			return {
 				startIdx,
 				endIdx,
@@ -459,26 +1943,35 @@ window.__ModuleLoader__.load({
 				if (!isDeepEqualJson(originalRest, replacementRest)) throw new Error("tool/result surface replacement may change only content");
 			}
 		}
+		/**
+		* Protect the system prompt at surface node 0. A replacement covering node 0
+		* while that node is a `system/message` must itself be a `system/message` over
+		* exactly that node; later system nodes carry no protection and a compaction
+		* range may shadow them.
+		*/
+		function assertSystemHeadRewrite(event, state, startIdx, shadowedSeqs, events, baseSeq) {
+			if (startIdx !== 0) return;
+			if (events[state.nodes[0] - baseSeq]?.type !== "system/message") return;
+			if (event.type !== "system/message" || shadowedSeqs.length !== 1) throw new Error("surface replace: node 0 holds the system prompt and may be rewritten only by a system/message over exactly that node");
+		}
 		/** Validate one event at its replay boundary and prepare its atomic fold transition. */
 		function planSurfaceEvent(state, event, expectedSeq, events, baseSeq) {
 			if (event.seq !== expectedSeq) throw new Error(`session event seq ${event.seq} is not contiguous; expected ${expectedSeq}`);
-			const surfaceOp = surfaceOpOf(event);
+			const surfaceOp = validateSurfaceMetadata(event);
 			if (surfaceOp === void 0) return;
-			if (surfaceOp === "append") {
-				assertProvenance(event, []);
-				return {
-					kind: "append",
-					seq: event.seq
-				};
-			}
+			if (surfaceOp === "append") return {
+				kind: "append",
+				seq: event.seq
+			};
 			const range = replacementRange(state, surfaceOp);
 			assertProvenance(event, range.shadowedSeqs);
 			assertToolResultRewrite(event, range.shadowedSeqs, events, baseSeq);
+			assertSystemHeadRewrite(event, state, range.startIdx, range.shadowedSeqs, events, baseSeq);
 			return {
 				kind: "replace",
 				seq: event.seq,
-				start: surfaceOp.start,
-				end: surfaceOp.end,
+				start: surfaceOp.startSeq,
+				end: surfaceOp.endSeq,
 				...range
 			};
 		}
@@ -511,7 +2004,7 @@ window.__ModuleLoader__.load({
 			const state = createFoldState();
 			const replacements = [];
 			for (const [index, event] of events.entries()) {
-				const replacement = applySurfaceEvent(state, event, index, events, 0);
+				const replacement = applySurfaceEvent(state, event, SessionSeq(index), events, SessionLogOffset(0));
 				if (replacement !== void 0) replacements.push(replacement);
 			}
 			return {
@@ -519,5845 +2012,6 @@ window.__ModuleLoader__.load({
 				replacements
 			};
 		}
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/rpc.js
-		/**
-		* Four-quadrant RPC message model. Channels and messages are decoupled: HTTP,
-		* WebSocket, and in-process SSE are physical carriers, while logical messages
-		* are channel-independent and form a four-member discriminated union.
-		* api/ contract layer: zero Node dependencies, importable from the browser.
-		*/
-		/**
-		* Brands a string as RpcId (same precedent as core `SessionId()`). Minted by the initiator:
-		* client-request → client mints; server-request → host mints (answerable frames get a stable
-		* logical id, pure pushes mint a fresh one each time).
-		* @param id - Raw id string (implementations mint UUIDs; tests may pass fixtures).
-		* @returns The same string, branded (compile-time cast, zero runtime cost).
-		*/
-		function RpcId(id) {
-			return id;
-		}
-		/**
-		* Fold a transport exception into the RpcResult error branch (unified error
-		* API; 'internal' as the catch-all code). Lives with RpcResult so every
-		* carrier consumer folds the same way.
-		* @param error - the thrown value from the carrier.
-		* @returns the error branch of an RpcResult.
-		*/
-		function transportError(error) {
-			return {
-				ok: false,
-				error: {
-					code: "internal",
-					message: error instanceof Error ? error.message : String(error),
-					details: {}
-				}
-			};
-		}
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js
-		var _a$1;
-		function $constructor(name, initializer, params) {
-			function init(inst, def) {
-				if (!inst._zod) Object.defineProperty(inst, "_zod", {
-					value: {
-						def,
-						constr: _,
-						traits: /* @__PURE__ */ new Set()
-					},
-					enumerable: false
-				});
-				if (inst._zod.traits.has(name)) return;
-				inst._zod.traits.add(name);
-				initializer(inst, def);
-				const proto = _.prototype;
-				const keys = Object.keys(proto);
-				for (let i = 0; i < keys.length; i++) {
-					const k = keys[i];
-					if (!(k in inst)) inst[k] = proto[k].bind(inst);
-				}
-			}
-			const Parent = params?.Parent ?? Object;
-			class Definition extends Parent {}
-			Object.defineProperty(Definition, "name", { value: name });
-			function _(def) {
-				var _a;
-				const inst = params?.Parent ? new Definition() : this;
-				init(inst, def);
-				(_a = inst._zod).deferred ?? (_a.deferred = []);
-				for (const fn of inst._zod.deferred) fn();
-				return inst;
-			}
-			Object.defineProperty(_, "init", { value: init });
-			Object.defineProperty(_, Symbol.hasInstance, { value: (inst) => {
-				if (params?.Parent && inst instanceof params.Parent) return true;
-				return inst?._zod?.traits?.has(name);
-			} });
-			Object.defineProperty(_, "name", { value: name });
-			return _;
-		}
-		var $ZodAsyncError = class extends Error {
-			constructor() {
-				super(`Encountered Promise during synchronous parse. Use .parseAsync() instead.`);
-			}
-		};
-		var $ZodEncodeError = class extends Error {
-			constructor(name) {
-				super(`Encountered unidirectional transform during encode: ${name}`);
-				this.name = "ZodEncodeError";
-			}
-		};
-		(_a$1 = globalThis).__zod_globalConfig ?? (_a$1.__zod_globalConfig = {});
-		const globalConfig = globalThis.__zod_globalConfig;
-		function config(newConfig) {
-			if (newConfig) Object.assign(globalConfig, newConfig);
-			return globalConfig;
-		}
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js
-		function getEnumValues(entries) {
-			const numericValues = Object.values(entries).filter((v) => typeof v === "number");
-			return Object.entries(entries).filter(([k, _]) => numericValues.indexOf(+k) === -1).map(([_, v]) => v);
-		}
-		function jsonStringifyReplacer(_, value) {
-			if (typeof value === "bigint") return value.toString();
-			return value;
-		}
-		function cached(getter) {
-			return { get value() {
-				{
-					const value = getter();
-					Object.defineProperty(this, "value", { value });
-					return value;
-				}
-				throw new Error("cached value already set");
-			} };
-		}
-		function nullish(input) {
-			return input === null || input === void 0;
-		}
-		function cleanRegex(source) {
-			const start = source.startsWith("^") ? 1 : 0;
-			const end = source.endsWith("$") ? source.length - 1 : source.length;
-			return source.slice(start, end);
-		}
-		function floatSafeRemainder(val, step) {
-			const ratio = val / step;
-			const roundedRatio = Math.round(ratio);
-			const tolerance = Number.EPSILON * Math.max(Math.abs(ratio), 1);
-			if (Math.abs(ratio - roundedRatio) < tolerance) return 0;
-			return ratio - roundedRatio;
-		}
-		const EVALUATING = /* @__PURE__*/ Symbol("evaluating");
-		function defineLazy(object, key, getter) {
-			let value = void 0;
-			Object.defineProperty(object, key, {
-				get() {
-					if (value === EVALUATING) return;
-					if (value === void 0) {
-						value = EVALUATING;
-						value = getter();
-					}
-					return value;
-				},
-				set(v) {
-					Object.defineProperty(object, key, { value: v });
-				},
-				configurable: true
-			});
-		}
-		function assignProp(target, prop, value) {
-			Object.defineProperty(target, prop, {
-				value,
-				writable: true,
-				enumerable: true,
-				configurable: true
-			});
-		}
-		function mergeDefs(...defs) {
-			const mergedDescriptors = {};
-			for (const def of defs) Object.assign(mergedDescriptors, Object.getOwnPropertyDescriptors(def));
-			return Object.defineProperties({}, mergedDescriptors);
-		}
-		function esc(str) {
-			return JSON.stringify(str);
-		}
-		function slugify(input) {
-			return input.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
-		}
-		const captureStackTrace = "captureStackTrace" in Error ? Error.captureStackTrace : (..._args) => {};
-		function isObject(data) {
-			return typeof data === "object" && data !== null && !Array.isArray(data);
-		}
-		const allowsEval = /* @__PURE__*/ cached(() => {
-			if (globalConfig.jitless) return false;
-			if (typeof navigator !== "undefined" && navigator?.userAgent?.includes("Cloudflare")) return false;
-			try {
-				new Function("");
-				return true;
-			} catch (_) {
-				return false;
-			}
-		});
-		function isPlainObject(o) {
-			if (isObject(o) === false) return false;
-			const ctor = o.constructor;
-			if (ctor === void 0) return true;
-			if (typeof ctor !== "function") return true;
-			const prot = ctor.prototype;
-			if (isObject(prot) === false) return false;
-			if (Object.prototype.hasOwnProperty.call(prot, "isPrototypeOf") === false) return false;
-			return true;
-		}
-		function shallowClone(o) {
-			if (isPlainObject(o)) return { ...o };
-			if (Array.isArray(o)) return [...o];
-			if (o instanceof Map) return new Map(o);
-			if (o instanceof Set) return new Set(o);
-			return o;
-		}
-		const propertyKeyTypes = /* @__PURE__*/ new Set([
-			"string",
-			"number",
-			"symbol"
-		]);
-		function escapeRegex(str) {
-			return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		}
-		function clone(inst, def, params) {
-			const cl = new inst._zod.constr(def ?? inst._zod.def);
-			if (!def || params?.parent) cl._zod.parent = inst;
-			return cl;
-		}
-		function normalizeParams(_params) {
-			const params = _params;
-			if (!params) return {};
-			if (typeof params === "string") return { error: () => params };
-			if (params?.message !== void 0) {
-				if (params?.error !== void 0) throw new Error("Cannot specify both `message` and `error` params");
-				params.error = params.message;
-			}
-			delete params.message;
-			if (typeof params.error === "string") return {
-				...params,
-				error: () => params.error
-			};
-			return params;
-		}
-		function optionalKeys(shape) {
-			return Object.keys(shape).filter((k) => {
-				return shape[k]._zod.optin === "optional" && shape[k]._zod.optout === "optional";
-			});
-		}
-		const NUMBER_FORMAT_RANGES = {
-			safeint: [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
-			int32: [-2147483648, 2147483647],
-			uint32: [0, 4294967295],
-			float32: [-34028234663852886e22, 34028234663852886e22],
-			float64: [-Number.MAX_VALUE, Number.MAX_VALUE]
-		};
-		function pick(schema, mask) {
-			const currDef = schema._zod.def;
-			const checks = currDef.checks;
-			if (checks && checks.length > 0) throw new Error(".pick() cannot be used on object schemas containing refinements");
-			return clone(schema, mergeDefs(schema._zod.def, {
-				get shape() {
-					const newShape = {};
-					for (const key in mask) {
-						if (!(key in currDef.shape)) throw new Error(`Unrecognized key: "${key}"`);
-						if (!mask[key]) continue;
-						newShape[key] = currDef.shape[key];
-					}
-					assignProp(this, "shape", newShape);
-					return newShape;
-				},
-				checks: []
-			}));
-		}
-		function omit(schema, mask) {
-			const currDef = schema._zod.def;
-			const checks = currDef.checks;
-			if (checks && checks.length > 0) throw new Error(".omit() cannot be used on object schemas containing refinements");
-			return clone(schema, mergeDefs(schema._zod.def, {
-				get shape() {
-					const newShape = { ...schema._zod.def.shape };
-					for (const key in mask) {
-						if (!(key in currDef.shape)) throw new Error(`Unrecognized key: "${key}"`);
-						if (!mask[key]) continue;
-						delete newShape[key];
-					}
-					assignProp(this, "shape", newShape);
-					return newShape;
-				},
-				checks: []
-			}));
-		}
-		function extend(schema, shape) {
-			if (!isPlainObject(shape)) throw new Error("Invalid input to extend: expected a plain object");
-			const checks = schema._zod.def.checks;
-			if (checks && checks.length > 0) {
-				const existingShape = schema._zod.def.shape;
-				for (const key in shape) if (Object.getOwnPropertyDescriptor(existingShape, key) !== void 0) throw new Error("Cannot overwrite keys on object schemas containing refinements. Use `.safeExtend()` instead.");
-			}
-			return clone(schema, mergeDefs(schema._zod.def, { get shape() {
-				const _shape = {
-					...schema._zod.def.shape,
-					...shape
-				};
-				assignProp(this, "shape", _shape);
-				return _shape;
-			} }));
-		}
-		function safeExtend(schema, shape) {
-			if (!isPlainObject(shape)) throw new Error("Invalid input to safeExtend: expected a plain object");
-			return clone(schema, mergeDefs(schema._zod.def, { get shape() {
-				const _shape = {
-					...schema._zod.def.shape,
-					...shape
-				};
-				assignProp(this, "shape", _shape);
-				return _shape;
-			} }));
-		}
-		function merge(a, b) {
-			if (a._zod.def.checks?.length) throw new Error(".merge() cannot be used on object schemas containing refinements. Use .safeExtend() instead.");
-			return clone(a, mergeDefs(a._zod.def, {
-				get shape() {
-					const _shape = {
-						...a._zod.def.shape,
-						...b._zod.def.shape
-					};
-					assignProp(this, "shape", _shape);
-					return _shape;
-				},
-				get catchall() {
-					return b._zod.def.catchall;
-				},
-				checks: b._zod.def.checks ?? []
-			}));
-		}
-		function partial(Class, schema, mask) {
-			const checks = schema._zod.def.checks;
-			if (checks && checks.length > 0) throw new Error(".partial() cannot be used on object schemas containing refinements");
-			return clone(schema, mergeDefs(schema._zod.def, {
-				get shape() {
-					const oldShape = schema._zod.def.shape;
-					const shape = { ...oldShape };
-					if (mask) for (const key in mask) {
-						if (!(key in oldShape)) throw new Error(`Unrecognized key: "${key}"`);
-						if (!mask[key]) continue;
-						shape[key] = Class ? new Class({
-							type: "optional",
-							innerType: oldShape[key]
-						}) : oldShape[key];
-					}
-					else for (const key in oldShape) shape[key] = Class ? new Class({
-						type: "optional",
-						innerType: oldShape[key]
-					}) : oldShape[key];
-					assignProp(this, "shape", shape);
-					return shape;
-				},
-				checks: []
-			}));
-		}
-		function required(Class, schema, mask) {
-			return clone(schema, mergeDefs(schema._zod.def, { get shape() {
-				const oldShape = schema._zod.def.shape;
-				const shape = { ...oldShape };
-				if (mask) for (const key in mask) {
-					if (!(key in shape)) throw new Error(`Unrecognized key: "${key}"`);
-					if (!mask[key]) continue;
-					shape[key] = new Class({
-						type: "nonoptional",
-						innerType: oldShape[key]
-					});
-				}
-				else for (const key in oldShape) shape[key] = new Class({
-					type: "nonoptional",
-					innerType: oldShape[key]
-				});
-				assignProp(this, "shape", shape);
-				return shape;
-			} }));
-		}
-		function aborted(x, startIndex = 0) {
-			if (x.aborted === true) return true;
-			for (let i = startIndex; i < x.issues.length; i++) if (x.issues[i]?.continue !== true) return true;
-			return false;
-		}
-		function explicitlyAborted(x, startIndex = 0) {
-			if (x.aborted === true) return true;
-			for (let i = startIndex; i < x.issues.length; i++) if (x.issues[i]?.continue === false) return true;
-			return false;
-		}
-		function prefixIssues(path, issues) {
-			return issues.map((iss) => {
-				var _a;
-				(_a = iss).path ?? (_a.path = []);
-				iss.path.unshift(path);
-				return iss;
-			});
-		}
-		function unwrapMessage(message) {
-			return typeof message === "string" ? message : message?.message;
-		}
-		function finalizeIssue(iss, ctx, config) {
-			const message = iss.message ? iss.message : unwrapMessage(iss.inst?._zod.def?.error?.(iss)) ?? unwrapMessage(ctx?.error?.(iss)) ?? unwrapMessage(config.customError?.(iss)) ?? unwrapMessage(config.localeError?.(iss)) ?? "Invalid input";
-			const { inst: _inst, continue: _continue, input: _input, ...rest } = iss;
-			rest.path ?? (rest.path = []);
-			rest.message = message;
-			if (ctx?.reportInput) rest.input = _input;
-			return rest;
-		}
-		function getLengthableOrigin(input) {
-			if (Array.isArray(input)) return "array";
-			if (typeof input === "string") return "string";
-			return "unknown";
-		}
-		function issue(...args) {
-			const [iss, input, inst] = args;
-			if (typeof iss === "string") return {
-				message: iss,
-				code: "custom",
-				input,
-				inst
-			};
-			return { ...iss };
-		}
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js
-		const initializer$1 = (inst, def) => {
-			inst.name = "$ZodError";
-			Object.defineProperty(inst, "_zod", {
-				value: inst._zod,
-				enumerable: false
-			});
-			Object.defineProperty(inst, "issues", {
-				value: def,
-				enumerable: false
-			});
-			inst.message = JSON.stringify(def, jsonStringifyReplacer, 2);
-			Object.defineProperty(inst, "toString", {
-				value: () => inst.message,
-				enumerable: false
-			});
-		};
-		const $ZodError = $constructor("$ZodError", initializer$1);
-		const $ZodRealError = $constructor("$ZodError", initializer$1, { Parent: Error });
-		function flattenError(error, mapper = (issue) => issue.message) {
-			const fieldErrors = {};
-			const formErrors = [];
-			for (const sub of error.issues) if (sub.path.length > 0) {
-				fieldErrors[sub.path[0]] = fieldErrors[sub.path[0]] || [];
-				fieldErrors[sub.path[0]].push(mapper(sub));
-			} else formErrors.push(mapper(sub));
-			return {
-				formErrors,
-				fieldErrors
-			};
-		}
-		function formatError(error, mapper = (issue) => issue.message) {
-			const fieldErrors = { _errors: [] };
-			const processError = (error, path = []) => {
-				for (const issue of error.issues) if (issue.code === "invalid_union" && issue.errors.length) issue.errors.map((issues) => processError({ issues }, [...path, ...issue.path]));
-				else if (issue.code === "invalid_key") processError({ issues: issue.issues }, [...path, ...issue.path]);
-				else if (issue.code === "invalid_element") processError({ issues: issue.issues }, [...path, ...issue.path]);
-				else {
-					const fullpath = [...path, ...issue.path];
-					if (fullpath.length === 0) fieldErrors._errors.push(mapper(issue));
-					else {
-						let curr = fieldErrors;
-						let i = 0;
-						while (i < fullpath.length) {
-							const el = fullpath[i];
-							if (!(i === fullpath.length - 1)) curr[el] = curr[el] || { _errors: [] };
-							else {
-								curr[el] = curr[el] || { _errors: [] };
-								curr[el]._errors.push(mapper(issue));
-							}
-							curr = curr[el];
-							i++;
-						}
-					}
-				}
-			};
-			processError(error);
-			return fieldErrors;
-		}
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js
-		const _parse = (_Err) => (schema, value, _ctx, _params) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				async: false
-			} : { async: false };
-			const result = schema._zod.run({
-				value,
-				issues: []
-			}, ctx);
-			if (result instanceof Promise) throw new $ZodAsyncError();
-			if (result.issues.length) {
-				const e = new ((_params?.Err) ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
-				captureStackTrace(e, _params?.callee);
-				throw e;
-			}
-			return result.value;
-		};
-		const _parseAsync = (_Err) => async (schema, value, _ctx, params) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				async: true
-			} : { async: true };
-			let result = schema._zod.run({
-				value,
-				issues: []
-			}, ctx);
-			if (result instanceof Promise) result = await result;
-			if (result.issues.length) {
-				const e = new ((params?.Err) ?? _Err)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())));
-				captureStackTrace(e, params?.callee);
-				throw e;
-			}
-			return result.value;
-		};
-		const _safeParse = (_Err) => (schema, value, _ctx) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				async: false
-			} : { async: false };
-			const result = schema._zod.run({
-				value,
-				issues: []
-			}, ctx);
-			if (result instanceof Promise) throw new $ZodAsyncError();
-			return result.issues.length ? {
-				success: false,
-				error: new (_Err ?? $ZodError)(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
-			} : {
-				success: true,
-				data: result.value
-			};
-		};
-		const safeParse$1 = /* @__PURE__*/ _safeParse($ZodRealError);
-		const _safeParseAsync = (_Err) => async (schema, value, _ctx) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				async: true
-			} : { async: true };
-			let result = schema._zod.run({
-				value,
-				issues: []
-			}, ctx);
-			if (result instanceof Promise) result = await result;
-			return result.issues.length ? {
-				success: false,
-				error: new _Err(result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
-			} : {
-				success: true,
-				data: result.value
-			};
-		};
-		const safeParseAsync$1 = /* @__PURE__*/ _safeParseAsync($ZodRealError);
-		const _encode = (_Err) => (schema, value, _ctx) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				direction: "backward"
-			} : { direction: "backward" };
-			return _parse(_Err)(schema, value, ctx);
-		};
-		const _decode = (_Err) => (schema, value, _ctx) => {
-			return _parse(_Err)(schema, value, _ctx);
-		};
-		const _encodeAsync = (_Err) => async (schema, value, _ctx) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				direction: "backward"
-			} : { direction: "backward" };
-			return _parseAsync(_Err)(schema, value, ctx);
-		};
-		const _decodeAsync = (_Err) => async (schema, value, _ctx) => {
-			return _parseAsync(_Err)(schema, value, _ctx);
-		};
-		const _safeEncode = (_Err) => (schema, value, _ctx) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				direction: "backward"
-			} : { direction: "backward" };
-			return _safeParse(_Err)(schema, value, ctx);
-		};
-		const _safeDecode = (_Err) => (schema, value, _ctx) => {
-			return _safeParse(_Err)(schema, value, _ctx);
-		};
-		const _safeEncodeAsync = (_Err) => async (schema, value, _ctx) => {
-			const ctx = _ctx ? {
-				..._ctx,
-				direction: "backward"
-			} : { direction: "backward" };
-			return _safeParseAsync(_Err)(schema, value, ctx);
-		};
-		const _safeDecodeAsync = (_Err) => async (schema, value, _ctx) => {
-			return _safeParseAsync(_Err)(schema, value, _ctx);
-		};
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js
-		/**
-		* @deprecated CUID v1 is deprecated by its authors due to information leakage
-		* (timestamps embedded in the id). Use {@link cuid2} instead.
-		* See https://github.com/paralleldrive/cuid.
-		*/
-		const cuid = /^[cC][0-9a-z]{6,}$/;
-		const cuid2 = /^[0-9a-z]+$/;
-		const ulid = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
-		const xid = /^[0-9a-vA-V]{20}$/;
-		const ksuid = /^[A-Za-z0-9]{27}$/;
-		const nanoid = /^[a-zA-Z0-9_-]{21}$/;
-		/** ISO 8601-1 duration regex. Does not support the 8601-2 extensions like negative durations or fractional/negative components. */
-		const duration$1 = /^P(?:(\d+W)|(?!.*W)(?=\d|T\d)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+([.,]\d+)?S)?)?)$/;
-		/** A regex for any UUID-like identifier: 8-4-4-4-12 hex pattern */
-		const guid = /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
-		/** Returns a regex for validating an RFC 9562/4122 UUID.
-		*
-		* @param version Optionally specify a version 1-8. If no version is specified, all versions are supported. */
-		const uuid = (version) => {
-			if (!version) return /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/;
-			return new RegExp(`^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-${version}[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$`);
-		};
-		/** Practical email validation */
-		const email = /^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$/;
-		const _emoji$1 = `^(\\p{Extended_Pictographic}|\\p{Emoji_Component})+$`;
-		function emoji() {
-			return new RegExp(_emoji$1, "u");
-		}
-		const ipv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
-		const ipv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:))$/;
-		const cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/([0-9]|[1-2][0-9]|3[0-2])$/;
-		const cidrv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::|([0-9a-fA-F]{1,4})?::([0-9a-fA-F]{1,4}:?){0,6})\/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$/;
-		const base64 = /^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$/;
-		const base64url = /^[A-Za-z0-9_-]*$/;
-		const httpProtocol = /^https?$/;
-		const e164 = /^\+[1-9]\d{6,14}$/;
-		const dateSource = `(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))`;
-		const date$1 = /*@__PURE__*/ new RegExp(`^${dateSource}$`);
-		function timeSource(args) {
-			const hhmm = `(?:[01]\\d|2[0-3]):[0-5]\\d`;
-			return typeof args.precision === "number" ? args.precision === -1 ? `${hhmm}` : args.precision === 0 ? `${hhmm}:[0-5]\\d` : `${hhmm}:[0-5]\\d\\.\\d{${args.precision}}` : `${hhmm}(?::[0-5]\\d(?:\\.\\d+)?)?`;
-		}
-		function time$1(args) {
-			return new RegExp(`^${timeSource(args)}$`);
-		}
-		function datetime$1(args) {
-			const time = timeSource({ precision: args.precision });
-			const opts = ["Z"];
-			if (args.local) opts.push("");
-			if (args.offset) opts.push(`([+-](?:[01]\\d|2[0-3]):[0-5]\\d)`);
-			const timeRegex = `${time}(?:${opts.join("|")})`;
-			return new RegExp(`^${dateSource}T(?:${timeRegex})$`);
-		}
-		const string$1 = (params) => {
-			const regex = params ? `[\\s\\S]{${params?.minimum ?? 0},${params?.maximum ?? ""}}` : `[\\s\\S]*`;
-			return new RegExp(`^${regex}$`);
-		};
-		const integer = /^-?\d+$/;
-		const number$1 = /^-?\d+(?:\.\d+)?$/;
-		const boolean$1 = /^(?:true|false)$/i;
-		const lowercase = /^[^A-Z]*$/;
-		const uppercase = /^[^a-z]*$/;
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js
-		const $ZodCheck = /*@__PURE__*/ $constructor("$ZodCheck", (inst, def) => {
-			var _a;
-			inst._zod ?? (inst._zod = {});
-			inst._zod.def = def;
-			(_a = inst._zod).onattach ?? (_a.onattach = []);
-		});
-		const numericOriginMap = {
-			number: "number",
-			bigint: "bigint",
-			object: "date"
-		};
-		const $ZodCheckLessThan = /*@__PURE__*/ $constructor("$ZodCheckLessThan", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			const origin = numericOriginMap[typeof def.value];
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				const curr = (def.inclusive ? bag.maximum : bag.exclusiveMaximum) ?? Number.POSITIVE_INFINITY;
-				if (def.value < curr) if (def.inclusive) bag.maximum = def.value;
-				else bag.exclusiveMaximum = def.value;
-			});
-			inst._zod.check = (payload) => {
-				if (def.inclusive ? payload.value <= def.value : payload.value < def.value) return;
-				payload.issues.push({
-					origin,
-					code: "too_big",
-					maximum: typeof def.value === "object" ? def.value.getTime() : def.value,
-					input: payload.value,
-					inclusive: def.inclusive,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckGreaterThan = /*@__PURE__*/ $constructor("$ZodCheckGreaterThan", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			const origin = numericOriginMap[typeof def.value];
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				const curr = (def.inclusive ? bag.minimum : bag.exclusiveMinimum) ?? Number.NEGATIVE_INFINITY;
-				if (def.value > curr) if (def.inclusive) bag.minimum = def.value;
-				else bag.exclusiveMinimum = def.value;
-			});
-			inst._zod.check = (payload) => {
-				if (def.inclusive ? payload.value >= def.value : payload.value > def.value) return;
-				payload.issues.push({
-					origin,
-					code: "too_small",
-					minimum: typeof def.value === "object" ? def.value.getTime() : def.value,
-					input: payload.value,
-					inclusive: def.inclusive,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckMultipleOf = /*@__PURE__*/ $constructor("$ZodCheckMultipleOf", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			inst._zod.onattach.push((inst) => {
-				var _a;
-				(_a = inst._zod.bag).multipleOf ?? (_a.multipleOf = def.value);
-			});
-			inst._zod.check = (payload) => {
-				if (typeof payload.value !== typeof def.value) throw new Error("Cannot mix number and bigint in multiple_of check.");
-				if (typeof payload.value === "bigint" ? payload.value % def.value === BigInt(0) : floatSafeRemainder(payload.value, def.value) === 0) return;
-				payload.issues.push({
-					origin: typeof payload.value,
-					code: "not_multiple_of",
-					divisor: def.value,
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckNumberFormat = /*@__PURE__*/ $constructor("$ZodCheckNumberFormat", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			def.format = def.format || "float64";
-			const isInt = def.format?.includes("int");
-			const origin = isInt ? "int" : "number";
-			const [minimum, maximum] = NUMBER_FORMAT_RANGES[def.format];
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				bag.format = def.format;
-				bag.minimum = minimum;
-				bag.maximum = maximum;
-				if (isInt) bag.pattern = integer;
-			});
-			inst._zod.check = (payload) => {
-				const input = payload.value;
-				if (isInt) {
-					if (!Number.isInteger(input)) {
-						payload.issues.push({
-							expected: origin,
-							format: def.format,
-							code: "invalid_type",
-							continue: false,
-							input,
-							inst
-						});
-						return;
-					}
-					if (!Number.isSafeInteger(input)) {
-						if (input > 0) payload.issues.push({
-							input,
-							code: "too_big",
-							maximum: Number.MAX_SAFE_INTEGER,
-							note: "Integers must be within the safe integer range.",
-							inst,
-							origin,
-							inclusive: true,
-							continue: !def.abort
-						});
-						else payload.issues.push({
-							input,
-							code: "too_small",
-							minimum: Number.MIN_SAFE_INTEGER,
-							note: "Integers must be within the safe integer range.",
-							inst,
-							origin,
-							inclusive: true,
-							continue: !def.abort
-						});
-						return;
-					}
-				}
-				if (input < minimum) payload.issues.push({
-					origin: "number",
-					input,
-					code: "too_small",
-					minimum,
-					inclusive: true,
-					inst,
-					continue: !def.abort
-				});
-				if (input > maximum) payload.issues.push({
-					origin: "number",
-					input,
-					code: "too_big",
-					maximum,
-					inclusive: true,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckMaxLength = /*@__PURE__*/ $constructor("$ZodCheckMaxLength", (inst, def) => {
-			var _a;
-			$ZodCheck.init(inst, def);
-			(_a = inst._zod.def).when ?? (_a.when = (payload) => {
-				const val = payload.value;
-				return !nullish(val) && val.length !== void 0;
-			});
-			inst._zod.onattach.push((inst) => {
-				const curr = inst._zod.bag.maximum ?? Number.POSITIVE_INFINITY;
-				if (def.maximum < curr) inst._zod.bag.maximum = def.maximum;
-			});
-			inst._zod.check = (payload) => {
-				const input = payload.value;
-				if (input.length <= def.maximum) return;
-				const origin = getLengthableOrigin(input);
-				payload.issues.push({
-					origin,
-					code: "too_big",
-					maximum: def.maximum,
-					inclusive: true,
-					input,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckMinLength = /*@__PURE__*/ $constructor("$ZodCheckMinLength", (inst, def) => {
-			var _a;
-			$ZodCheck.init(inst, def);
-			(_a = inst._zod.def).when ?? (_a.when = (payload) => {
-				const val = payload.value;
-				return !nullish(val) && val.length !== void 0;
-			});
-			inst._zod.onattach.push((inst) => {
-				const curr = inst._zod.bag.minimum ?? Number.NEGATIVE_INFINITY;
-				if (def.minimum > curr) inst._zod.bag.minimum = def.minimum;
-			});
-			inst._zod.check = (payload) => {
-				const input = payload.value;
-				if (input.length >= def.minimum) return;
-				const origin = getLengthableOrigin(input);
-				payload.issues.push({
-					origin,
-					code: "too_small",
-					minimum: def.minimum,
-					inclusive: true,
-					input,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckLengthEquals = /*@__PURE__*/ $constructor("$ZodCheckLengthEquals", (inst, def) => {
-			var _a;
-			$ZodCheck.init(inst, def);
-			(_a = inst._zod.def).when ?? (_a.when = (payload) => {
-				const val = payload.value;
-				return !nullish(val) && val.length !== void 0;
-			});
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				bag.minimum = def.length;
-				bag.maximum = def.length;
-				bag.length = def.length;
-			});
-			inst._zod.check = (payload) => {
-				const input = payload.value;
-				const length = input.length;
-				if (length === def.length) return;
-				const origin = getLengthableOrigin(input);
-				const tooBig = length > def.length;
-				payload.issues.push({
-					origin,
-					...tooBig ? {
-						code: "too_big",
-						maximum: def.length
-					} : {
-						code: "too_small",
-						minimum: def.length
-					},
-					inclusive: true,
-					exact: true,
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckStringFormat = /*@__PURE__*/ $constructor("$ZodCheckStringFormat", (inst, def) => {
-			var _a, _b;
-			$ZodCheck.init(inst, def);
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				bag.format = def.format;
-				if (def.pattern) {
-					bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
-					bag.patterns.add(def.pattern);
-				}
-			});
-			if (def.pattern) (_a = inst._zod).check ?? (_a.check = (payload) => {
-				def.pattern.lastIndex = 0;
-				if (def.pattern.test(payload.value)) return;
-				payload.issues.push({
-					origin: "string",
-					code: "invalid_format",
-					format: def.format,
-					input: payload.value,
-					...def.pattern ? { pattern: def.pattern.toString() } : {},
-					inst,
-					continue: !def.abort
-				});
-			});
-			else (_b = inst._zod).check ?? (_b.check = () => {});
-		});
-		const $ZodCheckRegex = /*@__PURE__*/ $constructor("$ZodCheckRegex", (inst, def) => {
-			$ZodCheckStringFormat.init(inst, def);
-			inst._zod.check = (payload) => {
-				def.pattern.lastIndex = 0;
-				if (def.pattern.test(payload.value)) return;
-				payload.issues.push({
-					origin: "string",
-					code: "invalid_format",
-					format: "regex",
-					input: payload.value,
-					pattern: def.pattern.toString(),
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckLowerCase = /*@__PURE__*/ $constructor("$ZodCheckLowerCase", (inst, def) => {
-			def.pattern ?? (def.pattern = lowercase);
-			$ZodCheckStringFormat.init(inst, def);
-		});
-		const $ZodCheckUpperCase = /*@__PURE__*/ $constructor("$ZodCheckUpperCase", (inst, def) => {
-			def.pattern ?? (def.pattern = uppercase);
-			$ZodCheckStringFormat.init(inst, def);
-		});
-		const $ZodCheckIncludes = /*@__PURE__*/ $constructor("$ZodCheckIncludes", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			const escapedRegex = escapeRegex(def.includes);
-			const pattern = new RegExp(typeof def.position === "number" ? `^.{${def.position}}${escapedRegex}` : escapedRegex);
-			def.pattern = pattern;
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
-				bag.patterns.add(pattern);
-			});
-			inst._zod.check = (payload) => {
-				if (payload.value.includes(def.includes, def.position)) return;
-				payload.issues.push({
-					origin: "string",
-					code: "invalid_format",
-					format: "includes",
-					includes: def.includes,
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckStartsWith = /*@__PURE__*/ $constructor("$ZodCheckStartsWith", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			const pattern = new RegExp(`^${escapeRegex(def.prefix)}.*`);
-			def.pattern ?? (def.pattern = pattern);
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
-				bag.patterns.add(pattern);
-			});
-			inst._zod.check = (payload) => {
-				if (payload.value.startsWith(def.prefix)) return;
-				payload.issues.push({
-					origin: "string",
-					code: "invalid_format",
-					format: "starts_with",
-					prefix: def.prefix,
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckEndsWith = /*@__PURE__*/ $constructor("$ZodCheckEndsWith", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			const pattern = new RegExp(`.*${escapeRegex(def.suffix)}$`);
-			def.pattern ?? (def.pattern = pattern);
-			inst._zod.onattach.push((inst) => {
-				const bag = inst._zod.bag;
-				bag.patterns ?? (bag.patterns = /* @__PURE__ */ new Set());
-				bag.patterns.add(pattern);
-			});
-			inst._zod.check = (payload) => {
-				if (payload.value.endsWith(def.suffix)) return;
-				payload.issues.push({
-					origin: "string",
-					code: "invalid_format",
-					format: "ends_with",
-					suffix: def.suffix,
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodCheckOverwrite = /*@__PURE__*/ $constructor("$ZodCheckOverwrite", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			inst._zod.check = (payload) => {
-				payload.value = def.tx(payload.value);
-			};
-		});
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js
-		var Doc = class {
-			constructor(args = []) {
-				this.content = [];
-				this.indent = 0;
-				if (this) this.args = args;
-			}
-			indented(fn) {
-				this.indent += 1;
-				fn(this);
-				this.indent -= 1;
-			}
-			write(arg) {
-				if (typeof arg === "function") {
-					arg(this, { execution: "sync" });
-					arg(this, { execution: "async" });
-					return;
-				}
-				const lines = arg.split("\n").filter((x) => x);
-				const minIndent = Math.min(...lines.map((x) => x.length - x.trimStart().length));
-				const dedented = lines.map((x) => x.slice(minIndent)).map((x) => " ".repeat(this.indent * 2) + x);
-				for (const line of dedented) this.content.push(line);
-			}
-			compile() {
-				const F = Function;
-				const args = this?.args;
-				const lines = [...(this?.content ?? [``]).map((x) => `  ${x}`)];
-				return new F(...args, lines.join("\n"));
-			}
-		};
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js
-		const version = {
-			major: 4,
-			minor: 4,
-			patch: 3
-		};
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js
-		const $ZodType = /*@__PURE__*/ $constructor("$ZodType", (inst, def) => {
-			var _a;
-			inst ?? (inst = {});
-			inst._zod.def = def;
-			inst._zod.bag = inst._zod.bag || {};
-			inst._zod.version = version;
-			const checks = [...inst._zod.def.checks ?? []];
-			if (inst._zod.traits.has("$ZodCheck")) checks.unshift(inst);
-			for (const ch of checks) for (const fn of ch._zod.onattach) fn(inst);
-			if (checks.length === 0) {
-				(_a = inst._zod).deferred ?? (_a.deferred = []);
-				inst._zod.deferred?.push(() => {
-					inst._zod.run = inst._zod.parse;
-				});
-			} else {
-				const runChecks = (payload, checks, ctx) => {
-					let isAborted = aborted(payload);
-					let asyncResult;
-					for (const ch of checks) {
-						if (ch._zod.def.when) {
-							if (explicitlyAborted(payload)) continue;
-							if (!ch._zod.def.when(payload)) continue;
-						} else if (isAborted) continue;
-						const currLen = payload.issues.length;
-						const _ = ch._zod.check(payload);
-						if (_ instanceof Promise && ctx?.async === false) throw new $ZodAsyncError();
-						if (asyncResult || _ instanceof Promise) asyncResult = (asyncResult ?? Promise.resolve()).then(async () => {
-							await _;
-							if (payload.issues.length === currLen) return;
-							if (!isAborted) isAborted = aborted(payload, currLen);
-						});
-						else {
-							if (payload.issues.length === currLen) continue;
-							if (!isAborted) isAborted = aborted(payload, currLen);
-						}
-					}
-					if (asyncResult) return asyncResult.then(() => {
-						return payload;
-					});
-					return payload;
-				};
-				const handleCanaryResult = (canary, payload, ctx) => {
-					if (aborted(canary)) {
-						canary.aborted = true;
-						return canary;
-					}
-					const checkResult = runChecks(payload, checks, ctx);
-					if (checkResult instanceof Promise) {
-						if (ctx.async === false) throw new $ZodAsyncError();
-						return checkResult.then((checkResult) => inst._zod.parse(checkResult, ctx));
-					}
-					return inst._zod.parse(checkResult, ctx);
-				};
-				inst._zod.run = (payload, ctx) => {
-					if (ctx.skipChecks) return inst._zod.parse(payload, ctx);
-					if (ctx.direction === "backward") {
-						const canary = inst._zod.parse({
-							value: payload.value,
-							issues: []
-						}, {
-							...ctx,
-							skipChecks: true
-						});
-						if (canary instanceof Promise) return canary.then((canary) => {
-							return handleCanaryResult(canary, payload, ctx);
-						});
-						return handleCanaryResult(canary, payload, ctx);
-					}
-					const result = inst._zod.parse(payload, ctx);
-					if (result instanceof Promise) {
-						if (ctx.async === false) throw new $ZodAsyncError();
-						return result.then((result) => runChecks(result, checks, ctx));
-					}
-					return runChecks(result, checks, ctx);
-				};
-			}
-			defineLazy(inst, "~standard", () => ({
-				validate: (value) => {
-					try {
-						const r = safeParse$1(inst, value);
-						return r.success ? { value: r.data } : { issues: r.error?.issues };
-					} catch (_) {
-						return safeParseAsync$1(inst, value).then((r) => r.success ? { value: r.data } : { issues: r.error?.issues });
-					}
-				},
-				vendor: "zod",
-				version: 1
-			}));
-		});
-		const $ZodString = /*@__PURE__*/ $constructor("$ZodString", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.pattern = [...inst?._zod.bag?.patterns ?? []].pop() ?? string$1(inst._zod.bag);
-			inst._zod.parse = (payload, _) => {
-				if (def.coerce) try {
-					payload.value = String(payload.value);
-				} catch (_) {}
-				if (typeof payload.value === "string") return payload;
-				payload.issues.push({
-					expected: "string",
-					code: "invalid_type",
-					input: payload.value,
-					inst
-				});
-				return payload;
-			};
-		});
-		const $ZodStringFormat = /*@__PURE__*/ $constructor("$ZodStringFormat", (inst, def) => {
-			$ZodCheckStringFormat.init(inst, def);
-			$ZodString.init(inst, def);
-		});
-		const $ZodGUID = /*@__PURE__*/ $constructor("$ZodGUID", (inst, def) => {
-			def.pattern ?? (def.pattern = guid);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodUUID = /*@__PURE__*/ $constructor("$ZodUUID", (inst, def) => {
-			if (def.version) {
-				const v = {
-					v1: 1,
-					v2: 2,
-					v3: 3,
-					v4: 4,
-					v5: 5,
-					v6: 6,
-					v7: 7,
-					v8: 8
-				}[def.version];
-				if (v === void 0) throw new Error(`Invalid UUID version: "${def.version}"`);
-				def.pattern ?? (def.pattern = uuid(v));
-			} else def.pattern ?? (def.pattern = uuid());
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodEmail = /*@__PURE__*/ $constructor("$ZodEmail", (inst, def) => {
-			def.pattern ?? (def.pattern = email);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodURL = /*@__PURE__*/ $constructor("$ZodURL", (inst, def) => {
-			$ZodStringFormat.init(inst, def);
-			inst._zod.check = (payload) => {
-				try {
-					const trimmed = payload.value.trim();
-					if (!def.normalize && def.protocol?.source === httpProtocol.source) {
-						if (!/^https?:\/\//i.test(trimmed)) {
-							payload.issues.push({
-								code: "invalid_format",
-								format: "url",
-								note: "Invalid URL format",
-								input: payload.value,
-								inst,
-								continue: !def.abort
-							});
-							return;
-						}
-					}
-					const url = new URL(trimmed);
-					if (def.hostname) {
-						def.hostname.lastIndex = 0;
-						if (!def.hostname.test(url.hostname)) payload.issues.push({
-							code: "invalid_format",
-							format: "url",
-							note: "Invalid hostname",
-							pattern: def.hostname.source,
-							input: payload.value,
-							inst,
-							continue: !def.abort
-						});
-					}
-					if (def.protocol) {
-						def.protocol.lastIndex = 0;
-						if (!def.protocol.test(url.protocol.endsWith(":") ? url.protocol.slice(0, -1) : url.protocol)) payload.issues.push({
-							code: "invalid_format",
-							format: "url",
-							note: "Invalid protocol",
-							pattern: def.protocol.source,
-							input: payload.value,
-							inst,
-							continue: !def.abort
-						});
-					}
-					if (def.normalize) payload.value = url.href;
-					else payload.value = trimmed;
-					return;
-				} catch (_) {
-					payload.issues.push({
-						code: "invalid_format",
-						format: "url",
-						input: payload.value,
-						inst,
-						continue: !def.abort
-					});
-				}
-			};
-		});
-		const $ZodEmoji = /*@__PURE__*/ $constructor("$ZodEmoji", (inst, def) => {
-			def.pattern ?? (def.pattern = emoji());
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodNanoID = /*@__PURE__*/ $constructor("$ZodNanoID", (inst, def) => {
-			def.pattern ?? (def.pattern = nanoid);
-			$ZodStringFormat.init(inst, def);
-		});
-		/**
-		* @deprecated CUID v1 is deprecated by its authors due to information leakage
-		* (timestamps embedded in the id). Use {@link $ZodCUID2} instead.
-		* See https://github.com/paralleldrive/cuid.
-		*/
-		const $ZodCUID = /*@__PURE__*/ $constructor("$ZodCUID", (inst, def) => {
-			def.pattern ?? (def.pattern = cuid);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodCUID2 = /*@__PURE__*/ $constructor("$ZodCUID2", (inst, def) => {
-			def.pattern ?? (def.pattern = cuid2);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodULID = /*@__PURE__*/ $constructor("$ZodULID", (inst, def) => {
-			def.pattern ?? (def.pattern = ulid);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodXID = /*@__PURE__*/ $constructor("$ZodXID", (inst, def) => {
-			def.pattern ?? (def.pattern = xid);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodKSUID = /*@__PURE__*/ $constructor("$ZodKSUID", (inst, def) => {
-			def.pattern ?? (def.pattern = ksuid);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodISODateTime = /*@__PURE__*/ $constructor("$ZodISODateTime", (inst, def) => {
-			def.pattern ?? (def.pattern = datetime$1(def));
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodISODate = /*@__PURE__*/ $constructor("$ZodISODate", (inst, def) => {
-			def.pattern ?? (def.pattern = date$1);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodISOTime = /*@__PURE__*/ $constructor("$ZodISOTime", (inst, def) => {
-			def.pattern ?? (def.pattern = time$1(def));
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodISODuration = /*@__PURE__*/ $constructor("$ZodISODuration", (inst, def) => {
-			def.pattern ?? (def.pattern = duration$1);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodIPv4 = /*@__PURE__*/ $constructor("$ZodIPv4", (inst, def) => {
-			def.pattern ?? (def.pattern = ipv4);
-			$ZodStringFormat.init(inst, def);
-			inst._zod.bag.format = `ipv4`;
-		});
-		const $ZodIPv6 = /*@__PURE__*/ $constructor("$ZodIPv6", (inst, def) => {
-			def.pattern ?? (def.pattern = ipv6);
-			$ZodStringFormat.init(inst, def);
-			inst._zod.bag.format = `ipv6`;
-			inst._zod.check = (payload) => {
-				try {
-					new URL(`http://[${payload.value}]`);
-				} catch {
-					payload.issues.push({
-						code: "invalid_format",
-						format: "ipv6",
-						input: payload.value,
-						inst,
-						continue: !def.abort
-					});
-				}
-			};
-		});
-		const $ZodCIDRv4 = /*@__PURE__*/ $constructor("$ZodCIDRv4", (inst, def) => {
-			def.pattern ?? (def.pattern = cidrv4);
-			$ZodStringFormat.init(inst, def);
-		});
-		const $ZodCIDRv6 = /*@__PURE__*/ $constructor("$ZodCIDRv6", (inst, def) => {
-			def.pattern ?? (def.pattern = cidrv6);
-			$ZodStringFormat.init(inst, def);
-			inst._zod.check = (payload) => {
-				const parts = payload.value.split("/");
-				try {
-					if (parts.length !== 2) throw new Error();
-					const [address, prefix] = parts;
-					if (!prefix) throw new Error();
-					const prefixNum = Number(prefix);
-					if (`${prefixNum}` !== prefix) throw new Error();
-					if (prefixNum < 0 || prefixNum > 128) throw new Error();
-					new URL(`http://[${address}]`);
-				} catch {
-					payload.issues.push({
-						code: "invalid_format",
-						format: "cidrv6",
-						input: payload.value,
-						inst,
-						continue: !def.abort
-					});
-				}
-			};
-		});
-		function isValidBase64(data) {
-			if (data === "") return true;
-			if (/\s/.test(data)) return false;
-			if (data.length % 4 !== 0) return false;
-			try {
-				atob(data);
-				return true;
-			} catch {
-				return false;
-			}
-		}
-		const $ZodBase64 = /*@__PURE__*/ $constructor("$ZodBase64", (inst, def) => {
-			def.pattern ?? (def.pattern = base64);
-			$ZodStringFormat.init(inst, def);
-			inst._zod.bag.contentEncoding = "base64";
-			inst._zod.check = (payload) => {
-				if (isValidBase64(payload.value)) return;
-				payload.issues.push({
-					code: "invalid_format",
-					format: "base64",
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		function isValidBase64URL(data) {
-			if (!base64url.test(data)) return false;
-			const base64 = data.replace(/[-_]/g, (c) => c === "-" ? "+" : "/");
-			return isValidBase64(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="));
-		}
-		const $ZodBase64URL = /*@__PURE__*/ $constructor("$ZodBase64URL", (inst, def) => {
-			def.pattern ?? (def.pattern = base64url);
-			$ZodStringFormat.init(inst, def);
-			inst._zod.bag.contentEncoding = "base64url";
-			inst._zod.check = (payload) => {
-				if (isValidBase64URL(payload.value)) return;
-				payload.issues.push({
-					code: "invalid_format",
-					format: "base64url",
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodE164 = /*@__PURE__*/ $constructor("$ZodE164", (inst, def) => {
-			def.pattern ?? (def.pattern = e164);
-			$ZodStringFormat.init(inst, def);
-		});
-		function isValidJWT(token, algorithm = null) {
-			try {
-				const tokensParts = token.split(".");
-				if (tokensParts.length !== 3) return false;
-				const [header] = tokensParts;
-				if (!header) return false;
-				const parsedHeader = JSON.parse(atob(header));
-				if ("typ" in parsedHeader && parsedHeader?.typ !== "JWT") return false;
-				if (!parsedHeader.alg) return false;
-				if (algorithm && (!("alg" in parsedHeader) || parsedHeader.alg !== algorithm)) return false;
-				return true;
-			} catch {
-				return false;
-			}
-		}
-		const $ZodJWT = /*@__PURE__*/ $constructor("$ZodJWT", (inst, def) => {
-			$ZodStringFormat.init(inst, def);
-			inst._zod.check = (payload) => {
-				if (isValidJWT(payload.value, def.alg)) return;
-				payload.issues.push({
-					code: "invalid_format",
-					format: "jwt",
-					input: payload.value,
-					inst,
-					continue: !def.abort
-				});
-			};
-		});
-		const $ZodNumber = /*@__PURE__*/ $constructor("$ZodNumber", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.pattern = inst._zod.bag.pattern ?? number$1;
-			inst._zod.parse = (payload, _ctx) => {
-				if (def.coerce) try {
-					payload.value = Number(payload.value);
-				} catch (_) {}
-				const input = payload.value;
-				if (typeof input === "number" && !Number.isNaN(input) && Number.isFinite(input)) return payload;
-				const received = typeof input === "number" ? Number.isNaN(input) ? "NaN" : !Number.isFinite(input) ? "Infinity" : void 0 : void 0;
-				payload.issues.push({
-					expected: "number",
-					code: "invalid_type",
-					input,
-					inst,
-					...received ? { received } : {}
-				});
-				return payload;
-			};
-		});
-		const $ZodNumberFormat = /*@__PURE__*/ $constructor("$ZodNumberFormat", (inst, def) => {
-			$ZodCheckNumberFormat.init(inst, def);
-			$ZodNumber.init(inst, def);
-		});
-		const $ZodBoolean = /*@__PURE__*/ $constructor("$ZodBoolean", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.pattern = boolean$1;
-			inst._zod.parse = (payload, _ctx) => {
-				if (def.coerce) try {
-					payload.value = Boolean(payload.value);
-				} catch (_) {}
-				const input = payload.value;
-				if (typeof input === "boolean") return payload;
-				payload.issues.push({
-					expected: "boolean",
-					code: "invalid_type",
-					input,
-					inst
-				});
-				return payload;
-			};
-		});
-		const $ZodUnknown = /*@__PURE__*/ $constructor("$ZodUnknown", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.parse = (payload) => payload;
-		});
-		const $ZodNever = /*@__PURE__*/ $constructor("$ZodNever", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.parse = (payload, _ctx) => {
-				payload.issues.push({
-					expected: "never",
-					code: "invalid_type",
-					input: payload.value,
-					inst
-				});
-				return payload;
-			};
-		});
-		function handleArrayResult(result, final, index) {
-			if (result.issues.length) final.issues.push(...prefixIssues(index, result.issues));
-			final.value[index] = result.value;
-		}
-		const $ZodArray = /*@__PURE__*/ $constructor("$ZodArray", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.parse = (payload, ctx) => {
-				const input = payload.value;
-				if (!Array.isArray(input)) {
-					payload.issues.push({
-						expected: "array",
-						code: "invalid_type",
-						input,
-						inst
-					});
-					return payload;
-				}
-				payload.value = Array(input.length);
-				const proms = [];
-				for (let i = 0; i < input.length; i++) {
-					const item = input[i];
-					const result = def.element._zod.run({
-						value: item,
-						issues: []
-					}, ctx);
-					if (result instanceof Promise) proms.push(result.then((result) => handleArrayResult(result, payload, i)));
-					else handleArrayResult(result, payload, i);
-				}
-				if (proms.length) return Promise.all(proms).then(() => payload);
-				return payload;
-			};
-		});
-		function handlePropertyResult(result, final, key, input, isOptionalIn, isOptionalOut) {
-			const isPresent = key in input;
-			if (result.issues.length) {
-				if (isOptionalIn && isOptionalOut && !isPresent) return;
-				final.issues.push(...prefixIssues(key, result.issues));
-			}
-			if (!isPresent && !isOptionalIn) {
-				if (!result.issues.length) final.issues.push({
-					code: "invalid_type",
-					expected: "nonoptional",
-					input: void 0,
-					path: [key]
-				});
-				return;
-			}
-			if (result.value === void 0) {
-				if (isPresent) final.value[key] = void 0;
-			} else final.value[key] = result.value;
-		}
-		function normalizeDef(def) {
-			const keys = Object.keys(def.shape);
-			for (const k of keys) if (!def.shape?.[k]?._zod?.traits?.has("$ZodType")) throw new Error(`Invalid element at key "${k}": expected a Zod schema`);
-			const okeys = optionalKeys(def.shape);
-			return {
-				...def,
-				keys,
-				keySet: new Set(keys),
-				numKeys: keys.length,
-				optionalKeys: new Set(okeys)
-			};
-		}
-		function handleCatchall(proms, input, payload, ctx, def, inst) {
-			const unrecognized = [];
-			const keySet = def.keySet;
-			const _catchall = def.catchall._zod;
-			const t = _catchall.def.type;
-			const isOptionalIn = _catchall.optin === "optional";
-			const isOptionalOut = _catchall.optout === "optional";
-			for (const key in input) {
-				if (key === "__proto__") continue;
-				if (keySet.has(key)) continue;
-				if (t === "never") {
-					unrecognized.push(key);
-					continue;
-				}
-				const r = _catchall.run({
-					value: input[key],
-					issues: []
-				}, ctx);
-				if (r instanceof Promise) proms.push(r.then((r) => handlePropertyResult(r, payload, key, input, isOptionalIn, isOptionalOut)));
-				else handlePropertyResult(r, payload, key, input, isOptionalIn, isOptionalOut);
-			}
-			if (unrecognized.length) payload.issues.push({
-				code: "unrecognized_keys",
-				keys: unrecognized,
-				input,
-				inst
-			});
-			if (!proms.length) return payload;
-			return Promise.all(proms).then(() => {
-				return payload;
-			});
-		}
-		const $ZodObject = /*@__PURE__*/ $constructor("$ZodObject", (inst, def) => {
-			$ZodType.init(inst, def);
-			if (!Object.getOwnPropertyDescriptor(def, "shape")?.get) {
-				const sh = def.shape;
-				Object.defineProperty(def, "shape", { get: () => {
-					const newSh = { ...sh };
-					Object.defineProperty(def, "shape", { value: newSh });
-					return newSh;
-				} });
-			}
-			const _normalized = cached(() => normalizeDef(def));
-			defineLazy(inst._zod, "propValues", () => {
-				const shape = def.shape;
-				const propValues = {};
-				for (const key in shape) {
-					const field = shape[key]._zod;
-					if (field.values) {
-						propValues[key] ?? (propValues[key] = /* @__PURE__ */ new Set());
-						for (const v of field.values) propValues[key].add(v);
-					}
-				}
-				return propValues;
-			});
-			const isObject$1 = isObject;
-			const catchall = def.catchall;
-			let value;
-			inst._zod.parse = (payload, ctx) => {
-				value ?? (value = _normalized.value);
-				const input = payload.value;
-				if (!isObject$1(input)) {
-					payload.issues.push({
-						expected: "object",
-						code: "invalid_type",
-						input,
-						inst
-					});
-					return payload;
-				}
-				payload.value = {};
-				const proms = [];
-				const shape = value.shape;
-				for (const key of value.keys) {
-					const el = shape[key];
-					const isOptionalIn = el._zod.optin === "optional";
-					const isOptionalOut = el._zod.optout === "optional";
-					const r = el._zod.run({
-						value: input[key],
-						issues: []
-					}, ctx);
-					if (r instanceof Promise) proms.push(r.then((r) => handlePropertyResult(r, payload, key, input, isOptionalIn, isOptionalOut)));
-					else handlePropertyResult(r, payload, key, input, isOptionalIn, isOptionalOut);
-				}
-				if (!catchall) return proms.length ? Promise.all(proms).then(() => payload) : payload;
-				return handleCatchall(proms, input, payload, ctx, _normalized.value, inst);
-			};
-		});
-		const $ZodObjectJIT = /*@__PURE__*/ $constructor("$ZodObjectJIT", (inst, def) => {
-			$ZodObject.init(inst, def);
-			const superParse = inst._zod.parse;
-			const _normalized = cached(() => normalizeDef(def));
-			const generateFastpass = (shape) => {
-				const doc = new Doc([
-					"shape",
-					"payload",
-					"ctx"
-				]);
-				const normalized = _normalized.value;
-				const parseStr = (key) => {
-					const k = esc(key);
-					return `shape[${k}]._zod.run({ value: input[${k}], issues: [] }, ctx)`;
-				};
-				doc.write(`const input = payload.value;`);
-				const ids = Object.create(null);
-				let counter = 0;
-				for (const key of normalized.keys) ids[key] = `key_${counter++}`;
-				doc.write(`const newResult = {};`);
-				for (const key of normalized.keys) {
-					const id = ids[key];
-					const k = esc(key);
-					const schema = shape[key];
-					const isOptionalIn = schema?._zod?.optin === "optional";
-					const isOptionalOut = schema?._zod?.optout === "optional";
-					doc.write(`const ${id} = ${parseStr(key)};`);
-					if (isOptionalIn && isOptionalOut) doc.write(`
-        if (${id}.issues.length) {
-          if (${k} in input) {
-            payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
-              ...iss,
-              path: iss.path ? [${k}, ...iss.path] : [${k}]
-            })));
-          }
-        }
-        
-        if (${id}.value === undefined) {
-          if (${k} in input) {
-            newResult[${k}] = undefined;
-          }
-        } else {
-          newResult[${k}] = ${id}.value;
-        }
-        
-      `);
-					else if (!isOptionalIn) doc.write(`
-        const ${id}_present = ${k} in input;
-        if (${id}.issues.length) {
-          payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
-            ...iss,
-            path: iss.path ? [${k}, ...iss.path] : [${k}]
-          })));
-        }
-        if (!${id}_present && !${id}.issues.length) {
-          payload.issues.push({
-            code: "invalid_type",
-            expected: "nonoptional",
-            input: undefined,
-            path: [${k}]
-          });
-        }
-
-        if (${id}_present) {
-          if (${id}.value === undefined) {
-            newResult[${k}] = undefined;
-          } else {
-            newResult[${k}] = ${id}.value;
-          }
-        }
-
-      `);
-					else doc.write(`
-        if (${id}.issues.length) {
-          payload.issues = payload.issues.concat(${id}.issues.map(iss => ({
-            ...iss,
-            path: iss.path ? [${k}, ...iss.path] : [${k}]
-          })));
-        }
-        
-        if (${id}.value === undefined) {
-          if (${k} in input) {
-            newResult[${k}] = undefined;
-          }
-        } else {
-          newResult[${k}] = ${id}.value;
-        }
-        
-      `);
-				}
-				doc.write(`payload.value = newResult;`);
-				doc.write(`return payload;`);
-				const fn = doc.compile();
-				return (payload, ctx) => fn(shape, payload, ctx);
-			};
-			let fastpass;
-			const isObject$2 = isObject;
-			const jit = !globalConfig.jitless;
-			const fastEnabled = jit && allowsEval.value;
-			const catchall = def.catchall;
-			let value;
-			inst._zod.parse = (payload, ctx) => {
-				value ?? (value = _normalized.value);
-				const input = payload.value;
-				if (!isObject$2(input)) {
-					payload.issues.push({
-						expected: "object",
-						code: "invalid_type",
-						input,
-						inst
-					});
-					return payload;
-				}
-				if (jit && fastEnabled && ctx?.async === false && ctx.jitless !== true) {
-					if (!fastpass) fastpass = generateFastpass(def.shape);
-					payload = fastpass(payload, ctx);
-					if (!catchall) return payload;
-					return handleCatchall([], input, payload, ctx, value, inst);
-				}
-				return superParse(payload, ctx);
-			};
-		});
-		function handleUnionResults(results, final, inst, ctx) {
-			for (const result of results) if (result.issues.length === 0) {
-				final.value = result.value;
-				return final;
-			}
-			const nonaborted = results.filter((r) => !aborted(r));
-			if (nonaborted.length === 1) {
-				final.value = nonaborted[0].value;
-				return nonaborted[0];
-			}
-			final.issues.push({
-				code: "invalid_union",
-				input: final.value,
-				inst,
-				errors: results.map((result) => result.issues.map((iss) => finalizeIssue(iss, ctx, config())))
-			});
-			return final;
-		}
-		const $ZodUnion = /*@__PURE__*/ $constructor("$ZodUnion", (inst, def) => {
-			$ZodType.init(inst, def);
-			defineLazy(inst._zod, "optin", () => def.options.some((o) => o._zod.optin === "optional") ? "optional" : void 0);
-			defineLazy(inst._zod, "optout", () => def.options.some((o) => o._zod.optout === "optional") ? "optional" : void 0);
-			defineLazy(inst._zod, "values", () => {
-				if (def.options.every((o) => o._zod.values)) return new Set(def.options.flatMap((option) => Array.from(option._zod.values)));
-			});
-			defineLazy(inst._zod, "pattern", () => {
-				if (def.options.every((o) => o._zod.pattern)) {
-					const patterns = def.options.map((o) => o._zod.pattern);
-					return new RegExp(`^(${patterns.map((p) => cleanRegex(p.source)).join("|")})$`);
-				}
-			});
-			const first = def.options.length === 1 ? def.options[0]._zod.run : null;
-			inst._zod.parse = (payload, ctx) => {
-				if (first) return first(payload, ctx);
-				let async = false;
-				const results = [];
-				for (const option of def.options) {
-					const result = option._zod.run({
-						value: payload.value,
-						issues: []
-					}, ctx);
-					if (result instanceof Promise) {
-						results.push(result);
-						async = true;
-					} else {
-						if (result.issues.length === 0) return result;
-						results.push(result);
-					}
-				}
-				if (!async) return handleUnionResults(results, payload, inst, ctx);
-				return Promise.all(results).then((results) => {
-					return handleUnionResults(results, payload, inst, ctx);
-				});
-			};
-		});
-		const $ZodDiscriminatedUnion = /*@__PURE__*/ $constructor("$ZodDiscriminatedUnion", (inst, def) => {
-			def.inclusive = false;
-			$ZodUnion.init(inst, def);
-			const _super = inst._zod.parse;
-			defineLazy(inst._zod, "propValues", () => {
-				const propValues = {};
-				for (const option of def.options) {
-					const pv = option._zod.propValues;
-					if (!pv || Object.keys(pv).length === 0) throw new Error(`Invalid discriminated union option at index "${def.options.indexOf(option)}"`);
-					for (const [k, v] of Object.entries(pv)) {
-						if (!propValues[k]) propValues[k] = /* @__PURE__ */ new Set();
-						for (const val of v) propValues[k].add(val);
-					}
-				}
-				return propValues;
-			});
-			const disc = cached(() => {
-				const opts = def.options;
-				const map = /* @__PURE__ */ new Map();
-				for (const o of opts) {
-					const values = o._zod.propValues?.[def.discriminator];
-					if (!values || values.size === 0) throw new Error(`Invalid discriminated union option at index "${def.options.indexOf(o)}"`);
-					for (const v of values) {
-						if (map.has(v)) throw new Error(`Duplicate discriminator value "${String(v)}"`);
-						map.set(v, o);
-					}
-				}
-				return map;
-			});
-			inst._zod.parse = (payload, ctx) => {
-				const input = payload.value;
-				if (!isObject(input)) {
-					payload.issues.push({
-						code: "invalid_type",
-						expected: "object",
-						input,
-						inst
-					});
-					return payload;
-				}
-				const opt = disc.value.get(input?.[def.discriminator]);
-				if (opt) return opt._zod.run(payload, ctx);
-				if (def.unionFallback || ctx.direction === "backward") return _super(payload, ctx);
-				payload.issues.push({
-					code: "invalid_union",
-					errors: [],
-					note: "No matching discriminator",
-					discriminator: def.discriminator,
-					options: Array.from(disc.value.keys()),
-					input,
-					path: [def.discriminator],
-					inst
-				});
-				return payload;
-			};
-		});
-		const $ZodIntersection = /*@__PURE__*/ $constructor("$ZodIntersection", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.parse = (payload, ctx) => {
-				const input = payload.value;
-				const left = def.left._zod.run({
-					value: input,
-					issues: []
-				}, ctx);
-				const right = def.right._zod.run({
-					value: input,
-					issues: []
-				}, ctx);
-				if (left instanceof Promise || right instanceof Promise) return Promise.all([left, right]).then(([left, right]) => {
-					return handleIntersectionResults(payload, left, right);
-				});
-				return handleIntersectionResults(payload, left, right);
-			};
-		});
-		function mergeValues(a, b) {
-			if (a === b) return {
-				valid: true,
-				data: a
-			};
-			if (a instanceof Date && b instanceof Date && +a === +b) return {
-				valid: true,
-				data: a
-			};
-			if (isPlainObject(a) && isPlainObject(b)) {
-				const bKeys = Object.keys(b);
-				const sharedKeys = Object.keys(a).filter((key) => bKeys.indexOf(key) !== -1);
-				const newObj = {
-					...a,
-					...b
-				};
-				for (const key of sharedKeys) {
-					const sharedValue = mergeValues(a[key], b[key]);
-					if (!sharedValue.valid) return {
-						valid: false,
-						mergeErrorPath: [key, ...sharedValue.mergeErrorPath]
-					};
-					newObj[key] = sharedValue.data;
-				}
-				return {
-					valid: true,
-					data: newObj
-				};
-			}
-			if (Array.isArray(a) && Array.isArray(b)) {
-				if (a.length !== b.length) return {
-					valid: false,
-					mergeErrorPath: []
-				};
-				const newArray = [];
-				for (let index = 0; index < a.length; index++) {
-					const itemA = a[index];
-					const itemB = b[index];
-					const sharedValue = mergeValues(itemA, itemB);
-					if (!sharedValue.valid) return {
-						valid: false,
-						mergeErrorPath: [index, ...sharedValue.mergeErrorPath]
-					};
-					newArray.push(sharedValue.data);
-				}
-				return {
-					valid: true,
-					data: newArray
-				};
-			}
-			return {
-				valid: false,
-				mergeErrorPath: []
-			};
-		}
-		function handleIntersectionResults(result, left, right) {
-			const unrecKeys = /* @__PURE__ */ new Map();
-			let unrecIssue;
-			for (const iss of left.issues) if (iss.code === "unrecognized_keys") {
-				unrecIssue ?? (unrecIssue = iss);
-				for (const k of iss.keys) {
-					if (!unrecKeys.has(k)) unrecKeys.set(k, {});
-					unrecKeys.get(k).l = true;
-				}
-			} else result.issues.push(iss);
-			for (const iss of right.issues) if (iss.code === "unrecognized_keys") for (const k of iss.keys) {
-				if (!unrecKeys.has(k)) unrecKeys.set(k, {});
-				unrecKeys.get(k).r = true;
-			}
-			else result.issues.push(iss);
-			const bothKeys = [...unrecKeys].filter(([, f]) => f.l && f.r).map(([k]) => k);
-			if (bothKeys.length && unrecIssue) result.issues.push({
-				...unrecIssue,
-				keys: bothKeys
-			});
-			if (aborted(result)) return result;
-			const merged = mergeValues(left.value, right.value);
-			if (!merged.valid) throw new Error(`Unmergable intersection. Error path: ${JSON.stringify(merged.mergeErrorPath)}`);
-			result.value = merged.data;
-			return result;
-		}
-		const $ZodRecord = /*@__PURE__*/ $constructor("$ZodRecord", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.parse = (payload, ctx) => {
-				const input = payload.value;
-				if (!isPlainObject(input)) {
-					payload.issues.push({
-						expected: "record",
-						code: "invalid_type",
-						input,
-						inst
-					});
-					return payload;
-				}
-				const proms = [];
-				const values = def.keyType._zod.values;
-				if (values) {
-					payload.value = {};
-					const recordKeys = /* @__PURE__ */ new Set();
-					for (const key of values) if (typeof key === "string" || typeof key === "number" || typeof key === "symbol") {
-						recordKeys.add(typeof key === "number" ? key.toString() : key);
-						const keyResult = def.keyType._zod.run({
-							value: key,
-							issues: []
-						}, ctx);
-						if (keyResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
-						if (keyResult.issues.length) {
-							payload.issues.push({
-								code: "invalid_key",
-								origin: "record",
-								issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
-								input: key,
-								path: [key],
-								inst
-							});
-							continue;
-						}
-						const outKey = keyResult.value;
-						const result = def.valueType._zod.run({
-							value: input[key],
-							issues: []
-						}, ctx);
-						if (result instanceof Promise) proms.push(result.then((result) => {
-							if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
-							payload.value[outKey] = result.value;
-						}));
-						else {
-							if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
-							payload.value[outKey] = result.value;
-						}
-					}
-					let unrecognized;
-					for (const key in input) if (!recordKeys.has(key)) {
-						unrecognized = unrecognized ?? [];
-						unrecognized.push(key);
-					}
-					if (unrecognized && unrecognized.length > 0) payload.issues.push({
-						code: "unrecognized_keys",
-						input,
-						inst,
-						keys: unrecognized
-					});
-				} else {
-					payload.value = {};
-					for (const key of Reflect.ownKeys(input)) {
-						if (key === "__proto__") continue;
-						if (!Object.prototype.propertyIsEnumerable.call(input, key)) continue;
-						let keyResult = def.keyType._zod.run({
-							value: key,
-							issues: []
-						}, ctx);
-						if (keyResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
-						if (typeof key === "string" && number$1.test(key) && keyResult.issues.length) {
-							const retryResult = def.keyType._zod.run({
-								value: Number(key),
-								issues: []
-							}, ctx);
-							if (retryResult instanceof Promise) throw new Error("Async schemas not supported in object keys currently");
-							if (retryResult.issues.length === 0) keyResult = retryResult;
-						}
-						if (keyResult.issues.length) {
-							if (def.mode === "loose") payload.value[key] = input[key];
-							else payload.issues.push({
-								code: "invalid_key",
-								origin: "record",
-								issues: keyResult.issues.map((iss) => finalizeIssue(iss, ctx, config())),
-								input: key,
-								path: [key],
-								inst
-							});
-							continue;
-						}
-						const result = def.valueType._zod.run({
-							value: input[key],
-							issues: []
-						}, ctx);
-						if (result instanceof Promise) proms.push(result.then((result) => {
-							if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
-							payload.value[keyResult.value] = result.value;
-						}));
-						else {
-							if (result.issues.length) payload.issues.push(...prefixIssues(key, result.issues));
-							payload.value[keyResult.value] = result.value;
-						}
-					}
-				}
-				if (proms.length) return Promise.all(proms).then(() => payload);
-				return payload;
-			};
-		});
-		const $ZodEnum = /*@__PURE__*/ $constructor("$ZodEnum", (inst, def) => {
-			$ZodType.init(inst, def);
-			const values = getEnumValues(def.entries);
-			const valuesSet = new Set(values);
-			inst._zod.values = valuesSet;
-			inst._zod.pattern = new RegExp(`^(${values.filter((k) => propertyKeyTypes.has(typeof k)).map((o) => typeof o === "string" ? escapeRegex(o) : o.toString()).join("|")})$`);
-			inst._zod.parse = (payload, _ctx) => {
-				const input = payload.value;
-				if (valuesSet.has(input)) return payload;
-				payload.issues.push({
-					code: "invalid_value",
-					values,
-					input,
-					inst
-				});
-				return payload;
-			};
-		});
-		const $ZodLiteral = /*@__PURE__*/ $constructor("$ZodLiteral", (inst, def) => {
-			$ZodType.init(inst, def);
-			if (def.values.length === 0) throw new Error("Cannot create literal schema with no valid values");
-			const values = new Set(def.values);
-			inst._zod.values = values;
-			inst._zod.pattern = new RegExp(`^(${def.values.map((o) => typeof o === "string" ? escapeRegex(o) : o ? escapeRegex(o.toString()) : String(o)).join("|")})$`);
-			inst._zod.parse = (payload, _ctx) => {
-				const input = payload.value;
-				if (values.has(input)) return payload;
-				payload.issues.push({
-					code: "invalid_value",
-					values: def.values,
-					input,
-					inst
-				});
-				return payload;
-			};
-		});
-		const $ZodTransform = /*@__PURE__*/ $constructor("$ZodTransform", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.optin = "optional";
-			inst._zod.parse = (payload, ctx) => {
-				if (ctx.direction === "backward") throw new $ZodEncodeError(inst.constructor.name);
-				const _out = def.transform(payload.value, payload);
-				if (ctx.async) return (_out instanceof Promise ? _out : Promise.resolve(_out)).then((output) => {
-					payload.value = output;
-					payload.fallback = true;
-					return payload;
-				});
-				if (_out instanceof Promise) throw new $ZodAsyncError();
-				payload.value = _out;
-				payload.fallback = true;
-				return payload;
-			};
-		});
-		function handleOptionalResult(result, input) {
-			if (input === void 0 && (result.issues.length || result.fallback)) return {
-				issues: [],
-				value: void 0
-			};
-			return result;
-		}
-		const $ZodOptional = /*@__PURE__*/ $constructor("$ZodOptional", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.optin = "optional";
-			inst._zod.optout = "optional";
-			defineLazy(inst._zod, "values", () => {
-				return def.innerType._zod.values ? new Set([...def.innerType._zod.values, void 0]) : void 0;
-			});
-			defineLazy(inst._zod, "pattern", () => {
-				const pattern = def.innerType._zod.pattern;
-				return pattern ? new RegExp(`^(${cleanRegex(pattern.source)})?$`) : void 0;
-			});
-			inst._zod.parse = (payload, ctx) => {
-				if (def.innerType._zod.optin === "optional") {
-					const input = payload.value;
-					const result = def.innerType._zod.run(payload, ctx);
-					if (result instanceof Promise) return result.then((r) => handleOptionalResult(r, input));
-					return handleOptionalResult(result, input);
-				}
-				if (payload.value === void 0) return payload;
-				return def.innerType._zod.run(payload, ctx);
-			};
-		});
-		const $ZodExactOptional = /*@__PURE__*/ $constructor("$ZodExactOptional", (inst, def) => {
-			$ZodOptional.init(inst, def);
-			defineLazy(inst._zod, "values", () => def.innerType._zod.values);
-			defineLazy(inst._zod, "pattern", () => def.innerType._zod.pattern);
-			inst._zod.parse = (payload, ctx) => {
-				return def.innerType._zod.run(payload, ctx);
-			};
-		});
-		const $ZodNullable = /*@__PURE__*/ $constructor("$ZodNullable", (inst, def) => {
-			$ZodType.init(inst, def);
-			defineLazy(inst._zod, "optin", () => def.innerType._zod.optin);
-			defineLazy(inst._zod, "optout", () => def.innerType._zod.optout);
-			defineLazy(inst._zod, "pattern", () => {
-				const pattern = def.innerType._zod.pattern;
-				return pattern ? new RegExp(`^(${cleanRegex(pattern.source)}|null)$`) : void 0;
-			});
-			defineLazy(inst._zod, "values", () => {
-				return def.innerType._zod.values ? new Set([...def.innerType._zod.values, null]) : void 0;
-			});
-			inst._zod.parse = (payload, ctx) => {
-				if (payload.value === null) return payload;
-				return def.innerType._zod.run(payload, ctx);
-			};
-		});
-		const $ZodDefault = /*@__PURE__*/ $constructor("$ZodDefault", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.optin = "optional";
-			defineLazy(inst._zod, "values", () => def.innerType._zod.values);
-			inst._zod.parse = (payload, ctx) => {
-				if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
-				if (payload.value === void 0) {
-					payload.value = def.defaultValue;
-					/**
-					* $ZodDefault returns the default value immediately in forward direction.
-					* It doesn't pass the default value into the validator ("prefault"). There's no reason to pass the default value through validation. The validity of the default is enforced by TypeScript statically. Otherwise, it's the responsibility of the user to ensure the default is valid. In the case of pipes with divergent in/out types, you can specify the default on the `in` schema of your ZodPipe to set a "prefault" for the pipe.   */
-					return payload;
-				}
-				const result = def.innerType._zod.run(payload, ctx);
-				if (result instanceof Promise) return result.then((result) => handleDefaultResult(result, def));
-				return handleDefaultResult(result, def);
-			};
-		});
-		function handleDefaultResult(payload, def) {
-			if (payload.value === void 0) payload.value = def.defaultValue;
-			return payload;
-		}
-		const $ZodPrefault = /*@__PURE__*/ $constructor("$ZodPrefault", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.optin = "optional";
-			defineLazy(inst._zod, "values", () => def.innerType._zod.values);
-			inst._zod.parse = (payload, ctx) => {
-				if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
-				if (payload.value === void 0) payload.value = def.defaultValue;
-				return def.innerType._zod.run(payload, ctx);
-			};
-		});
-		const $ZodNonOptional = /*@__PURE__*/ $constructor("$ZodNonOptional", (inst, def) => {
-			$ZodType.init(inst, def);
-			defineLazy(inst._zod, "values", () => {
-				const v = def.innerType._zod.values;
-				return v ? new Set([...v].filter((x) => x !== void 0)) : void 0;
-			});
-			inst._zod.parse = (payload, ctx) => {
-				const result = def.innerType._zod.run(payload, ctx);
-				if (result instanceof Promise) return result.then((result) => handleNonOptionalResult(result, inst));
-				return handleNonOptionalResult(result, inst);
-			};
-		});
-		function handleNonOptionalResult(payload, inst) {
-			if (!payload.issues.length && payload.value === void 0) payload.issues.push({
-				code: "invalid_type",
-				expected: "nonoptional",
-				input: payload.value,
-				inst
-			});
-			return payload;
-		}
-		const $ZodCatch = /*@__PURE__*/ $constructor("$ZodCatch", (inst, def) => {
-			$ZodType.init(inst, def);
-			inst._zod.optin = "optional";
-			defineLazy(inst._zod, "optout", () => def.innerType._zod.optout);
-			defineLazy(inst._zod, "values", () => def.innerType._zod.values);
-			inst._zod.parse = (payload, ctx) => {
-				if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
-				const result = def.innerType._zod.run(payload, ctx);
-				if (result instanceof Promise) return result.then((result) => {
-					payload.value = result.value;
-					if (result.issues.length) {
-						payload.value = def.catchValue({
-							...payload,
-							error: { issues: result.issues.map((iss) => finalizeIssue(iss, ctx, config())) },
-							input: payload.value
-						});
-						payload.issues = [];
-						payload.fallback = true;
-					}
-					return payload;
-				});
-				payload.value = result.value;
-				if (result.issues.length) {
-					payload.value = def.catchValue({
-						...payload,
-						error: { issues: result.issues.map((iss) => finalizeIssue(iss, ctx, config())) },
-						input: payload.value
-					});
-					payload.issues = [];
-					payload.fallback = true;
-				}
-				return payload;
-			};
-		});
-		const $ZodPipe = /*@__PURE__*/ $constructor("$ZodPipe", (inst, def) => {
-			$ZodType.init(inst, def);
-			defineLazy(inst._zod, "values", () => def.in._zod.values);
-			defineLazy(inst._zod, "optin", () => def.in._zod.optin);
-			defineLazy(inst._zod, "optout", () => def.out._zod.optout);
-			defineLazy(inst._zod, "propValues", () => def.in._zod.propValues);
-			inst._zod.parse = (payload, ctx) => {
-				if (ctx.direction === "backward") {
-					const right = def.out._zod.run(payload, ctx);
-					if (right instanceof Promise) return right.then((right) => handlePipeResult(right, def.in, ctx));
-					return handlePipeResult(right, def.in, ctx);
-				}
-				const left = def.in._zod.run(payload, ctx);
-				if (left instanceof Promise) return left.then((left) => handlePipeResult(left, def.out, ctx));
-				return handlePipeResult(left, def.out, ctx);
-			};
-		});
-		function handlePipeResult(left, next, ctx) {
-			if (left.issues.length) {
-				left.aborted = true;
-				return left;
-			}
-			return next._zod.run({
-				value: left.value,
-				issues: left.issues,
-				fallback: left.fallback
-			}, ctx);
-		}
-		const $ZodReadonly = /*@__PURE__*/ $constructor("$ZodReadonly", (inst, def) => {
-			$ZodType.init(inst, def);
-			defineLazy(inst._zod, "propValues", () => def.innerType._zod.propValues);
-			defineLazy(inst._zod, "values", () => def.innerType._zod.values);
-			defineLazy(inst._zod, "optin", () => def.innerType?._zod?.optin);
-			defineLazy(inst._zod, "optout", () => def.innerType?._zod?.optout);
-			inst._zod.parse = (payload, ctx) => {
-				if (ctx.direction === "backward") return def.innerType._zod.run(payload, ctx);
-				const result = def.innerType._zod.run(payload, ctx);
-				if (result instanceof Promise) return result.then(handleReadonlyResult);
-				return handleReadonlyResult(result);
-			};
-		});
-		function handleReadonlyResult(payload) {
-			payload.value = Object.freeze(payload.value);
-			return payload;
-		}
-		const $ZodLazy = /*@__PURE__*/ $constructor("$ZodLazy", (inst, def) => {
-			$ZodType.init(inst, def);
-			defineLazy(inst._zod, "innerType", () => {
-				const d = def;
-				if (!d._cachedInner) d._cachedInner = def.getter();
-				return d._cachedInner;
-			});
-			defineLazy(inst._zod, "pattern", () => inst._zod.innerType?._zod?.pattern);
-			defineLazy(inst._zod, "propValues", () => inst._zod.innerType?._zod?.propValues);
-			defineLazy(inst._zod, "optin", () => inst._zod.innerType?._zod?.optin ?? void 0);
-			defineLazy(inst._zod, "optout", () => inst._zod.innerType?._zod?.optout ?? void 0);
-			inst._zod.parse = (payload, ctx) => {
-				return inst._zod.innerType._zod.run(payload, ctx);
-			};
-		});
-		const $ZodCustom = /*@__PURE__*/ $constructor("$ZodCustom", (inst, def) => {
-			$ZodCheck.init(inst, def);
-			$ZodType.init(inst, def);
-			inst._zod.parse = (payload, _) => {
-				return payload;
-			};
-			inst._zod.check = (payload) => {
-				const input = payload.value;
-				const r = def.fn(input);
-				if (r instanceof Promise) return r.then((r) => handleRefineResult(r, payload, input, inst));
-				handleRefineResult(r, payload, input, inst);
-			};
-		});
-		function handleRefineResult(result, payload, input, inst) {
-			if (!result) {
-				const _iss = {
-					code: "custom",
-					input,
-					inst,
-					path: [...inst._zod.def.path ?? []],
-					continue: !inst._zod.def.abort
-				};
-				if (inst._zod.def.params) _iss.params = inst._zod.def.params;
-				payload.issues.push(issue(_iss));
-			}
-		}
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js
-		var _a;
-		var $ZodRegistry = class {
-			constructor() {
-				this._map = /* @__PURE__ */ new WeakMap();
-				this._idmap = /* @__PURE__ */ new Map();
-			}
-			add(schema, ..._meta) {
-				const meta = _meta[0];
-				this._map.set(schema, meta);
-				if (meta && typeof meta === "object" && "id" in meta) this._idmap.set(meta.id, schema);
-				return this;
-			}
-			clear() {
-				this._map = /* @__PURE__ */ new WeakMap();
-				this._idmap = /* @__PURE__ */ new Map();
-				return this;
-			}
-			remove(schema) {
-				const meta = this._map.get(schema);
-				if (meta && typeof meta === "object" && "id" in meta) this._idmap.delete(meta.id);
-				this._map.delete(schema);
-				return this;
-			}
-			get(schema) {
-				const p = schema._zod.parent;
-				if (p) {
-					const pm = { ...this.get(p) ?? {} };
-					delete pm.id;
-					const f = {
-						...pm,
-						...this._map.get(schema)
-					};
-					return Object.keys(f).length ? f : void 0;
-				}
-				return this._map.get(schema);
-			}
-			has(schema) {
-				return this._map.has(schema);
-			}
-		};
-		function registry() {
-			return new $ZodRegistry();
-		}
-		(_a = globalThis).__zod_globalRegistry ?? (_a.__zod_globalRegistry = registry());
-		const globalRegistry = globalThis.__zod_globalRegistry;
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js
-		// @__NO_SIDE_EFFECTS__
-		function _string(Class, params) {
-			return new Class({
-				type: "string",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _email(Class, params) {
-			return new Class({
-				type: "string",
-				format: "email",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _guid(Class, params) {
-			return new Class({
-				type: "string",
-				format: "guid",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _uuid(Class, params) {
-			return new Class({
-				type: "string",
-				format: "uuid",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _uuidv4(Class, params) {
-			return new Class({
-				type: "string",
-				format: "uuid",
-				check: "string_format",
-				abort: false,
-				version: "v4",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _uuidv6(Class, params) {
-			return new Class({
-				type: "string",
-				format: "uuid",
-				check: "string_format",
-				abort: false,
-				version: "v6",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _uuidv7(Class, params) {
-			return new Class({
-				type: "string",
-				format: "uuid",
-				check: "string_format",
-				abort: false,
-				version: "v7",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _url(Class, params) {
-			return new Class({
-				type: "string",
-				format: "url",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _emoji(Class, params) {
-			return new Class({
-				type: "string",
-				format: "emoji",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _nanoid(Class, params) {
-			return new Class({
-				type: "string",
-				format: "nanoid",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		/**
-		* @deprecated CUID v1 is deprecated by its authors due to information leakage
-		* (timestamps embedded in the id). Use {@link _cuid2} instead.
-		* See https://github.com/paralleldrive/cuid.
-		*/
-		// @__NO_SIDE_EFFECTS__
-		function _cuid(Class, params) {
-			return new Class({
-				type: "string",
-				format: "cuid",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _cuid2(Class, params) {
-			return new Class({
-				type: "string",
-				format: "cuid2",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _ulid(Class, params) {
-			return new Class({
-				type: "string",
-				format: "ulid",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _xid(Class, params) {
-			return new Class({
-				type: "string",
-				format: "xid",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _ksuid(Class, params) {
-			return new Class({
-				type: "string",
-				format: "ksuid",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _ipv4(Class, params) {
-			return new Class({
-				type: "string",
-				format: "ipv4",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _ipv6(Class, params) {
-			return new Class({
-				type: "string",
-				format: "ipv6",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _cidrv4(Class, params) {
-			return new Class({
-				type: "string",
-				format: "cidrv4",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _cidrv6(Class, params) {
-			return new Class({
-				type: "string",
-				format: "cidrv6",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _base64(Class, params) {
-			return new Class({
-				type: "string",
-				format: "base64",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _base64url(Class, params) {
-			return new Class({
-				type: "string",
-				format: "base64url",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _e164(Class, params) {
-			return new Class({
-				type: "string",
-				format: "e164",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _jwt(Class, params) {
-			return new Class({
-				type: "string",
-				format: "jwt",
-				check: "string_format",
-				abort: false,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _isoDateTime(Class, params) {
-			return new Class({
-				type: "string",
-				format: "datetime",
-				check: "string_format",
-				offset: false,
-				local: false,
-				precision: null,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _isoDate(Class, params) {
-			return new Class({
-				type: "string",
-				format: "date",
-				check: "string_format",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _isoTime(Class, params) {
-			return new Class({
-				type: "string",
-				format: "time",
-				check: "string_format",
-				precision: null,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _isoDuration(Class, params) {
-			return new Class({
-				type: "string",
-				format: "duration",
-				check: "string_format",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _number(Class, params) {
-			return new Class({
-				type: "number",
-				checks: [],
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _int(Class, params) {
-			return new Class({
-				type: "number",
-				check: "number_format",
-				abort: false,
-				format: "safeint",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _boolean(Class, params) {
-			return new Class({
-				type: "boolean",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _unknown(Class) {
-			return new Class({ type: "unknown" });
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _never(Class, params) {
-			return new Class({
-				type: "never",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _lt(value, params) {
-			return new $ZodCheckLessThan({
-				check: "less_than",
-				...normalizeParams(params),
-				value,
-				inclusive: false
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _lte(value, params) {
-			return new $ZodCheckLessThan({
-				check: "less_than",
-				...normalizeParams(params),
-				value,
-				inclusive: true
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _gt(value, params) {
-			return new $ZodCheckGreaterThan({
-				check: "greater_than",
-				...normalizeParams(params),
-				value,
-				inclusive: false
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _gte(value, params) {
-			return new $ZodCheckGreaterThan({
-				check: "greater_than",
-				...normalizeParams(params),
-				value,
-				inclusive: true
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _multipleOf(value, params) {
-			return new $ZodCheckMultipleOf({
-				check: "multiple_of",
-				...normalizeParams(params),
-				value
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _maxLength(maximum, params) {
-			return new $ZodCheckMaxLength({
-				check: "max_length",
-				...normalizeParams(params),
-				maximum
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _minLength(minimum, params) {
-			return new $ZodCheckMinLength({
-				check: "min_length",
-				...normalizeParams(params),
-				minimum
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _length(length, params) {
-			return new $ZodCheckLengthEquals({
-				check: "length_equals",
-				...normalizeParams(params),
-				length
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _regex(pattern, params) {
-			return new $ZodCheckRegex({
-				check: "string_format",
-				format: "regex",
-				...normalizeParams(params),
-				pattern
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _lowercase(params) {
-			return new $ZodCheckLowerCase({
-				check: "string_format",
-				format: "lowercase",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _uppercase(params) {
-			return new $ZodCheckUpperCase({
-				check: "string_format",
-				format: "uppercase",
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _includes(includes, params) {
-			return new $ZodCheckIncludes({
-				check: "string_format",
-				format: "includes",
-				...normalizeParams(params),
-				includes
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _startsWith(prefix, params) {
-			return new $ZodCheckStartsWith({
-				check: "string_format",
-				format: "starts_with",
-				...normalizeParams(params),
-				prefix
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _endsWith(suffix, params) {
-			return new $ZodCheckEndsWith({
-				check: "string_format",
-				format: "ends_with",
-				...normalizeParams(params),
-				suffix
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _overwrite(tx) {
-			return new $ZodCheckOverwrite({
-				check: "overwrite",
-				tx
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _normalize(form) {
-			return /* @__PURE__ */ _overwrite((input) => input.normalize(form));
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _trim() {
-			return /* @__PURE__ */ _overwrite((input) => input.trim());
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _toLowerCase() {
-			return /* @__PURE__ */ _overwrite((input) => input.toLowerCase());
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _toUpperCase() {
-			return /* @__PURE__ */ _overwrite((input) => input.toUpperCase());
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _slugify() {
-			return /* @__PURE__ */ _overwrite((input) => slugify(input));
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _array(Class, element, params) {
-			return new Class({
-				type: "array",
-				element,
-				...normalizeParams(params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _custom(Class, fn, _params) {
-			const norm = normalizeParams(_params);
-			norm.abort ?? (norm.abort = true);
-			return new Class({
-				type: "custom",
-				check: "custom",
-				fn,
-				...norm
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _refine(Class, fn, _params) {
-			return new Class({
-				type: "custom",
-				check: "custom",
-				fn,
-				...normalizeParams(_params)
-			});
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _superRefine(fn, params) {
-			const ch = /* @__PURE__ */ _check((payload) => {
-				payload.addIssue = (issue$2) => {
-					if (typeof issue$2 === "string") payload.issues.push(issue(issue$2, payload.value, ch._zod.def));
-					else {
-						const _issue = issue$2;
-						if (_issue.fatal) _issue.continue = false;
-						_issue.code ?? (_issue.code = "custom");
-						_issue.input ?? (_issue.input = payload.value);
-						_issue.inst ?? (_issue.inst = ch);
-						_issue.continue ?? (_issue.continue = !ch._zod.def.abort);
-						payload.issues.push(issue(_issue));
-					}
-				};
-				return fn(payload.value, payload);
-			}, params);
-			return ch;
-		}
-		// @__NO_SIDE_EFFECTS__
-		function _check(fn, params) {
-			const ch = new $ZodCheck({
-				check: "custom",
-				...normalizeParams(params)
-			});
-			ch._zod.check = fn;
-			return ch;
-		}
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js
-		function initializeContext(params) {
-			let target = params?.target ?? "draft-2020-12";
-			if (target === "draft-4") target = "draft-04";
-			if (target === "draft-7") target = "draft-07";
-			return {
-				processors: params.processors ?? {},
-				metadataRegistry: params?.metadata ?? globalRegistry,
-				target,
-				unrepresentable: params?.unrepresentable ?? "throw",
-				override: params?.override ?? (() => {}),
-				io: params?.io ?? "output",
-				counter: 0,
-				seen: /* @__PURE__ */ new Map(),
-				cycles: params?.cycles ?? "ref",
-				reused: params?.reused ?? "inline",
-				external: params?.external ?? void 0
-			};
-		}
-		function process(schema, ctx, _params = {
-			path: [],
-			schemaPath: []
-		}) {
-			var _a;
-			const def = schema._zod.def;
-			const seen = ctx.seen.get(schema);
-			if (seen) {
-				seen.count++;
-				if (_params.schemaPath.includes(schema)) seen.cycle = _params.path;
-				return seen.schema;
-			}
-			const result = {
-				schema: {},
-				count: 1,
-				cycle: void 0,
-				path: _params.path
-			};
-			ctx.seen.set(schema, result);
-			const overrideSchema = schema._zod.toJSONSchema?.();
-			if (overrideSchema) result.schema = overrideSchema;
-			else {
-				const params = {
-					..._params,
-					schemaPath: [..._params.schemaPath, schema],
-					path: _params.path
-				};
-				if (schema._zod.processJSONSchema) schema._zod.processJSONSchema(ctx, result.schema, params);
-				else {
-					const _json = result.schema;
-					const processor = ctx.processors[def.type];
-					if (!processor) throw new Error(`[toJSONSchema]: Non-representable type encountered: ${def.type}`);
-					processor(schema, ctx, _json, params);
-				}
-				const parent = schema._zod.parent;
-				if (parent) {
-					if (!result.ref) result.ref = parent;
-					process(parent, ctx, params);
-					ctx.seen.get(parent).isParent = true;
-				}
-			}
-			const meta = ctx.metadataRegistry.get(schema);
-			if (meta) Object.assign(result.schema, meta);
-			if (ctx.io === "input" && isTransforming(schema)) {
-				delete result.schema.examples;
-				delete result.schema.default;
-			}
-			if (ctx.io === "input" && "_prefault" in result.schema) (_a = result.schema).default ?? (_a.default = result.schema._prefault);
-			delete result.schema._prefault;
-			return ctx.seen.get(schema).schema;
-		}
-		function extractDefs(ctx, schema) {
-			const root = ctx.seen.get(schema);
-			if (!root) throw new Error("Unprocessed schema. This is a bug in Zod.");
-			const idToSchema = /* @__PURE__ */ new Map();
-			for (const entry of ctx.seen.entries()) {
-				const id = ctx.metadataRegistry.get(entry[0])?.id;
-				if (id) {
-					const existing = idToSchema.get(id);
-					if (existing && existing !== entry[0]) throw new Error(`Duplicate schema id "${id}" detected during JSON Schema conversion. Two different schemas cannot share the same id when converted together.`);
-					idToSchema.set(id, entry[0]);
-				}
-			}
-			const makeURI = (entry) => {
-				const defsSegment = ctx.target === "draft-2020-12" ? "$defs" : "definitions";
-				if (ctx.external) {
-					const externalId = ctx.external.registry.get(entry[0])?.id;
-					const uriGenerator = ctx.external.uri ?? ((id) => id);
-					if (externalId) return { ref: uriGenerator(externalId) };
-					const id = entry[1].defId ?? entry[1].schema.id ?? `schema${ctx.counter++}`;
-					entry[1].defId = id;
-					return {
-						defId: id,
-						ref: `${uriGenerator("__shared")}#/${defsSegment}/${id}`
-					};
-				}
-				if (entry[1] === root) return { ref: "#" };
-				const defUriPrefix = `#/${defsSegment}/`;
-				const defId = entry[1].schema.id ?? `__schema${ctx.counter++}`;
-				return {
-					defId,
-					ref: defUriPrefix + defId
-				};
-			};
-			const extractToDef = (entry) => {
-				if (entry[1].schema.$ref) return;
-				const seen = entry[1];
-				const { ref, defId } = makeURI(entry);
-				seen.def = { ...seen.schema };
-				if (defId) seen.defId = defId;
-				const schema = seen.schema;
-				for (const key in schema) delete schema[key];
-				schema.$ref = ref;
-			};
-			if (ctx.cycles === "throw") for (const entry of ctx.seen.entries()) {
-				const seen = entry[1];
-				if (seen.cycle) throw new Error(`Cycle detected: #/${seen.cycle?.join("/")}/<root>
-
-Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.`);
-			}
-			for (const entry of ctx.seen.entries()) {
-				const seen = entry[1];
-				if (schema === entry[0]) {
-					extractToDef(entry);
-					continue;
-				}
-				if (ctx.external) {
-					const ext = ctx.external.registry.get(entry[0])?.id;
-					if (schema !== entry[0] && ext) {
-						extractToDef(entry);
-						continue;
-					}
-				}
-				if (ctx.metadataRegistry.get(entry[0])?.id) {
-					extractToDef(entry);
-					continue;
-				}
-				if (seen.cycle) {
-					extractToDef(entry);
-					continue;
-				}
-				if (seen.count > 1) {
-					if (ctx.reused === "ref") {
-						extractToDef(entry);
-						continue;
-					}
-				}
-			}
-		}
-		function finalize(ctx, schema) {
-			const root = ctx.seen.get(schema);
-			if (!root) throw new Error("Unprocessed schema. This is a bug in Zod.");
-			const flattenRef = (zodSchema) => {
-				const seen = ctx.seen.get(zodSchema);
-				if (seen.ref === null) return;
-				const schema = seen.def ?? seen.schema;
-				const _cached = { ...schema };
-				const ref = seen.ref;
-				seen.ref = null;
-				if (ref) {
-					flattenRef(ref);
-					const refSeen = ctx.seen.get(ref);
-					const refSchema = refSeen.schema;
-					if (refSchema.$ref && (ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0")) {
-						schema.allOf = schema.allOf ?? [];
-						schema.allOf.push(refSchema);
-					} else Object.assign(schema, refSchema);
-					Object.assign(schema, _cached);
-					if (zodSchema._zod.parent === ref) for (const key in schema) {
-						if (key === "$ref" || key === "allOf") continue;
-						if (!(key in _cached)) delete schema[key];
-					}
-					if (refSchema.$ref && refSeen.def) for (const key in schema) {
-						if (key === "$ref" || key === "allOf") continue;
-						if (key in refSeen.def && JSON.stringify(schema[key]) === JSON.stringify(refSeen.def[key])) delete schema[key];
-					}
-				}
-				const parent = zodSchema._zod.parent;
-				if (parent && parent !== ref) {
-					flattenRef(parent);
-					const parentSeen = ctx.seen.get(parent);
-					if (parentSeen?.schema.$ref) {
-						schema.$ref = parentSeen.schema.$ref;
-						if (parentSeen.def) for (const key in schema) {
-							if (key === "$ref" || key === "allOf") continue;
-							if (key in parentSeen.def && JSON.stringify(schema[key]) === JSON.stringify(parentSeen.def[key])) delete schema[key];
-						}
-					}
-				}
-				ctx.override({
-					zodSchema,
-					jsonSchema: schema,
-					path: seen.path ?? []
-				});
-			};
-			for (const entry of [...ctx.seen.entries()].reverse()) flattenRef(entry[0]);
-			const result = {};
-			if (ctx.target === "draft-2020-12") result.$schema = "https://json-schema.org/draft/2020-12/schema";
-			else if (ctx.target === "draft-07") result.$schema = "http://json-schema.org/draft-07/schema#";
-			else if (ctx.target === "draft-04") result.$schema = "http://json-schema.org/draft-04/schema#";
-			else if (ctx.target === "openapi-3.0") {}
-			if (ctx.external?.uri) {
-				const id = ctx.external.registry.get(schema)?.id;
-				if (!id) throw new Error("Schema is missing an `id` property");
-				result.$id = ctx.external.uri(id);
-			}
-			Object.assign(result, root.def ?? root.schema);
-			const rootMetaId = ctx.metadataRegistry.get(schema)?.id;
-			if (rootMetaId !== void 0 && result.id === rootMetaId) delete result.id;
-			const defs = ctx.external?.defs ?? {};
-			for (const entry of ctx.seen.entries()) {
-				const seen = entry[1];
-				if (seen.def && seen.defId) {
-					if (seen.def.id === seen.defId) delete seen.def.id;
-					defs[seen.defId] = seen.def;
-				}
-			}
-			if (ctx.external) {} else if (Object.keys(defs).length > 0) if (ctx.target === "draft-2020-12") result.$defs = defs;
-			else result.definitions = defs;
-			try {
-				const finalized = JSON.parse(JSON.stringify(result));
-				Object.defineProperty(finalized, "~standard", {
-					value: {
-						...schema["~standard"],
-						jsonSchema: {
-							input: createStandardJSONSchemaMethod(schema, "input", ctx.processors),
-							output: createStandardJSONSchemaMethod(schema, "output", ctx.processors)
-						}
-					},
-					enumerable: false,
-					writable: false
-				});
-				return finalized;
-			} catch (_err) {
-				throw new Error("Error converting schema to JSON.");
-			}
-		}
-		function isTransforming(_schema, _ctx) {
-			const ctx = _ctx ?? { seen: /* @__PURE__ */ new Set() };
-			if (ctx.seen.has(_schema)) return false;
-			ctx.seen.add(_schema);
-			const def = _schema._zod.def;
-			if (def.type === "transform") return true;
-			if (def.type === "array") return isTransforming(def.element, ctx);
-			if (def.type === "set") return isTransforming(def.valueType, ctx);
-			if (def.type === "lazy") return isTransforming(def.getter(), ctx);
-			if (def.type === "promise" || def.type === "optional" || def.type === "nonoptional" || def.type === "nullable" || def.type === "readonly" || def.type === "default" || def.type === "prefault") return isTransforming(def.innerType, ctx);
-			if (def.type === "intersection") return isTransforming(def.left, ctx) || isTransforming(def.right, ctx);
-			if (def.type === "record" || def.type === "map") return isTransforming(def.keyType, ctx) || isTransforming(def.valueType, ctx);
-			if (def.type === "pipe") {
-				if (_schema._zod.traits.has("$ZodCodec")) return true;
-				return isTransforming(def.in, ctx) || isTransforming(def.out, ctx);
-			}
-			if (def.type === "object") {
-				for (const key in def.shape) if (isTransforming(def.shape[key], ctx)) return true;
-				return false;
-			}
-			if (def.type === "union") {
-				for (const option of def.options) if (isTransforming(option, ctx)) return true;
-				return false;
-			}
-			if (def.type === "tuple") {
-				for (const item of def.items) if (isTransforming(item, ctx)) return true;
-				if (def.rest && isTransforming(def.rest, ctx)) return true;
-				return false;
-			}
-			return false;
-		}
-		/**
-		* Creates a toJSONSchema method for a schema instance.
-		* This encapsulates the logic of initializing context, processing, extracting defs, and finalizing.
-		*/
-		const createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
-			const ctx = initializeContext({
-				...params,
-				processors
-			});
-			process(schema, ctx);
-			extractDefs(ctx, schema);
-			return finalize(ctx, schema);
-		};
-		const createStandardJSONSchemaMethod = (schema, io, processors = {}) => (params) => {
-			const { libraryOptions, target } = params ?? {};
-			const ctx = initializeContext({
-				...libraryOptions ?? {},
-				target,
-				io,
-				processors
-			});
-			process(schema, ctx);
-			extractDefs(ctx, schema);
-			return finalize(ctx, schema);
-		};
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js
-		const formatMap = {
-			guid: "uuid",
-			url: "uri",
-			datetime: "date-time",
-			json_string: "json-string",
-			regex: ""
-		};
-		const stringProcessor = (schema, ctx, _json, _params) => {
-			const json = _json;
-			json.type = "string";
-			const { minimum, maximum, format, patterns, contentEncoding } = schema._zod.bag;
-			if (typeof minimum === "number") json.minLength = minimum;
-			if (typeof maximum === "number") json.maxLength = maximum;
-			if (format) {
-				json.format = formatMap[format] ?? format;
-				if (json.format === "") delete json.format;
-				if (format === "time") delete json.format;
-			}
-			if (contentEncoding) json.contentEncoding = contentEncoding;
-			if (patterns && patterns.size > 0) {
-				const regexes = [...patterns];
-				if (regexes.length === 1) json.pattern = regexes[0].source;
-				else if (regexes.length > 1) json.allOf = [...regexes.map((regex) => ({
-					...ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0" ? { type: "string" } : {},
-					pattern: regex.source
-				}))];
-			}
-		};
-		const numberProcessor = (schema, ctx, _json, _params) => {
-			const json = _json;
-			const { minimum, maximum, format, multipleOf, exclusiveMaximum, exclusiveMinimum } = schema._zod.bag;
-			if (typeof format === "string" && format.includes("int")) json.type = "integer";
-			else json.type = "number";
-			const exMin = typeof exclusiveMinimum === "number" && exclusiveMinimum >= (minimum ?? Number.NEGATIVE_INFINITY);
-			const exMax = typeof exclusiveMaximum === "number" && exclusiveMaximum <= (maximum ?? Number.POSITIVE_INFINITY);
-			const legacy = ctx.target === "draft-04" || ctx.target === "openapi-3.0";
-			if (exMin) if (legacy) {
-				json.minimum = exclusiveMinimum;
-				json.exclusiveMinimum = true;
-			} else json.exclusiveMinimum = exclusiveMinimum;
-			else if (typeof minimum === "number") json.minimum = minimum;
-			if (exMax) if (legacy) {
-				json.maximum = exclusiveMaximum;
-				json.exclusiveMaximum = true;
-			} else json.exclusiveMaximum = exclusiveMaximum;
-			else if (typeof maximum === "number") json.maximum = maximum;
-			if (typeof multipleOf === "number") json.multipleOf = multipleOf;
-		};
-		const booleanProcessor = (_schema, _ctx, json, _params) => {
-			json.type = "boolean";
-		};
-		const neverProcessor = (_schema, _ctx, json, _params) => {
-			json.not = {};
-		};
-		const enumProcessor = (schema, _ctx, json, _params) => {
-			const def = schema._zod.def;
-			const values = getEnumValues(def.entries);
-			if (values.every((v) => typeof v === "number")) json.type = "number";
-			if (values.every((v) => typeof v === "string")) json.type = "string";
-			json.enum = values;
-		};
-		const literalProcessor = (schema, ctx, json, _params) => {
-			const def = schema._zod.def;
-			const vals = [];
-			for (const val of def.values) if (val === void 0) {
-				if (ctx.unrepresentable === "throw") throw new Error("Literal `undefined` cannot be represented in JSON Schema");
-			} else if (typeof val === "bigint") if (ctx.unrepresentable === "throw") throw new Error("BigInt literals cannot be represented in JSON Schema");
-			else vals.push(Number(val));
-			else vals.push(val);
-			if (vals.length === 0) {} else if (vals.length === 1) {
-				const val = vals[0];
-				json.type = val === null ? "null" : typeof val;
-				if (ctx.target === "draft-04" || ctx.target === "openapi-3.0") json.enum = [val];
-				else json.const = val;
-			} else {
-				if (vals.every((v) => typeof v === "number")) json.type = "number";
-				if (vals.every((v) => typeof v === "string")) json.type = "string";
-				if (vals.every((v) => typeof v === "boolean")) json.type = "boolean";
-				if (vals.every((v) => v === null)) json.type = "null";
-				json.enum = vals;
-			}
-		};
-		const customProcessor = (_schema, ctx, _json, _params) => {
-			if (ctx.unrepresentable === "throw") throw new Error("Custom types cannot be represented in JSON Schema");
-		};
-		const transformProcessor = (_schema, ctx, _json, _params) => {
-			if (ctx.unrepresentable === "throw") throw new Error("Transforms cannot be represented in JSON Schema");
-		};
-		const arrayProcessor = (schema, ctx, _json, params) => {
-			const json = _json;
-			const def = schema._zod.def;
-			const { minimum, maximum } = schema._zod.bag;
-			if (typeof minimum === "number") json.minItems = minimum;
-			if (typeof maximum === "number") json.maxItems = maximum;
-			json.type = "array";
-			json.items = process(def.element, ctx, {
-				...params,
-				path: [...params.path, "items"]
-			});
-		};
-		const objectProcessor = (schema, ctx, _json, params) => {
-			const json = _json;
-			const def = schema._zod.def;
-			json.type = "object";
-			json.properties = {};
-			const shape = def.shape;
-			for (const key in shape) json.properties[key] = process(shape[key], ctx, {
-				...params,
-				path: [
-					...params.path,
-					"properties",
-					key
-				]
-			});
-			const allKeys = new Set(Object.keys(shape));
-			const requiredKeys = new Set([...allKeys].filter((key) => {
-				const v = def.shape[key]._zod;
-				if (ctx.io === "input") return v.optin === void 0;
-				else return v.optout === void 0;
-			}));
-			if (requiredKeys.size > 0) json.required = Array.from(requiredKeys);
-			if (def.catchall?._zod.def.type === "never") json.additionalProperties = false;
-			else if (!def.catchall) {
-				if (ctx.io === "output") json.additionalProperties = false;
-			} else if (def.catchall) json.additionalProperties = process(def.catchall, ctx, {
-				...params,
-				path: [...params.path, "additionalProperties"]
-			});
-		};
-		const unionProcessor = (schema, ctx, json, params) => {
-			const def = schema._zod.def;
-			const isExclusive = def.inclusive === false;
-			const options = def.options.map((x, i) => process(x, ctx, {
-				...params,
-				path: [
-					...params.path,
-					isExclusive ? "oneOf" : "anyOf",
-					i
-				]
-			}));
-			if (isExclusive) json.oneOf = options;
-			else json.anyOf = options;
-		};
-		const intersectionProcessor = (schema, ctx, json, params) => {
-			const def = schema._zod.def;
-			const a = process(def.left, ctx, {
-				...params,
-				path: [
-					...params.path,
-					"allOf",
-					0
-				]
-			});
-			const b = process(def.right, ctx, {
-				...params,
-				path: [
-					...params.path,
-					"allOf",
-					1
-				]
-			});
-			const isSimpleIntersection = (val) => "allOf" in val && Object.keys(val).length === 1;
-			json.allOf = [...isSimpleIntersection(a) ? a.allOf : [a], ...isSimpleIntersection(b) ? b.allOf : [b]];
-		};
-		const recordProcessor = (schema, ctx, _json, params) => {
-			const json = _json;
-			const def = schema._zod.def;
-			json.type = "object";
-			const keyType = def.keyType;
-			const patterns = keyType._zod.bag?.patterns;
-			if (def.mode === "loose" && patterns && patterns.size > 0) {
-				const valueSchema = process(def.valueType, ctx, {
-					...params,
-					path: [
-						...params.path,
-						"patternProperties",
-						"*"
-					]
-				});
-				json.patternProperties = {};
-				for (const pattern of patterns) json.patternProperties[pattern.source] = valueSchema;
-			} else {
-				if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") json.propertyNames = process(def.keyType, ctx, {
-					...params,
-					path: [...params.path, "propertyNames"]
-				});
-				json.additionalProperties = process(def.valueType, ctx, {
-					...params,
-					path: [...params.path, "additionalProperties"]
-				});
-			}
-			const keyValues = keyType._zod.values;
-			if (keyValues) {
-				const validKeyValues = [...keyValues].filter((v) => typeof v === "string" || typeof v === "number");
-				if (validKeyValues.length > 0) json.required = validKeyValues;
-			}
-		};
-		const nullableProcessor = (schema, ctx, json, params) => {
-			const def = schema._zod.def;
-			const inner = process(def.innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			if (ctx.target === "openapi-3.0") {
-				seen.ref = def.innerType;
-				json.nullable = true;
-			} else json.anyOf = [inner, { type: "null" }];
-		};
-		const nonoptionalProcessor = (schema, ctx, _json, params) => {
-			const def = schema._zod.def;
-			process(def.innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = def.innerType;
-		};
-		const defaultProcessor = (schema, ctx, json, params) => {
-			const def = schema._zod.def;
-			process(def.innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = def.innerType;
-			json.default = JSON.parse(JSON.stringify(def.defaultValue));
-		};
-		const prefaultProcessor = (schema, ctx, json, params) => {
-			const def = schema._zod.def;
-			process(def.innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = def.innerType;
-			if (ctx.io === "input") json._prefault = JSON.parse(JSON.stringify(def.defaultValue));
-		};
-		const catchProcessor = (schema, ctx, json, params) => {
-			const def = schema._zod.def;
-			process(def.innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = def.innerType;
-			let catchValue;
-			try {
-				catchValue = def.catchValue(void 0);
-			} catch {
-				throw new Error("Dynamic catch values are not supported in JSON Schema");
-			}
-			json.default = catchValue;
-		};
-		const pipeProcessor = (schema, ctx, _json, params) => {
-			const def = schema._zod.def;
-			const inIsTransform = def.in._zod.traits.has("$ZodTransform");
-			const innerType = ctx.io === "input" ? inIsTransform ? def.out : def.in : def.out;
-			process(innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = innerType;
-		};
-		const readonlyProcessor = (schema, ctx, json, params) => {
-			const def = schema._zod.def;
-			process(def.innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = def.innerType;
-			json.readOnly = true;
-		};
-		const optionalProcessor = (schema, ctx, _json, params) => {
-			const def = schema._zod.def;
-			process(def.innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = def.innerType;
-		};
-		const lazyProcessor = (schema, ctx, _json, params) => {
-			const innerType = schema._zod.innerType;
-			process(innerType, ctx, params);
-			const seen = ctx.seen.get(schema);
-			seen.ref = innerType;
-		};
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js
-		const ZodISODateTime = /*@__PURE__*/ $constructor("ZodISODateTime", (inst, def) => {
-			$ZodISODateTime.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		function datetime(params) {
-			return /* @__PURE__ */ _isoDateTime(ZodISODateTime, params);
-		}
-		const ZodISODate = /*@__PURE__*/ $constructor("ZodISODate", (inst, def) => {
-			$ZodISODate.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		function date(params) {
-			return /* @__PURE__ */ _isoDate(ZodISODate, params);
-		}
-		const ZodISOTime = /*@__PURE__*/ $constructor("ZodISOTime", (inst, def) => {
-			$ZodISOTime.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		function time(params) {
-			return /* @__PURE__ */ _isoTime(ZodISOTime, params);
-		}
-		const ZodISODuration = /*@__PURE__*/ $constructor("ZodISODuration", (inst, def) => {
-			$ZodISODuration.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		function duration(params) {
-			return /* @__PURE__ */ _isoDuration(ZodISODuration, params);
-		}
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js
-		const initializer = (inst, issues) => {
-			$ZodError.init(inst, issues);
-			inst.name = "ZodError";
-			Object.defineProperties(inst, {
-				format: { value: (mapper) => formatError(inst, mapper) },
-				flatten: { value: (mapper) => flattenError(inst, mapper) },
-				addIssue: { value: (issue) => {
-					inst.issues.push(issue);
-					inst.message = JSON.stringify(inst.issues, jsonStringifyReplacer, 2);
-				} },
-				addIssues: { value: (issues) => {
-					inst.issues.push(...issues);
-					inst.message = JSON.stringify(inst.issues, jsonStringifyReplacer, 2);
-				} },
-				isEmpty: { get() {
-					return inst.issues.length === 0;
-				} }
-			});
-		};
-		const ZodRealError = /*@__PURE__*/ $constructor("ZodError", initializer, { Parent: Error });
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js
-		const parse = /* @__PURE__ */ _parse(ZodRealError);
-		const parseAsync = /* @__PURE__ */ _parseAsync(ZodRealError);
-		const safeParse = /* @__PURE__ */ _safeParse(ZodRealError);
-		const safeParseAsync = /* @__PURE__ */ _safeParseAsync(ZodRealError);
-		const encode = /* @__PURE__ */ _encode(ZodRealError);
-		const decode = /* @__PURE__ */ _decode(ZodRealError);
-		const encodeAsync = /* @__PURE__ */ _encodeAsync(ZodRealError);
-		const decodeAsync = /* @__PURE__ */ _decodeAsync(ZodRealError);
-		const safeEncode = /* @__PURE__ */ _safeEncode(ZodRealError);
-		const safeDecode = /* @__PURE__ */ _safeDecode(ZodRealError);
-		const safeEncodeAsync = /* @__PURE__ */ _safeEncodeAsync(ZodRealError);
-		const safeDecodeAsync = /* @__PURE__ */ _safeDecodeAsync(ZodRealError);
-		//#endregion
-		//#region ../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js
-		const _installedGroups = /* @__PURE__ */ new WeakMap();
-		function _installLazyMethods(inst, group, methods) {
-			const proto = Object.getPrototypeOf(inst);
-			let installed = _installedGroups.get(proto);
-			if (!installed) {
-				installed = /* @__PURE__ */ new Set();
-				_installedGroups.set(proto, installed);
-			}
-			if (installed.has(group)) return;
-			installed.add(group);
-			for (const key in methods) {
-				const fn = methods[key];
-				Object.defineProperty(proto, key, {
-					configurable: true,
-					enumerable: false,
-					get() {
-						const bound = fn.bind(this);
-						Object.defineProperty(this, key, {
-							configurable: true,
-							writable: true,
-							enumerable: true,
-							value: bound
-						});
-						return bound;
-					},
-					set(v) {
-						Object.defineProperty(this, key, {
-							configurable: true,
-							writable: true,
-							enumerable: true,
-							value: v
-						});
-					}
-				});
-			}
-		}
-		const ZodType = /*@__PURE__*/ $constructor("ZodType", (inst, def) => {
-			$ZodType.init(inst, def);
-			Object.assign(inst["~standard"], { jsonSchema: {
-				input: createStandardJSONSchemaMethod(inst, "input"),
-				output: createStandardJSONSchemaMethod(inst, "output")
-			} });
-			inst.toJSONSchema = createToJSONSchemaMethod(inst, {});
-			inst.def = def;
-			inst.type = def.type;
-			Object.defineProperty(inst, "_def", { value: def });
-			inst.parse = (data, params) => parse(inst, data, params, { callee: inst.parse });
-			inst.safeParse = (data, params) => safeParse(inst, data, params);
-			inst.parseAsync = async (data, params) => parseAsync(inst, data, params, { callee: inst.parseAsync });
-			inst.safeParseAsync = async (data, params) => safeParseAsync(inst, data, params);
-			inst.spa = inst.safeParseAsync;
-			inst.encode = (data, params) => encode(inst, data, params);
-			inst.decode = (data, params) => decode(inst, data, params);
-			inst.encodeAsync = async (data, params) => encodeAsync(inst, data, params);
-			inst.decodeAsync = async (data, params) => decodeAsync(inst, data, params);
-			inst.safeEncode = (data, params) => safeEncode(inst, data, params);
-			inst.safeDecode = (data, params) => safeDecode(inst, data, params);
-			inst.safeEncodeAsync = async (data, params) => safeEncodeAsync(inst, data, params);
-			inst.safeDecodeAsync = async (data, params) => safeDecodeAsync(inst, data, params);
-			_installLazyMethods(inst, "ZodType", {
-				check(...chks) {
-					const def = this.def;
-					return this.clone(mergeDefs(def, { checks: [...def.checks ?? [], ...chks.map((ch) => typeof ch === "function" ? { _zod: {
-						check: ch,
-						def: { check: "custom" },
-						onattach: []
-					} } : ch)] }), { parent: true });
-				},
-				with(...chks) {
-					return this.check(...chks);
-				},
-				clone(def, params) {
-					return clone(this, def, params);
-				},
-				brand() {
-					return this;
-				},
-				register(reg, meta) {
-					reg.add(this, meta);
-					return this;
-				},
-				refine(check, params) {
-					return this.check(refine(check, params));
-				},
-				superRefine(refinement, params) {
-					return this.check(superRefine(refinement, params));
-				},
-				overwrite(fn) {
-					return this.check(/* @__PURE__ */ _overwrite(fn));
-				},
-				optional() {
-					return optional(this);
-				},
-				exactOptional() {
-					return exactOptional(this);
-				},
-				nullable() {
-					return nullable(this);
-				},
-				nullish() {
-					return optional(nullable(this));
-				},
-				nonoptional(params) {
-					return nonoptional(this, params);
-				},
-				array() {
-					return array(this);
-				},
-				or(arg) {
-					return union([this, arg]);
-				},
-				and(arg) {
-					return intersection(this, arg);
-				},
-				transform(tx) {
-					return pipe(this, transform(tx));
-				},
-				default(d) {
-					return _default(this, d);
-				},
-				prefault(d) {
-					return prefault(this, d);
-				},
-				catch(params) {
-					return _catch(this, params);
-				},
-				pipe(target) {
-					return pipe(this, target);
-				},
-				readonly() {
-					return readonly(this);
-				},
-				describe(description) {
-					const cl = this.clone();
-					globalRegistry.add(cl, { description });
-					return cl;
-				},
-				meta(...args) {
-					if (args.length === 0) return globalRegistry.get(this);
-					const cl = this.clone();
-					globalRegistry.add(cl, args[0]);
-					return cl;
-				},
-				isOptional() {
-					return this.safeParse(void 0).success;
-				},
-				isNullable() {
-					return this.safeParse(null).success;
-				},
-				apply(fn) {
-					return fn(this);
-				}
-			});
-			Object.defineProperty(inst, "description", {
-				get() {
-					return globalRegistry.get(inst)?.description;
-				},
-				configurable: true
-			});
-			return inst;
-		});
-		/** @internal */
-		const _ZodString = /*@__PURE__*/ $constructor("_ZodString", (inst, def) => {
-			$ZodString.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => stringProcessor(inst, ctx, json, params);
-			const bag = inst._zod.bag;
-			inst.format = bag.format ?? null;
-			inst.minLength = bag.minimum ?? null;
-			inst.maxLength = bag.maximum ?? null;
-			_installLazyMethods(inst, "_ZodString", {
-				regex(...args) {
-					return this.check(/* @__PURE__ */ _regex(...args));
-				},
-				includes(...args) {
-					return this.check(/* @__PURE__ */ _includes(...args));
-				},
-				startsWith(...args) {
-					return this.check(/* @__PURE__ */ _startsWith(...args));
-				},
-				endsWith(...args) {
-					return this.check(/* @__PURE__ */ _endsWith(...args));
-				},
-				min(...args) {
-					return this.check(/* @__PURE__ */ _minLength(...args));
-				},
-				max(...args) {
-					return this.check(/* @__PURE__ */ _maxLength(...args));
-				},
-				length(...args) {
-					return this.check(/* @__PURE__ */ _length(...args));
-				},
-				nonempty(...args) {
-					return this.check(/* @__PURE__ */ _minLength(1, ...args));
-				},
-				lowercase(params) {
-					return this.check(/* @__PURE__ */ _lowercase(params));
-				},
-				uppercase(params) {
-					return this.check(/* @__PURE__ */ _uppercase(params));
-				},
-				trim() {
-					return this.check(/* @__PURE__ */ _trim());
-				},
-				normalize(...args) {
-					return this.check(/* @__PURE__ */ _normalize(...args));
-				},
-				toLowerCase() {
-					return this.check(/* @__PURE__ */ _toLowerCase());
-				},
-				toUpperCase() {
-					return this.check(/* @__PURE__ */ _toUpperCase());
-				},
-				slugify() {
-					return this.check(/* @__PURE__ */ _slugify());
-				}
-			});
-		});
-		const ZodString = /*@__PURE__*/ $constructor("ZodString", (inst, def) => {
-			$ZodString.init(inst, def);
-			_ZodString.init(inst, def);
-			inst.email = (params) => inst.check(/* @__PURE__ */ _email(ZodEmail, params));
-			inst.url = (params) => inst.check(/* @__PURE__ */ _url(ZodURL, params));
-			inst.jwt = (params) => inst.check(/* @__PURE__ */ _jwt(ZodJWT, params));
-			inst.emoji = (params) => inst.check(/* @__PURE__ */ _emoji(ZodEmoji, params));
-			inst.guid = (params) => inst.check(/* @__PURE__ */ _guid(ZodGUID, params));
-			inst.uuid = (params) => inst.check(/* @__PURE__ */ _uuid(ZodUUID, params));
-			inst.uuidv4 = (params) => inst.check(/* @__PURE__ */ _uuidv4(ZodUUID, params));
-			inst.uuidv6 = (params) => inst.check(/* @__PURE__ */ _uuidv6(ZodUUID, params));
-			inst.uuidv7 = (params) => inst.check(/* @__PURE__ */ _uuidv7(ZodUUID, params));
-			inst.nanoid = (params) => inst.check(/* @__PURE__ */ _nanoid(ZodNanoID, params));
-			inst.guid = (params) => inst.check(/* @__PURE__ */ _guid(ZodGUID, params));
-			inst.cuid = (params) => inst.check(/* @__PURE__ */ _cuid(ZodCUID, params));
-			inst.cuid2 = (params) => inst.check(/* @__PURE__ */ _cuid2(ZodCUID2, params));
-			inst.ulid = (params) => inst.check(/* @__PURE__ */ _ulid(ZodULID, params));
-			inst.base64 = (params) => inst.check(/* @__PURE__ */ _base64(ZodBase64, params));
-			inst.base64url = (params) => inst.check(/* @__PURE__ */ _base64url(ZodBase64URL, params));
-			inst.xid = (params) => inst.check(/* @__PURE__ */ _xid(ZodXID, params));
-			inst.ksuid = (params) => inst.check(/* @__PURE__ */ _ksuid(ZodKSUID, params));
-			inst.ipv4 = (params) => inst.check(/* @__PURE__ */ _ipv4(ZodIPv4, params));
-			inst.ipv6 = (params) => inst.check(/* @__PURE__ */ _ipv6(ZodIPv6, params));
-			inst.cidrv4 = (params) => inst.check(/* @__PURE__ */ _cidrv4(ZodCIDRv4, params));
-			inst.cidrv6 = (params) => inst.check(/* @__PURE__ */ _cidrv6(ZodCIDRv6, params));
-			inst.e164 = (params) => inst.check(/* @__PURE__ */ _e164(ZodE164, params));
-			inst.datetime = (params) => inst.check(datetime(params));
-			inst.date = (params) => inst.check(date(params));
-			inst.time = (params) => inst.check(time(params));
-			inst.duration = (params) => inst.check(duration(params));
-		});
-		function string(params) {
-			return /* @__PURE__ */ _string(ZodString, params);
-		}
-		const ZodStringFormat = /*@__PURE__*/ $constructor("ZodStringFormat", (inst, def) => {
-			$ZodStringFormat.init(inst, def);
-			_ZodString.init(inst, def);
-		});
-		const ZodEmail = /*@__PURE__*/ $constructor("ZodEmail", (inst, def) => {
-			$ZodEmail.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodGUID = /*@__PURE__*/ $constructor("ZodGUID", (inst, def) => {
-			$ZodGUID.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodUUID = /*@__PURE__*/ $constructor("ZodUUID", (inst, def) => {
-			$ZodUUID.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodURL = /*@__PURE__*/ $constructor("ZodURL", (inst, def) => {
-			$ZodURL.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodEmoji = /*@__PURE__*/ $constructor("ZodEmoji", (inst, def) => {
-			$ZodEmoji.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodNanoID = /*@__PURE__*/ $constructor("ZodNanoID", (inst, def) => {
-			$ZodNanoID.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		/**
-		* @deprecated CUID v1 is deprecated by its authors due to information leakage
-		* (timestamps embedded in the id). Use {@link ZodCUID2} instead.
-		* See https://github.com/paralleldrive/cuid.
-		*/
-		const ZodCUID = /*@__PURE__*/ $constructor("ZodCUID", (inst, def) => {
-			$ZodCUID.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodCUID2 = /*@__PURE__*/ $constructor("ZodCUID2", (inst, def) => {
-			$ZodCUID2.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodULID = /*@__PURE__*/ $constructor("ZodULID", (inst, def) => {
-			$ZodULID.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodXID = /*@__PURE__*/ $constructor("ZodXID", (inst, def) => {
-			$ZodXID.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodKSUID = /*@__PURE__*/ $constructor("ZodKSUID", (inst, def) => {
-			$ZodKSUID.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodIPv4 = /*@__PURE__*/ $constructor("ZodIPv4", (inst, def) => {
-			$ZodIPv4.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodIPv6 = /*@__PURE__*/ $constructor("ZodIPv6", (inst, def) => {
-			$ZodIPv6.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodCIDRv4 = /*@__PURE__*/ $constructor("ZodCIDRv4", (inst, def) => {
-			$ZodCIDRv4.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodCIDRv6 = /*@__PURE__*/ $constructor("ZodCIDRv6", (inst, def) => {
-			$ZodCIDRv6.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodBase64 = /*@__PURE__*/ $constructor("ZodBase64", (inst, def) => {
-			$ZodBase64.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodBase64URL = /*@__PURE__*/ $constructor("ZodBase64URL", (inst, def) => {
-			$ZodBase64URL.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodE164 = /*@__PURE__*/ $constructor("ZodE164", (inst, def) => {
-			$ZodE164.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodJWT = /*@__PURE__*/ $constructor("ZodJWT", (inst, def) => {
-			$ZodJWT.init(inst, def);
-			ZodStringFormat.init(inst, def);
-		});
-		const ZodNumber = /*@__PURE__*/ $constructor("ZodNumber", (inst, def) => {
-			$ZodNumber.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => numberProcessor(inst, ctx, json, params);
-			_installLazyMethods(inst, "ZodNumber", {
-				gt(value, params) {
-					return this.check(/* @__PURE__ */ _gt(value, params));
-				},
-				gte(value, params) {
-					return this.check(/* @__PURE__ */ _gte(value, params));
-				},
-				min(value, params) {
-					return this.check(/* @__PURE__ */ _gte(value, params));
-				},
-				lt(value, params) {
-					return this.check(/* @__PURE__ */ _lt(value, params));
-				},
-				lte(value, params) {
-					return this.check(/* @__PURE__ */ _lte(value, params));
-				},
-				max(value, params) {
-					return this.check(/* @__PURE__ */ _lte(value, params));
-				},
-				int(params) {
-					return this.check(int(params));
-				},
-				safe(params) {
-					return this.check(int(params));
-				},
-				positive(params) {
-					return this.check(/* @__PURE__ */ _gt(0, params));
-				},
-				nonnegative(params) {
-					return this.check(/* @__PURE__ */ _gte(0, params));
-				},
-				negative(params) {
-					return this.check(/* @__PURE__ */ _lt(0, params));
-				},
-				nonpositive(params) {
-					return this.check(/* @__PURE__ */ _lte(0, params));
-				},
-				multipleOf(value, params) {
-					return this.check(/* @__PURE__ */ _multipleOf(value, params));
-				},
-				step(value, params) {
-					return this.check(/* @__PURE__ */ _multipleOf(value, params));
-				},
-				finite() {
-					return this;
-				}
-			});
-			const bag = inst._zod.bag;
-			inst.minValue = Math.max(bag.minimum ?? Number.NEGATIVE_INFINITY, bag.exclusiveMinimum ?? Number.NEGATIVE_INFINITY) ?? null;
-			inst.maxValue = Math.min(bag.maximum ?? Number.POSITIVE_INFINITY, bag.exclusiveMaximum ?? Number.POSITIVE_INFINITY) ?? null;
-			inst.isInt = (bag.format ?? "").includes("int") || Number.isSafeInteger(bag.multipleOf ?? .5);
-			inst.isFinite = true;
-			inst.format = bag.format ?? null;
-		});
-		function number(params) {
-			return /* @__PURE__ */ _number(ZodNumber, params);
-		}
-		const ZodNumberFormat = /*@__PURE__*/ $constructor("ZodNumberFormat", (inst, def) => {
-			$ZodNumberFormat.init(inst, def);
-			ZodNumber.init(inst, def);
-		});
-		function int(params) {
-			return /* @__PURE__ */ _int(ZodNumberFormat, params);
-		}
-		const ZodBoolean = /*@__PURE__*/ $constructor("ZodBoolean", (inst, def) => {
-			$ZodBoolean.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => booleanProcessor(inst, ctx, json, params);
-		});
-		function boolean(params) {
-			return /* @__PURE__ */ _boolean(ZodBoolean, params);
-		}
-		const ZodUnknown = /*@__PURE__*/ $constructor("ZodUnknown", (inst, def) => {
-			$ZodUnknown.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => void 0;
-		});
-		function unknown() {
-			return /* @__PURE__ */ _unknown(ZodUnknown);
-		}
-		const ZodNever = /*@__PURE__*/ $constructor("ZodNever", (inst, def) => {
-			$ZodNever.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => neverProcessor(inst, ctx, json, params);
-		});
-		function never(params) {
-			return /* @__PURE__ */ _never(ZodNever, params);
-		}
-		const ZodArray = /*@__PURE__*/ $constructor("ZodArray", (inst, def) => {
-			$ZodArray.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => arrayProcessor(inst, ctx, json, params);
-			inst.element = def.element;
-			_installLazyMethods(inst, "ZodArray", {
-				min(n, params) {
-					return this.check(/* @__PURE__ */ _minLength(n, params));
-				},
-				nonempty(params) {
-					return this.check(/* @__PURE__ */ _minLength(1, params));
-				},
-				max(n, params) {
-					return this.check(/* @__PURE__ */ _maxLength(n, params));
-				},
-				length(n, params) {
-					return this.check(/* @__PURE__ */ _length(n, params));
-				},
-				unwrap() {
-					return this.element;
-				}
-			});
-		});
-		function array(element, params) {
-			return /* @__PURE__ */ _array(ZodArray, element, params);
-		}
-		const ZodObject = /*@__PURE__*/ $constructor("ZodObject", (inst, def) => {
-			$ZodObjectJIT.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => objectProcessor(inst, ctx, json, params);
-			defineLazy(inst, "shape", () => {
-				return def.shape;
-			});
-			_installLazyMethods(inst, "ZodObject", {
-				keyof() {
-					return _enum(Object.keys(this._zod.def.shape));
-				},
-				catchall(catchall) {
-					return this.clone({
-						...this._zod.def,
-						catchall
-					});
-				},
-				passthrough() {
-					return this.clone({
-						...this._zod.def,
-						catchall: unknown()
-					});
-				},
-				loose() {
-					return this.clone({
-						...this._zod.def,
-						catchall: unknown()
-					});
-				},
-				strict() {
-					return this.clone({
-						...this._zod.def,
-						catchall: never()
-					});
-				},
-				strip() {
-					return this.clone({
-						...this._zod.def,
-						catchall: void 0
-					});
-				},
-				extend(incoming) {
-					return extend(this, incoming);
-				},
-				safeExtend(incoming) {
-					return safeExtend(this, incoming);
-				},
-				merge(other) {
-					return merge(this, other);
-				},
-				pick(mask) {
-					return pick(this, mask);
-				},
-				omit(mask) {
-					return omit(this, mask);
-				},
-				partial(...args) {
-					return partial(ZodOptional, this, args[0]);
-				},
-				required(...args) {
-					return required(ZodNonOptional, this, args[0]);
-				}
-			});
-		});
-		function object(shape, params) {
-			return new ZodObject({
-				type: "object",
-				shape: shape ?? {},
-				...normalizeParams(params)
-			});
-		}
-		function looseObject(shape, params) {
-			return new ZodObject({
-				type: "object",
-				shape,
-				catchall: unknown(),
-				...normalizeParams(params)
-			});
-		}
-		const ZodUnion = /*@__PURE__*/ $constructor("ZodUnion", (inst, def) => {
-			$ZodUnion.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => unionProcessor(inst, ctx, json, params);
-			inst.options = def.options;
-		});
-		function union(options, params) {
-			return new ZodUnion({
-				type: "union",
-				options,
-				...normalizeParams(params)
-			});
-		}
-		const ZodDiscriminatedUnion = /*@__PURE__*/ $constructor("ZodDiscriminatedUnion", (inst, def) => {
-			ZodUnion.init(inst, def);
-			$ZodDiscriminatedUnion.init(inst, def);
-		});
-		function discriminatedUnion(discriminator, options, params) {
-			return new ZodDiscriminatedUnion({
-				type: "union",
-				options,
-				discriminator,
-				...normalizeParams(params)
-			});
-		}
-		const ZodIntersection = /*@__PURE__*/ $constructor("ZodIntersection", (inst, def) => {
-			$ZodIntersection.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => intersectionProcessor(inst, ctx, json, params);
-		});
-		function intersection(left, right) {
-			return new ZodIntersection({
-				type: "intersection",
-				left,
-				right
-			});
-		}
-		const ZodRecord = /*@__PURE__*/ $constructor("ZodRecord", (inst, def) => {
-			$ZodRecord.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => recordProcessor(inst, ctx, json, params);
-			inst.keyType = def.keyType;
-			inst.valueType = def.valueType;
-		});
-		function record(keyType, valueType, params) {
-			if (!valueType || !valueType._zod) return new ZodRecord({
-				type: "record",
-				keyType: string(),
-				valueType: keyType,
-				...normalizeParams(valueType)
-			});
-			return new ZodRecord({
-				type: "record",
-				keyType,
-				valueType,
-				...normalizeParams(params)
-			});
-		}
-		const ZodEnum = /*@__PURE__*/ $constructor("ZodEnum", (inst, def) => {
-			$ZodEnum.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => enumProcessor(inst, ctx, json, params);
-			inst.enum = def.entries;
-			inst.options = Object.values(def.entries);
-			const keys = new Set(Object.keys(def.entries));
-			inst.extract = (values, params) => {
-				const newEntries = {};
-				for (const value of values) if (keys.has(value)) newEntries[value] = def.entries[value];
-				else throw new Error(`Key ${value} not found in enum`);
-				return new ZodEnum({
-					...def,
-					checks: [],
-					...normalizeParams(params),
-					entries: newEntries
-				});
-			};
-			inst.exclude = (values, params) => {
-				const newEntries = { ...def.entries };
-				for (const value of values) if (keys.has(value)) delete newEntries[value];
-				else throw new Error(`Key ${value} not found in enum`);
-				return new ZodEnum({
-					...def,
-					checks: [],
-					...normalizeParams(params),
-					entries: newEntries
-				});
-			};
-		});
-		function _enum(values, params) {
-			return new ZodEnum({
-				type: "enum",
-				entries: Array.isArray(values) ? Object.fromEntries(values.map((v) => [v, v])) : values,
-				...normalizeParams(params)
-			});
-		}
-		const ZodLiteral = /*@__PURE__*/ $constructor("ZodLiteral", (inst, def) => {
-			$ZodLiteral.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => literalProcessor(inst, ctx, json, params);
-			inst.values = new Set(def.values);
-			Object.defineProperty(inst, "value", { get() {
-				if (def.values.length > 1) throw new Error("This schema contains multiple valid literal values. Use `.values` instead.");
-				return def.values[0];
-			} });
-		});
-		function literal(value, params) {
-			return new ZodLiteral({
-				type: "literal",
-				values: Array.isArray(value) ? value : [value],
-				...normalizeParams(params)
-			});
-		}
-		const ZodTransform = /*@__PURE__*/ $constructor("ZodTransform", (inst, def) => {
-			$ZodTransform.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => transformProcessor(inst, ctx, json, params);
-			inst._zod.parse = (payload, _ctx) => {
-				if (_ctx.direction === "backward") throw new $ZodEncodeError(inst.constructor.name);
-				payload.addIssue = (issue$1) => {
-					if (typeof issue$1 === "string") payload.issues.push(issue(issue$1, payload.value, def));
-					else {
-						const _issue = issue$1;
-						if (_issue.fatal) _issue.continue = false;
-						_issue.code ?? (_issue.code = "custom");
-						_issue.input ?? (_issue.input = payload.value);
-						_issue.inst ?? (_issue.inst = inst);
-						payload.issues.push(issue(_issue));
-					}
-				};
-				const output = def.transform(payload.value, payload);
-				if (output instanceof Promise) return output.then((output) => {
-					payload.value = output;
-					payload.fallback = true;
-					return payload;
-				});
-				payload.value = output;
-				payload.fallback = true;
-				return payload;
-			};
-		});
-		function transform(fn) {
-			return new ZodTransform({
-				type: "transform",
-				transform: fn
-			});
-		}
-		const ZodOptional = /*@__PURE__*/ $constructor("ZodOptional", (inst, def) => {
-			$ZodOptional.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => optionalProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-		});
-		function optional(innerType) {
-			return new ZodOptional({
-				type: "optional",
-				innerType
-			});
-		}
-		const ZodExactOptional = /*@__PURE__*/ $constructor("ZodExactOptional", (inst, def) => {
-			$ZodExactOptional.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => optionalProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-		});
-		function exactOptional(innerType) {
-			return new ZodExactOptional({
-				type: "optional",
-				innerType
-			});
-		}
-		const ZodNullable = /*@__PURE__*/ $constructor("ZodNullable", (inst, def) => {
-			$ZodNullable.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => nullableProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-		});
-		function nullable(innerType) {
-			return new ZodNullable({
-				type: "nullable",
-				innerType
-			});
-		}
-		const ZodDefault = /*@__PURE__*/ $constructor("ZodDefault", (inst, def) => {
-			$ZodDefault.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => defaultProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-			inst.removeDefault = inst.unwrap;
-		});
-		function _default(innerType, defaultValue) {
-			return new ZodDefault({
-				type: "default",
-				innerType,
-				get defaultValue() {
-					return typeof defaultValue === "function" ? defaultValue() : shallowClone(defaultValue);
-				}
-			});
-		}
-		const ZodPrefault = /*@__PURE__*/ $constructor("ZodPrefault", (inst, def) => {
-			$ZodPrefault.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => prefaultProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-		});
-		function prefault(innerType, defaultValue) {
-			return new ZodPrefault({
-				type: "prefault",
-				innerType,
-				get defaultValue() {
-					return typeof defaultValue === "function" ? defaultValue() : shallowClone(defaultValue);
-				}
-			});
-		}
-		const ZodNonOptional = /*@__PURE__*/ $constructor("ZodNonOptional", (inst, def) => {
-			$ZodNonOptional.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => nonoptionalProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-		});
-		function nonoptional(innerType, params) {
-			return new ZodNonOptional({
-				type: "nonoptional",
-				innerType,
-				...normalizeParams(params)
-			});
-		}
-		const ZodCatch = /*@__PURE__*/ $constructor("ZodCatch", (inst, def) => {
-			$ZodCatch.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => catchProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-			inst.removeCatch = inst.unwrap;
-		});
-		function _catch(innerType, catchValue) {
-			return new ZodCatch({
-				type: "catch",
-				innerType,
-				catchValue: typeof catchValue === "function" ? catchValue : () => catchValue
-			});
-		}
-		const ZodPipe = /*@__PURE__*/ $constructor("ZodPipe", (inst, def) => {
-			$ZodPipe.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => pipeProcessor(inst, ctx, json, params);
-			inst.in = def.in;
-			inst.out = def.out;
-		});
-		function pipe(in_, out) {
-			return new ZodPipe({
-				type: "pipe",
-				in: in_,
-				out
-			});
-		}
-		const ZodReadonly = /*@__PURE__*/ $constructor("ZodReadonly", (inst, def) => {
-			$ZodReadonly.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => readonlyProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.innerType;
-		});
-		function readonly(innerType) {
-			return new ZodReadonly({
-				type: "readonly",
-				innerType
-			});
-		}
-		const ZodLazy = /*@__PURE__*/ $constructor("ZodLazy", (inst, def) => {
-			$ZodLazy.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => lazyProcessor(inst, ctx, json, params);
-			inst.unwrap = () => inst._zod.def.getter();
-		});
-		function lazy(getter) {
-			return new ZodLazy({
-				type: "lazy",
-				getter
-			});
-		}
-		const ZodCustom = /*@__PURE__*/ $constructor("ZodCustom", (inst, def) => {
-			$ZodCustom.init(inst, def);
-			ZodType.init(inst, def);
-			inst._zod.processJSONSchema = (ctx, json, params) => customProcessor(inst, ctx, json, params);
-		});
-		function custom(fn, _params) {
-			return /* @__PURE__ */ _custom(ZodCustom, fn ?? (() => true), _params);
-		}
-		function refine(fn, _params = {}) {
-			return /* @__PURE__ */ _refine(ZodCustom, fn, _params);
-		}
-		function superRefine(fn, params) {
-			return /* @__PURE__ */ _superRefine(fn, params);
-		}
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/rpc.schema.js
-		/**
-		* Message-layer zod schemas: the four wire full forms + error body +
-		* carrier receipt. The payload slot is unknown in the full-form schemas — business payloads
-		* get a second parse dispatched by method (two-level parse discipline).
-		* Brand cast point: rpcIdSchema, and only there.
-		*/
-		/**
-		* RpcId: one brand cast after schema validation (the only cast point in this
-		* file). No min-length: the id is an opaque echo token, and rejecting values
-		* here would only turn a correlatable error report into a client-side parse
-		* failure (the handler substitutes a sentinel when a request's id is unreadable).
-		*/
-		const rpcIdSchema = string();
-		/** Error body: discriminated by code, per-branch details aligned to RpcErrorDetailsMap; details is required. */
-		const rpcErrorSchema = discriminatedUnion("code", [
-			object({
-				code: literal("bad-request"),
-				message: string(),
-				details: object({ issues: array(custom()) })
-			}),
-			object({
-				code: literal("cancelled"),
-				message: string(),
-				details: object({})
-			}),
-			object({
-				code: literal("session-not-found"),
-				message: string(),
-				details: object({ sessionId: string() })
-			}),
-			object({
-				code: literal("model-unavailable"),
-				message: string(),
-				details: object({
-					provider: string(),
-					model: string()
-				})
-			}),
-			object({
-				code: literal("session-conflict"),
-				message: string(),
-				details: object({
-					sessionId: string(),
-					requestedCwd: string(),
-					existingCwd: string().optional()
-				})
-			}),
-			object({
-				code: literal("invalid-time-zone"),
-				message: string(),
-				details: object({ value: string() })
-			}),
-			object({
-				code: literal("workspace-attach-failed"),
-				message: string(),
-				details: object({
-					sessionId: string(),
-					workspaceId: string()
-				})
-			}),
-			object({
-				code: literal("workspace-not-found"),
-				message: string(),
-				details: object({ workspaceId: string() })
-			}),
-			object({
-				code: literal("workspace-invalid-path"),
-				message: string(),
-				details: object({ path: string() })
-			}),
-			object({
-				code: literal("workspace-name-conflict"),
-				message: string(),
-				details: object({ name: string() })
-			}),
-			object({
-				code: literal("workspace-move-invalid"),
-				message: string(),
-				details: object({
-					workspaceId: string(),
-					sessionId: string(),
-					beforeSessionId: string().optional()
-				})
-			}),
-			object({
-				code: literal("directory-unreadable"),
-				message: string(),
-				details: object({ path: string() })
-			}),
-			object({
-				code: literal("directory-exists"),
-				message: string(),
-				details: object({ path: string() })
-			}),
-			object({
-				code: literal("directory-create-failed"),
-				message: string(),
-				details: object({ path: string() })
-			}),
-			object({
-				code: literal("directory-picker-unavailable"),
-				message: string(),
-				details: object({ capability: string() })
-			}),
-			object({
-				code: literal("agent-preset-read-only"),
-				message: string(),
-				details: object({
-					agentPreset: string(),
-					reason: string()
-				})
-			}),
-			object({
-				code: literal("agent-preset-locked"),
-				message: string(),
-				details: object({
-					sessionId: string(),
-					agentPreset: string()
-				})
-			}),
-			object({
-				code: literal("agent-preset-conflict"),
-				message: string(),
-				details: object({
-					sessionId: string(),
-					requestedPreset: string(),
-					existingPreset: string().optional()
-				})
-			}),
-			object({
-				code: literal("agent-preset-not-found"),
-				message: string(),
-				details: object({
-					agentPreset: string(),
-					available: array(string())
-				})
-			}),
-			object({
-				code: literal("agent-preset-invalid"),
-				message: string(),
-				details: object({
-					agentPreset: string(),
-					reason: string()
-				})
-			}),
-			object({
-				code: literal("agent-busy"),
-				message: string(),
-				details: object({ reason: string() })
-			}),
-			object({
-				code: literal("attachment-error"),
-				message: string(),
-				details: object({ reason: string() })
-			}),
-			object({
-				code: literal("queue-item-not-found"),
-				message: string(),
-				details: object({ itemId: string() })
-			}),
-			object({
-				code: literal("steer-unavailable"),
-				message: string(),
-				details: object({ itemId: string() })
-			}),
-			object({
-				code: literal("command-error"),
-				message: string(),
-				details: object({})
-			}),
-			object({
-				code: literal("unknown-command"),
-				message: string(),
-				details: object({})
-			}),
-			object({
-				code: literal("settings-rejected"),
-				message: string(),
-				details: object({ ns: string() })
-			}),
-			object({
-				code: literal("settings-conflict"),
-				message: string(),
-				details: object({
-					ns: string(),
-					expected: number(),
-					actual: number()
-				})
-			}),
-			object({
-				code: literal("credential-rejected"),
-				message: string(),
-				details: object({ ref: string() })
-			}),
-			object({
-				code: literal("model-discovery-failed"),
-				message: string(),
-				details: object({
-					settingsNs: string(),
-					baseURL: string().optional()
-				})
-			}),
-			object({
-				code: literal("title-invalid"),
-				message: string(),
-				details: object({ sessionId: string() })
-			}),
-			object({
-				code: literal("fork-unavailable"),
-				message: string(),
-				details: object({ sessionId: string() })
-			}),
-			object({
-				code: literal("subagent-parent-unavailable"),
-				message: string(),
-				details: object({ parentSessionId: string() })
-			}),
-			object({
-				code: literal("subagent-not-found"),
-				message: string(),
-				details: object({
-					parentSessionId: string(),
-					childSessionId: string()
-				})
-			}),
-			object({
-				code: literal("subagent-catalog-diagnostic"),
-				message: string(),
-				details: object({
-					parentSessionId: string(),
-					childSessionId: string(),
-					reason: union([
-						literal("corrupt"),
-						literal("unsupported"),
-						literal("unavailable")
-					])
-				})
-			}),
-			object({
-				code: literal("subagent-not-resumable"),
-				message: string(),
-				details: object({ childSessionId: string() })
-			}),
-			object({
-				code: literal("subagent-unauthorized"),
-				message: string(),
-				details: object({ childSessionId: string() })
-			}),
-			object({
-				code: literal("subagent-delivery-unavailable"),
-				message: string(),
-				details: object({ childSessionId: string() })
-			}),
-			object({
-				code: literal("internal"),
-				message: string(),
-				details: object({})
-			})
-		]);
-		/**
-		* Business success/failure result schema (generic, reusable).
-		* @param value - Schema for the business value.
-		* @returns Schema for RpcResult<T>.
-		*/
-		function rpcResultSchema(value) {
-			return union([object({
-				ok: literal(true),
-				value
-			}), object({
-				ok: literal(false),
-				error: rpcErrorSchema
-			})]);
-		}
-		/** ClientRequest full form (payload stays wide — the business layer runs the second parse). */
-		const clientRequestSchema = object({
-			type: literal("client-request"),
-			rpcId: rpcIdSchema,
-			method: string(),
-			payload: unknown()
-		});
-		/** ServerResponse full form (result.value stays wide). */
-		const serverResponseSchema = object({
-			type: literal("server-response"),
-			rpcId: rpcIdSchema,
-			result: rpcResultSchema(unknown().optional())
-		});
-		/** ServerRequest full form (payload stays wide). */
-		const serverRequestSchema = object({
-			type: literal("server-request"),
-			rpcId: rpcIdSchema,
-			method: string(),
-			payload: unknown()
-		});
-		discriminatedUnion("type", [
-			clientRequestSchema,
-			serverResponseSchema,
-			serverRequestSchema,
-			object({
-				type: literal("client-response"),
-				rpcId: rpcIdSchema,
-				result: rpcResultSchema(unknown().optional())
-			})
-		]);
-		/** Carrier receipt schema. */
-		const rpcReceiptSchema = union([object({ accepted: literal(true) }), object({
-			accepted: literal(false),
-			reason: union([literal("not-pending"), literal("bad-response")])
-		})]);
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/session-search.js
-		/**
-		* Return the longest prefix containing at most `maximum` Unicode code points.
-		* @param value - text to bound.
-		* @param maximum - non-negative code-point limit.
-		* @returns `value` unchanged when it fits, otherwise a code-point-safe prefix.
-		*/
-		function truncateUnicodeCodePoints(value, maximum) {
-			let count = 0;
-			let end = 0;
-			for (const codePoint of value) {
-				if (count === maximum) return value.slice(0, end);
-				count++;
-				end += codePoint.length;
-			}
-			return value;
-		}
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/sessions.schema.js
-		/**
-		* sessions domain zod schemas (names derived from map keys: sessionListRequestSchema /
-		* sessionListValueSchema). SessionEvent passthrough = strict envelope (type/seq/time) + wide
-		* data: the merge-extensible event API keeps an unknown-type branch at the union level,
-		* with no field-level passthrough. SessionId brand cast point: sessionIdSchema, and only there.
-		*/
-		/** SessionId: one brand cast after schema validation (the only cast point in this domain). */
-		const sessionIdSchema = string().min(1);
-		/** MessageId: one brand cast after non-empty string validation. */
-		const messageIdSchema$1 = string().min(1);
-		/**
-		* WorkspaceId: the workspace domain's one brand cast. Hosted here rather
-		* than in workspace.schema because session.create references it while
-		* workspace.schema references sessionIdSchema — schema modules must stay a
-		* DAG (both casts used at module top level; a cycle is a load-time TDZ).
-		*/
-		const workspaceIdSchema = string().min(1);
-		/** SessionEvent passthrough: strict envelope, wide data (the client fold handles unknown types via its documented default). */
-		const sessionEventSchema = object({
-			type: string(),
-			seq: number().int().nonnegative(),
-			time: number(),
-			data: unknown(),
-			sourceEventSeqs: array(number()).optional(),
-			surfaceOp: unknown().optional(),
-			ignorable: literal(true).optional()
-		});
-		/** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
-		const sessionSummarySchema = object({
-			sessionId: sessionIdSchema,
-			updatedAt: number(),
-			running: boolean(),
-			blank: boolean(),
-			parentSessionId: sessionIdSchema.optional(),
-			origin: literal("subagent").optional(),
-			cwd: string().optional(),
-			agentPreset: string().optional(),
-			projections: lazy(() => sessionProjectionsBlockSchema).optional()
-		});
-		object({ cursor: string().optional() });
-		/** session.list response value. */
-		const sessionListValueSchema = object({ items: array(sessionSummarySchema) });
-		object({ query: string().trim().min(1).max(500).refine((query) => !query.includes("\0"), { message: "search query must not contain NUL" }) });
-		/** session.search response value. */
-		const sessionSearchValueSchema = object({
-			items: array(object({
-				sessionId: sessionIdSchema,
-				snippet: string().refine((snippet) => truncateUnicodeCodePoints(snippet, 240) === snippet, { message: `search snippet must contain at most 240 Unicode code points` })
-			})).max(20),
-			hasMore: boolean()
-		});
-		object({
-			workspaceId: workspaceIdSchema.optional(),
-			cwd: string().optional(),
-			sessionId: sessionIdSchema.optional(),
-			agentPreset: string().optional()
-		}).refine((payload) => payload.workspaceId === void 0 || payload.cwd === void 0, { message: "session.create accepts workspaceId or cwd, not both" });
-		/** session.create response value. */
-		const sessionCreateValueSchema = object({
-			sessionId: sessionIdSchema,
-			agentPreset: string().optional()
-		});
-		object({
-			sessionId: sessionIdSchema,
-			title: string()
-		});
-		/** session.rename response value (the normalized accepted title and its event seq). */
-		const sessionRenameValueSchema = object({
-			title: string().min(1),
-			seq: number().int().nonnegative()
-		});
-		object({
-			sessionId: sessionIdSchema,
-			atSeq: number().int().nonnegative().optional()
-		});
-		/** session.fork response value (the child session id). */
-		const sessionForkValueSchema = object({ sessionId: sessionIdSchema });
-		object({
-			sessionId: sessionIdSchema,
-			beforeSeq: number().int().nonnegative().optional(),
-			maxMessages: number().int().positive().optional()
-		});
-		/** Complete provider/model selection. */
-		const modelSelectionSchema = object({
-			provider: string().min(1),
-			model: string().min(1),
-			reasoningEffort: string().min(1).optional()
-		});
-		/** Exact-model reasoning metadata. */
-		const modelReasoningSchema = object({
-			efforts: array(object({
-				id: string().min(1),
-				name: string().min(1),
-				description: string().optional()
-			})).min(1),
-			defaultEffort: string().min(1).optional()
-		});
-		/** One advisory model entry inside a provider group. */
-		const modelCatalogModelSchema = object({
-			id: string().min(1),
-			name: string().min(1),
-			description: string().optional(),
-			reasoning: modelReasoningSchema.optional()
-		});
-		/** One successfully loaded provider group. */
-		const modelProviderGroupSchema = object({
-			id: string().min(1),
-			name: string().min(1),
-			models: array(modelCatalogModelSchema)
-		});
-		/** One provider-local catalog failure. */
-		const modelCatalogFailureSchema = object({
-			id: string().min(1),
-			name: string().min(1),
-			message: string()
-		});
-		/**
-		* ToolEventView passthrough: lock only the `for` discriminant and the presence
-		* of a card-tagged `view` object. The view interior is a host-computed product
-		* the client reads without echoing back; deep-validating it would hand-copy
-		* the dsh-tools vocabulary into this schema and drift with it.
-		*/
-		const toolEventViewSchema = discriminatedUnion("for", [object({
-			for: literal("call"),
-			view: looseObject({ card: string() })
-		}), object({
-			for: literal("result"),
-			view: looseObject({ card: string() })
-		})]);
-		/** One session.history item: the session event plus its optional host-computed tool view. */
-		const historyEntrySchema = object({
-			event: sessionEventSchema,
-			view: toolEventViewSchema.optional()
-		});
-		/**
-		* Projection baseline passthrough: `values` stays a wide record — each value
-		* was already parsed by its provider's own schema on the host side, and
-		* deep-validating here would import every domain's schema into the carrier.
-		*/
-		const sessionProjectionsBlockSchema = object({
-			asOfSeq: number().int().min(-1),
-			values: record(string(), unknown())
-		});
-		object({
-			blank: boolean(),
-			lastPromptAt: number().nullable()
-		});
-		object({
-			maxImageBytes: number().int().positive(),
-			maxImagesPerMessage: number().int().positive(),
-			maxMessageImageBytes: number().int().positive(),
-			maxImagePixels: number().int().positive(),
-			maxImageDimension: number().int().positive(),
-			mediaTypes: array(string())
-		});
-		/** session.history response value (projections rides the tail page only). */
-		const sessionHistoryValueSchema = object({
-			events: array(historyEntrySchema),
-			hasMore: boolean(),
-			projections: sessionProjectionsBlockSchema.optional()
-		});
-		object({ sessionId: sessionIdSchema });
-		/** session.models response value. */
-		const sessionModelsValueSchema = object({
-			current: modelSelectionSchema,
-			routable: boolean(),
-			groups: array(modelProviderGroupSchema),
-			failures: array(modelCatalogFailureSchema)
-		});
-		object({
-			sessionId: sessionIdSchema,
-			provider: string().min(1),
-			model: string().min(1),
-			reasoningEffort: string().min(1).optional()
-		});
-		/** session.selectModel response value. */
-		const sessionSelectModelValueSchema = object({ selected: modelSelectionSchema });
-		/** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
-		const contentBlockSchema = looseObject({ type: string() });
-		/** Raster image media types accepted by the version-one browser wire. */
-		const imageMediaTypeSchema = union([
-			literal("image/png"),
-			literal("image/jpeg"),
-			literal("image/webp"),
-			literal("image/gif")
-		]);
-		/** Prompt wire content is intentionally narrower than merge-extensible durable core content. */
-		const promptContentPartSchema = discriminatedUnion("type", [object({
-			type: literal("text"),
-			text: string()
-		}), object({
-			type: literal("image"),
-			mediaType: imageMediaTypeSchema,
-			data: string(),
-			name: string().optional()
-		})]);
-		object({
-			sessionId: sessionIdSchema,
-			mode: union([literal("queue"), literal("steer")]),
-			content: array(promptContentPartSchema),
-			clientTimeZone: string().optional()
-		});
-		/** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */
-		const sessionPromptValueSchema = object({
-			accepted: literal(true),
-			command: object({
-				kind: literal("success"),
-				text: string().optional()
-			}).optional()
-		});
-		/** Opaque attachment id after string-shape validation. */
-		const attachmentIdSchema = string().min(1);
-		/** Durable image reference returned from the authenticated session lookup. */
-		const imageAttachmentRefSchema = object({
-			attachmentId: attachmentIdSchema,
-			mediaType: imageMediaTypeSchema,
-			bytes: number().int().positive(),
-			width: number().int().positive(),
-			height: number().int().positive(),
-			name: string().optional()
-		});
-		object({
-			sessionId: sessionIdSchema,
-			attachmentId: attachmentIdSchema
-		});
-		/** session.attachment response value. */
-		const sessionAttachmentValueSchema = object({
-			attachment: imageAttachmentRefSchema,
-			data: string()
-		});
-		object({
-			sessionId: sessionIdSchema,
-			itemId: messageIdSchema$1,
-			action: discriminatedUnion("kind", [
-				object({
-					kind: literal("edit"),
-					content: array(contentBlockSchema)
-				}),
-				object({ kind: literal("remove") }),
-				object({ kind: literal("steer") })
-			])
-		});
-		/** session.updateQueue response value. */
-		const sessionUpdateQueueValueSchema = object({ accepted: literal(true) });
-		object({ sessionId: sessionIdSchema });
-		/** session.cancel response value. */
-		const sessionCancelValueSchema = object({ accepted: literal(true) });
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/approvals.schema.js
-		/**
-		* approvals domain zod schemas (respond is a client-response; the payload schema serves
-		* the /api/respond endpoint's second parse after routing via the pending table).
-		* ApprovalRequestId brand cast point: one.
-		*/
-		/** ApprovalRequestId: one brand cast after schema validation (the only cast point in this domain). */
-		const approvalRequestIdSchema = string().min(1);
-		object({
-			sessionId: sessionIdSchema,
-			approvalId: approvalRequestIdSchema,
-			outcome: union([literal("allowed-once"), literal("rejected")])
-		});
-		/**
-		* One wire task view. `kind` stays an open string because producer plugins
-		* extend the registry's kind map by declaration merging, so the closed set is
-		* not knowable at this boundary.
-		*/
-		const taskViewSchema = object({
-			id: string().min(1),
-			kind: string().min(1),
-			label: string().min(1),
-			status: union([
-				literal("running"),
-				literal("stopping"),
-				literal("completed"),
-				literal("killed"),
-				literal("failed")
-			]),
-			detail: string().optional(),
-			startedAt: number().int().nonnegative(),
-			finishedAt: number().int().nonnegative().optional()
-		});
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/workspace.schema.js
-		/**
-		* workspace domain zod schemas (names derived from map keys). The
-		* WorkspaceId brand cast lives in sessions.schema (see the note there) and
-		* is re-exported here as the domain-local name.
-		*/
-		/** WorkspaceView row of every workspace.* response. */
-		const workspaceViewSchema = object({
-			workspaceId: workspaceIdSchema,
-			path: string(),
-			title: string(),
-			sessionIds: array(sessionIdSchema),
-			createdAt: string(),
-			updatedAt: string()
-		});
-		object({});
-		/** workspace.list response value. */
-		const workspaceListValueSchema = object({
-			items: array(workspaceViewSchema),
-			archivedSessionIds: array(sessionIdSchema)
-		});
-		object({ path: string() });
-		/** workspace.create response value. */
-		const workspaceCreateValueSchema = object({
-			workspace: workspaceViewSchema,
-			created: boolean()
-		});
-		object({
-			workspaceId: workspaceIdSchema,
-			title: string()
-		}).refine((payload) => payload.title.trim() !== "", { message: "workspace.rename requires a non-blank title" });
-		/** workspace.rename response value. */
-		const workspaceRenameValueSchema = object({ workspace: workspaceViewSchema });
-		object({ workspaceId: workspaceIdSchema });
-		/** workspace.delete response value. */
-		const workspaceDeleteValueSchema = object({ deleted: literal(true) });
-		object({
-			workspaceId: workspaceIdSchema,
-			beforeWorkspaceId: workspaceIdSchema.optional()
-		});
-		/** workspace.insertBefore response value: the complete durable display order. */
-		const workspaceInsertBeforeValueSchema = object({ workspaceIds: array(workspaceIdSchema) });
-		object({
-			workspaceId: workspaceIdSchema,
-			sessionId: sessionIdSchema,
-			beforeSessionId: sessionIdSchema.optional()
-		});
-		/** workspace.insertSessionBefore response value. */
-		const workspaceInsertSessionBeforeValueSchema = object({ workspace: workspaceViewSchema });
-		object({ sessionId: sessionIdSchema });
-		/** workspace.archiveSession response value: the full updated archive set. */
-		const workspaceArchiveSessionValueSchema = object({ archivedSessionIds: array(sessionIdSchema) });
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/events.schema.js
-		/**
-		* events domain zod schemas: MuxFrame / HostFrame unions (discriminatedUnion('type')).
-		* A frame is the payload slot of the ServerRequest full form; the SessionEvent inside
-		* a session/event frame reuses sessions.schema's strict-envelope + wide-data passthrough branch.
-		*/
-		/** Question fields validated strictly against core dsh-user-questions. */
-		const askUserQuestionItemSchema = object({
-			id: string(),
-			question: string(),
-			header: string().optional(),
-			detail: string().optional(),
-			options: array(object({
-				label: string(),
-				description: string().optional()
-			})).optional(),
-			multiSelect: boolean().optional(),
-			intent: discriminatedUnion("kind", [object({
-				kind: literal("plan-review"),
-				approve: string()
-			})]).optional()
-		});
-		/** Unified message envelope carried by transient queue frames. */
-		const messageSchema = object({
-			id: string().min(1),
-			role: union([
-				literal("system"),
-				literal("user"),
-				literal("assistant")
-			]),
-			content: array(contentBlockSchema),
-			source: looseObject({ kind: string() })
-		});
-		/** MuxFrame union (payload slot of a mux-stream ServerRequest). */
-		const muxFrameSchema = discriminatedUnion("type", [
-			object({
-				type: literal("session/event"),
-				sessionId: sessionIdSchema,
-				event: sessionEventSchema,
-				view: toolEventViewSchema.optional()
-			}),
-			object({
-				type: literal("session/subscribed"),
-				sessionId: sessionIdSchema,
-				lastSeq: number().int()
-			}),
-			object({
-				type: literal("approval/requested"),
-				sessionId: sessionIdSchema,
-				approvalId: approvalRequestIdSchema,
-				toolName: string(),
-				callId: string().optional(),
-				reason: string().optional()
-			}),
-			object({
-				type: literal("approval/resolved"),
-				sessionId: sessionIdSchema,
-				approvalId: approvalRequestIdSchema,
-				outcome: union([
-					literal("allowed-once"),
-					literal("rejected"),
-					literal("cancelled"),
-					literal("unavailable")
-				])
-			}),
-			object({
-				type: literal("question/requested"),
-				sessionId: sessionIdSchema,
-				questions: array(askUserQuestionItemSchema).min(1)
-			}),
-			object({
-				type: literal("question/resolved"),
-				sessionId: sessionIdSchema,
-				questionRpcId: rpcIdSchema,
-				outcome: union([literal("answered"), literal("cancelled")])
-			}),
-			object({
-				type: literal("session/queue"),
-				sessionId: sessionIdSchema,
-				items: array(object({
-					id: messageIdSchema$1,
-					placement: union([
-						literal("queued"),
-						literal("steering"),
-						literal("context")
-					]),
-					message: messageSchema
-				}))
-			}),
-			object({
-				type: literal("session/jobs"),
-				sessionId: sessionIdSchema,
-				jobs: array(taskViewSchema)
-			}),
-			object({
-				type: literal("session/projection"),
-				sessionId: sessionIdSchema,
-				key: string().min(1),
-				value: unknown(),
-				seq: number().int().nonnegative()
-			}),
-			object({
-				type: literal("stream/error"),
-				error: rpcErrorSchema
-			})
-		]);
-		/** HostFrame union (payload slot of a host-stream ServerRequest). */
-		const hostFrameSchema = discriminatedUnion("type", [
-			object({
-				type: literal("host/session-added"),
-				sessionId: sessionIdSchema,
-				blank: boolean(),
-				parentSessionId: sessionIdSchema.optional(),
-				origin: literal("subagent").optional(),
-				cwd: string().optional(),
-				agentPreset: string().optional()
-			}),
-			object({
-				type: literal("host/session-removed"),
-				sessionId: sessionIdSchema
-			}),
-			object({
-				type: literal("host/session-status"),
-				sessionId: sessionIdSchema,
-				running: boolean()
-			}),
-			object({
-				type: literal("host/agent-error"),
-				sessionId: sessionIdSchema,
-				message: string()
-			}),
-			object({
-				type: literal("host/workspace-changed"),
-				workspace: workspaceViewSchema
-			}),
-			object({
-				type: literal("host/workspace-removed"),
-				workspaceId: workspaceIdSchema
-			}),
-			object({
-				type: literal("host/workspace-order-changed"),
-				workspaceIds: array(workspaceIdSchema)
-			}),
-			object({
-				type: literal("host/archived-sessions-changed"),
-				archivedSessionIds: array(sessionIdSchema)
-			}),
-			object({
-				type: literal("host/remote-event"),
-				event: string().min(1),
-				args: array(unknown())
-			}),
-			object({
-				type: literal("stream/error"),
-				error: rpcErrorSchema
-			})
-		]);
-		object({});
-		/** host.describe response value. */
-		const hostDescribeValueSchema = object({
-			version: string(),
-			cwd: string(),
-			provider: string().optional(),
-			model: string().optional(),
-			attachedSessions: number().int().nonnegative(),
-			home: string(),
-			canOpenPath: boolean()
-		});
-		object({});
-		/** host.pickDirectory response value; null means the user cancelled. */
-		const hostPickDirectoryValueSchema = object({ path: string().nullable() });
-		/** Directory row shared by listing entries and breadcrumb crumbs. */
-		const directoryEntrySchema = object({
-			name: string(),
-			path: string(),
-			hidden: boolean()
-		});
-		object({ path: string().optional() });
-		/** host.listDirectory response value. */
-		const hostListDirectoryValueSchema = object({
-			path: string(),
-			home: string(),
-			crumbs: array(directoryEntrySchema),
-			entries: array(directoryEntrySchema),
-			truncated: boolean()
-		});
-		object({
-			path: string(),
-			name: string()
-		}).refine((payload) => payload.name.trim() !== "" && payload.name !== "." && payload.name !== ".." && !/[/\\]/.test(payload.name), { message: "host.createDirectory requires a single non-blank path segment name" });
-		/** host.createDirectory response value: the created directory's absolute path. */
-		const hostCreateDirectoryValueSchema = object({ path: string() });
-		object({ path: string().min(1) });
-		/** host.openPath response value. */
-		const hostOpenPathValueSchema = object({ opened: literal(true) });
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/skills.schema.js
-		/**
-		* skills domain zod schemas (names derived from map keys: skillListRequestSchema /
-		* skillListValueSchema).
-		*/
-		/** SkillEntry row of skill.list. */
-		const skillEntrySchema = object({
-			name: string().min(1),
-			description: string(),
-			whenToUse: string().optional(),
-			modelInvocable: boolean()
-		});
-		object({ sessionId: sessionIdSchema });
-		/** skill.list response value. */
-		const skillListValueSchema = object({ skills: array(skillEntrySchema) });
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/agent-presets.schema.js
-		/**
-		* agent-presets domain zod schemas (names derived from map keys:
-		* agentPresetListRequestSchema / agentPresetListValueSchema).
-		*/
-		/** AgentPresetEntry row of agentPreset.list. */
-		const agentPresetEntrySchema = object({
-			id: string().min(1),
-			trust: union([literal("system"), literal("user")]),
-			isDefault: boolean(),
-			name: string().optional(),
-			description: string().optional(),
-			broken: string().min(1).optional()
-		});
-		object({});
-		/** agentPreset.list response value. */
-		const agentPresetListValueSchema = object({
-			presets: array(agentPresetEntrySchema),
-			authorable: boolean(),
-			hasDocument: boolean()
-		});
-		object({
-			sessionId: sessionIdSchema,
-			agentPreset: string().min(1)
-		});
-		/** agentPreset.select response value. */
-		const agentPresetSelectValueSchema = object({ agentPreset: string() });
-		object({ agentPreset: string().min(1) });
-		/** agentPreset.read response value. */
-		const agentPresetReadValueSchema = object({
-			agentPreset: string(),
-			trust: union([literal("system"), literal("user")]),
-			content: string(),
-			name: string().optional(),
-			description: string().optional()
-		});
-		object({
-			from: string().min(1),
-			agentPreset: string().min(1),
-			name: string().optional()
-		});
-		/** agentPreset.copy response value. */
-		const agentPresetCopyValueSchema = object({ agentPreset: string() });
-		object({ agentPreset: string().min(1) });
-		/** agentPreset.openDocument response value. */
-		const agentPresetOpenDocumentValueSchema = union([object({ opened: literal(true) }), object({
-			opened: literal(false),
-			path: string()
-		})]);
-		object({ agentPreset: string().min(1) });
-		/** agentPreset.remove response value. */
-		const agentPresetRemoveValueSchema = object({});
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/goals.schema.js
-		/**
-		* goals domain zod schemas. Mutation-only shapes: every value schema is a
-		* `{ ref }` acknowledgement (clear: `{ cleared }`) — the current goal state
-		* travels exclusively on the 'goal' session projection.
-		*/
-		/** GoalRef schema. */
-		const goalRefSchema = object({
-			id: string(),
-			revision: number().int().positive()
-		});
-		/** Shared `{ ref }` acknowledgement value of every non-clear mutation. */
-		const goalRefValueSchema = object({ ref: goalRefSchema });
-		object({
-			sessionId: string(),
-			objective: string().min(1),
-			maxGoalRounds: number().int().positive().optional()
-		});
-		/** goal.create response value. */
-		const goalCreateValueSchema = goalRefValueSchema;
-		object({
-			sessionId: string(),
-			ref: goalRefSchema,
-			objective: string().min(1).optional(),
-			maxGoalRounds: number().int().positive().optional()
-		}).refine((value) => value.objective !== void 0 || value.maxGoalRounds !== void 0, { message: "goal.edit requires objective or maxGoalRounds" });
-		/** goal.edit response value. */
-		const goalEditValueSchema = goalRefValueSchema;
-		object({
-			sessionId: string(),
-			ref: goalRefSchema
-		});
-		/** goal.pause response value. */
-		const goalPauseValueSchema = goalRefValueSchema;
-		object({
-			sessionId: string(),
-			ref: goalRefSchema
-		});
-		/** goal.resume response value. */
-		const goalResumeValueSchema = goalRefValueSchema;
-		object({
-			sessionId: string(),
-			ref: goalRefSchema
-		});
-		/** goal.complete response value. */
-		const goalCompleteValueSchema = goalRefValueSchema;
-		object({
-			sessionId: string(),
-			ref: goalRefSchema
-		});
-		/** goal.clear response value. */
-		const goalClearValueSchema = object({ cleared: literal(true) });
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/settings.schema.js
-		/**
-		* settings domain zod schemas (names derived from map keys: settingsDescribeRequestSchema /
-		* settingsDescribeValueSchema / settingsUpdate* / settingsReplace*).
-		*/
-		/** One redacted secret slot. */
-		const settingsSecretViewSchema = object({
-			path: array(string()),
-			set: boolean()
-		});
-		/** SettingsNamespaceView row of settings.describe and the write responses. */
-		const settingsNamespaceViewSchema = object({
-			ns: string().min(1),
-			schema: unknown(),
-			value: unknown(),
-			base: unknown().optional(),
-			user: unknown().optional(),
-			applies: union([literal("live"), literal("restart")]),
-			secrets: array(settingsSecretViewSchema),
-			revision: number()
-		});
-		object({});
-		/** settings.describe response value. */
-		const settingsDescribeValueSchema = object({
-			writable: boolean(),
-			hasDocument: boolean(),
-			namespaces: array(settingsNamespaceViewSchema)
-		});
-		object({});
-		/** settings.openDocument response value. */
-		const settingsOpenDocumentValueSchema = object({ opened: literal(true) });
-		object({
-			ns: string().min(1),
-			patch: record(string(), unknown()),
-			expectedRevision: number().optional()
-		});
-		/** settings.update response value: the namespace's new redacted view. */
-		const settingsUpdateValueSchema = settingsNamespaceViewSchema;
-		object({
-			ns: string().min(1),
-			section: record(string(), unknown()),
-			expectedRevision: number().optional()
-		});
-		/** One path-addressed edit of settings.mutate. */
-		const settingsPathOpSchema = discriminatedUnion("op", [object({
-			op: literal("set"),
-			path: array(string()),
-			value: unknown()
-		}), object({
-			op: literal("unset"),
-			path: array(string())
-		})]);
-		object({
-			ns: string().min(1),
-			ops: array(settingsPathOpSchema),
-			expectedRevision: number().optional()
-		});
-		/** settings.mutate response value: the namespace's new redacted view. */
-		const settingsMutateValueSchema = settingsNamespaceViewSchema;
-		/** settings.replace response value. */
-		const settingsReplaceValueSchema = settingsNamespaceViewSchema;
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/credentials.schema.js
-		/**
-		* credentials domain zod schemas (names derived from map keys:
-		* credentialsDescribeRequestSchema / credentialsDescribeValueSchema / …).
-		* The reference-name pattern mirrors the seam's `credentialRef` guard so an
-		* invalid name fails as `bad-request` before reaching the service.
-		*/
-		/** POSIX-portable environment-variable name (the seam's `credentialRef` pattern). */
-		const credentialRefNameSchema = string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
-		/** CredentialView entry of credentials.describe. */
-		const credentialViewSchema = object({
-			configured: boolean(),
-			source: string().optional(),
-			writable: boolean()
-		});
-		object({ refs: array(credentialRefNameSchema).max(64) });
-		/** credentials.describe response value. */
-		const credentialsDescribeValueSchema = object({ credentials: record(string(), credentialViewSchema) });
-		object({
-			ref: credentialRefNameSchema,
-			value: string().min(1)
-		});
-		/** credentials.set response value. */
-		const credentialsSetValueSchema = object({});
-		object({ ref: credentialRefNameSchema });
-		/** credentials.unset response value. */
-		const credentialsUnsetValueSchema = object({});
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/llm.schema.js
-		/**
-		* llm domain zod schemas (names derived from map keys: llmProvidersRequestSchema /
-		* llmProvidersValueSchema / llmModelsRequestSchema / llmModelsValueSchema).
-		*/
-		/** ConfigurableProviderView row of llm.providers. */
-		const configurableProviderViewSchema = object({
-			provider: string().min(1),
-			displayName: string().min(1),
-			settingsNs: string(),
-			settingsPath: array(string()),
-			active: boolean(),
-			declared: boolean().optional()
-		});
-		object({});
-		/** llm.providers response value. */
-		const llmProvidersValueSchema = object({ providers: array(configurableProviderViewSchema) });
-		object({});
-		/** llm.models response value. */
-		const llmModelsValueSchema = object({
-			groups: array(modelProviderGroupSchema),
-			failures: array(modelCatalogFailureSchema)
-		});
-		/** DiscoveredModelView row of llm.discoverModels. */
-		const discoveredModelViewSchema = object({
-			id: string().min(1),
-			name: string().min(1).optional(),
-			contextWindow: number().int().positive().optional(),
-			maxTokens: number().int().positive().optional()
-		});
-		object({
-			settingsNs: string().min(1),
-			provider: string().min(1).optional(),
-			baseURL: string().min(1).optional(),
-			api: string().min(1).optional(),
-			apiKey: string().min(1).optional()
-		});
-		/** llm.discoverModels response value. */
-		const llmDiscoverModelsValueSchema = object({ models: array(discoveredModelViewSchema) });
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/api/subagents.schema.js
-		/** Zod schemas for the browser-safe subagent domain. */
-		/** Healthy and diagnostic durable catalog rows. */
-		const subagentListEntrySchema = union([
-			object({
-				kind: literal("child"),
-				id: sessionIdSchema,
-				mode: literal("one-shot"),
-				activity: union([literal("running"), literal("inactive")]),
-				hasChildren: boolean(),
-				label: string().optional()
-			}),
-			object({
-				kind: literal("child"),
-				id: sessionIdSchema,
-				mode: literal("continuable"),
-				activity: union([literal("running"), literal("inactive")]),
-				hasChildren: boolean(),
-				label: string()
-			}),
-			object({
-				kind: literal("diagnostic"),
-				id: sessionIdSchema,
-				reason: union([
-					literal("corrupt"),
-					literal("unsupported"),
-					literal("unavailable")
-				])
-			})
-		]);
-		object({ parentSessionId: sessionIdSchema });
-		/** subagent.list response value. */
-		const subagentListValueSchema = object({
-			entries: array(subagentListEntrySchema),
-			parentAvailable: boolean()
-		});
-		object({
-			parentSessionId: sessionIdSchema,
-			childSessionId: sessionIdSchema,
-			mode: union([literal("one-shot"), literal("continuable")]),
-			beforeSeq: number().int().nonnegative().optional(),
-			maxMessages: number().int().positive().optional()
-		});
-		/** subagent.history response value. */
-		const subagentHistoryValueSchema = object({
-			events: array(historyEntrySchema),
-			hasMore: boolean(),
-			projections: sessionProjectionsBlockSchema.optional()
-		});
-		object({
-			parentSessionId: sessionIdSchema,
-			childSessionId: sessionIdSchema,
-			mode: literal("continuable"),
-			content: array(contentBlockSchema),
-			clientTimeZone: string().optional()
-		});
-		object({
-			parentSessionId: sessionIdSchema,
-			childSessionId: sessionIdSchema,
-			mode: literal("continuable")
-		});
-		/** subagent.interrupt response value. */
-		const subagentInterruptValueSchema = object({ accepted: literal(true) });
-		//#endregion
-		//#region ../../host/apiproxy/lib/types/fetch/client.js
-		/**
-		* Client side of the fetch carrier. AbstractApiClient holds every protocol invariant: rpcId minting,
-		* four-quadrant envelope wrap/unwrap, zod parsing, in-process SSE frame decoding, and the payload-direct
-		* IApiClient domain methods (business code never mints). Platform differences ride two aspects:
-		* abstract doFetch (transport) + overridable onEnvelope (tap). ApiProxy (the impl face) is untouched.
-		*/
-		/**
-		* S→C second-level parse table: value schema by method (the response-path
-		* mirror of the handler's request table; key coverage compiler-enforced against RpcMethodMap).
-		*/
-		const UNARY_VALUE_SCHEMAS = {
-			"session.list": sessionListValueSchema,
-			"session.search": sessionSearchValueSchema,
-			"session.create": sessionCreateValueSchema,
-			"session.history": sessionHistoryValueSchema,
-			"session.models": sessionModelsValueSchema,
-			"session.selectModel": sessionSelectModelValueSchema,
-			"session.rename": sessionRenameValueSchema,
-			"session.fork": sessionForkValueSchema,
-			"session.prompt": sessionPromptValueSchema,
-			"session.attachment": sessionAttachmentValueSchema,
-			"session.updateQueue": sessionUpdateQueueValueSchema,
-			"session.cancel": sessionCancelValueSchema,
-			"subagent.list": subagentListValueSchema,
-			"subagent.history": subagentHistoryValueSchema,
-			"subagent.prompt": object({ messageId: string() }),
-			"subagent.interrupt": subagentInterruptValueSchema,
-			"host.describe": hostDescribeValueSchema,
-			"host.pickDirectory": hostPickDirectoryValueSchema,
-			"host.listDirectory": hostListDirectoryValueSchema,
-			"host.createDirectory": hostCreateDirectoryValueSchema,
-			"host.openPath": hostOpenPathValueSchema,
-			"workspace.list": workspaceListValueSchema,
-			"workspace.create": workspaceCreateValueSchema,
-			"workspace.rename": workspaceRenameValueSchema,
-			"workspace.delete": workspaceDeleteValueSchema,
-			"workspace.insertBefore": workspaceInsertBeforeValueSchema,
-			"workspace.insertSessionBefore": workspaceInsertSessionBeforeValueSchema,
-			"workspace.archiveSession": workspaceArchiveSessionValueSchema,
-			"skill.list": skillListValueSchema,
-			"agentPreset.list": agentPresetListValueSchema,
-			"agentPreset.select": agentPresetSelectValueSchema,
-			"agentPreset.read": agentPresetReadValueSchema,
-			"agentPreset.copy": agentPresetCopyValueSchema,
-			"agentPreset.openDocument": agentPresetOpenDocumentValueSchema,
-			"agentPreset.remove": agentPresetRemoveValueSchema,
-			"goal.create": goalCreateValueSchema,
-			"goal.edit": goalEditValueSchema,
-			"goal.pause": goalPauseValueSchema,
-			"goal.resume": goalResumeValueSchema,
-			"goal.complete": goalCompleteValueSchema,
-			"goal.clear": goalClearValueSchema,
-			"settings.describe": settingsDescribeValueSchema,
-			"settings.openDocument": settingsOpenDocumentValueSchema,
-			"settings.update": settingsUpdateValueSchema,
-			"settings.replace": settingsReplaceValueSchema,
-			"settings.mutate": settingsMutateValueSchema,
-			"credentials.describe": credentialsDescribeValueSchema,
-			"credentials.set": credentialsSetValueSchema,
-			"credentials.unset": credentialsUnsetValueSchema,
-			"llm.providers": llmProvidersValueSchema,
-			"llm.models": llmModelsValueSchema,
-			"llm.discoverModels": llmDiscoverModelsValueSchema
-		};
-		/** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
-		const DEFAULT_TIMEOUT_MS = 3e4;
-		/** URL base for in-process handler injection (fake authority, opencode precedent). */
-		const INTERNAL_BASE$1 = "http://dsh.internal";
-		/**
-		* Abstract fetch-carrier client. Subclasses supply the transport (doFetch) and may refine the
-		* per-message tap (onEnvelope) — platform aspects stay in subclasses, protocol invariants stay
-		* here. Envelope observation is a first-class aspect of this data middle layer: the instance
-		* owns a microtask-batched buffer (frame storms must not cost one consumer update per frame),
-		* and observers subscribe via subscribeEnvelopes. The isomorphic point survives: an in-process
-		* subclass whose doFetch is toFetchHandler(api).fetch never touches the network.
-		*/
-		var AbstractApiClient = class {
-			timeoutMs;
-			/** Instance-owned observation buffer (module-level state would leak across instances/tests). */
-			envelopeBatch = [];
-			flushScheduled = false;
-			envelopeListeners = /* @__PURE__ */ new Set();
-			/** @param timeoutMs - timeout for bounded unary calls; user-paced calls and streams do not use it. */
-			constructor(timeoutMs = DEFAULT_TIMEOUT_MS) {
-				this.timeoutMs = timeoutMs;
-			}
-			/**
-			* Subscribe to batched envelope observation (diagnostics/logging consumers).
-			* Batches follow microtask boundaries; a listener throw is isolated (observation
-			* must never break the carrier).
-			* @param listener - receives each flushed batch in arrival order.
-			* @returns unsubscribe function.
-			*/
-			subscribeEnvelopes(listener) {
-				this.envelopeListeners.add(listener);
-				return () => {
-					this.envelopeListeners.delete(listener);
-				};
-			}
-			/** Per-message tap: feeds the instance buffer. Subclasses may override to observe unbatched (call super to keep batching). */
-			onEnvelope(message) {
-				if (this.envelopeListeners.size === 0) return;
-				this.envelopeBatch.push(message);
-				if (this.flushScheduled) return;
-				this.flushScheduled = true;
-				queueMicrotask(() => {
-					this.flushScheduled = false;
-					const batch = this.envelopeBatch;
-					this.envelopeBatch = [];
-					for (const notify of this.envelopeListeners) try {
-						notify(batch);
-					} catch (error) {
-						console.error("[apiproxy] envelope listener threw:", error);
-					}
-				});
-			}
-			/** Browser = same-origin (a fake authority would fail DNS on real requests); no-location env (Node) = fake authority. */
-			resolveBase() {
-				const loc = globalThis.location;
-				return loc?.origin !== void 0 && loc.origin !== "null" ? loc.origin : INTERNAL_BASE$1;
-			}
-			mintRpcId() {
-				return RpcId(crypto.randomUUID());
-			}
-			/**
-			* Shared POST leg of both C→S carriers (callUnary/respond): JSON body,
-			* optional default timeout merged with the caller's external signal, non-2xx → transport throw.
-			*/
-			async postJson(path, body, signal, timeoutPolicy = "default") {
-				const requestSignal = timeoutPolicy === "default" ? signal === void 0 ? AbortSignal.timeout(this.timeoutMs) : AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal]) : signal;
-				const response = await this.doFetch(new URL(path, this.resolveBase()), {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(body),
-					...requestSignal === void 0 ? {} : { signal: requestSignal }
-				});
-				if (!response.ok) throw new Error(`transport failure for ${path}: HTTP ${response.status}`);
-				return response;
-			}
-			/**
-			* Unary protocol path: mint → tap → POST full form → envelope parse → verify
-			* echo → value parse → tap → narrow. Virtual so a fake carrier (fixture) can
-			* override transport at this layer.
-			*/
-			async callUnary(method, payload, signal, timeoutPolicy = "default") {
-				const message = {
-					type: "client-request",
-					rpcId: this.mintRpcId(),
-					method,
-					payload
-				};
-				this.onEnvelope(message);
-				const response = await this.postJson(`/api/${method}`, message, signal, timeoutPolicy);
-				const full = serverResponseSchema.parse(await response.json());
-				this.onEnvelope(full);
-				if (full.rpcId !== message.rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${message.rpcId}, got ${full.rpcId}`);
-				if (!full.result.ok) return {
-					rpcId: full.rpcId,
-					result: full.result
-				};
-				const value = UNARY_VALUE_SCHEMAS[method].parse(full.result.value);
-				return {
-					rpcId: full.rpcId,
-					result: {
-						ok: true,
-						value
-					}
-				};
-			}
-			/** Mux stream opener; virtual for the same override reason as callUnary. */
-			openMux(_payload, signal, onOpen) {
-				return this.readSse("/api/events.mux", signal, muxFrameSchema, onOpen);
-			}
-			/** Host stream opener; virtual. */
-			openHost(_payload, signal, onOpen) {
-				return this.readSse("/api/events.host", signal, hostFrameSchema, onOpen);
-			}
-			/**
-			* SSE protocol path: streaming fetch (not EventSource), '\n\n' framing, ServerRequest envelope +
-			* frame-schema parse, tap, narrow yield. onOpen fires once the response headers are in and the
-			* body is readable — the stream-established signal, before any frame arrives. A frame that fails
-			* either parse level is reported and skipped (one corrupt frame must not kill the stream; the
-			* client's gap detection covers whatever the frame carried).
-			*/
-			async *readSse(path, signal, frameSchema, onOpen) {
-				const response = await this.doFetch(new URL(path, this.resolveBase()), { signal });
-				if (!response.ok || response.body === null) throw new Error(`transport failure for ${path}: HTTP ${response.status}`);
-				onOpen?.();
-				const reader = response.body.getReader();
-				const decoder = new TextDecoder();
-				let buffer = "";
-				try {
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) return;
-						buffer += decoder.decode(value, { stream: true });
-						let boundary;
-						while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-							const chunk = buffer.slice(0, boundary);
-							buffer = buffer.slice(boundary + 2);
-							const data = chunk.split("\n").filter((line) => line.startsWith("data: ")).map((line) => line.slice(6)).join("");
-							if (data === "") continue;
-							let full;
-							let frame;
-							try {
-								full = serverRequestSchema.parse(JSON.parse(data));
-								frame = frameSchema.parse(full.payload);
-							} catch (error) {
-								console.error(`[apiproxy] dropping malformed SSE frame on ${path}:`, error);
-								continue;
-							}
-							this.onEnvelope(full);
-							yield {
-								rpcId: full.rpcId,
-								payload: frame
-							};
-						}
-					}
-				} finally {
-					await reader.cancel().catch(() => void 0);
-				}
-			}
-			sessions = {
-				list: (payload, signal) => this.callUnary("session.list", payload, signal),
-				search: (payload, signal) => this.callUnary("session.search", payload, signal),
-				create: (payload, signal) => this.callUnary("session.create", payload, signal),
-				history: (payload, signal) => this.callUnary("session.history", payload, signal),
-				models: (payload, signal) => this.callUnary("session.models", payload, signal),
-				selectModel: (payload, signal) => this.callUnary("session.selectModel", payload, signal),
-				rename: (payload, signal) => this.callUnary("session.rename", payload, signal),
-				fork: (payload, signal) => this.callUnary("session.fork", payload, signal),
-				prompt: (payload, signal) => this.callUnary("session.prompt", payload, signal),
-				attachment: (payload, signal) => this.callUnary("session.attachment", payload, signal),
-				updateQueue: (payload, signal) => this.callUnary("session.updateQueue", payload, signal),
-				cancel: (payload, signal) => this.callUnary("session.cancel", payload, signal)
-			};
-			subagents = {
-				list: (payload, signal) => this.callUnary("subagent.list", payload, signal),
-				history: (payload, signal) => this.callUnary("subagent.history", payload, signal),
-				prompt: (payload, signal) => this.callUnary("subagent.prompt", payload, signal),
-				interrupt: (payload, signal) => this.callUnary("subagent.interrupt", payload, signal)
-			};
-			host = {
-				describe: (payload, signal) => this.callUnary("host.describe", payload, signal),
-				pickDirectory: (payload, signal) => this.callUnary("host.pickDirectory", payload, signal, "caller-signal-only"),
-				listDirectory: (payload, signal) => this.callUnary("host.listDirectory", payload, signal),
-				createDirectory: (payload, signal) => this.callUnary("host.createDirectory", payload, signal),
-				openPath: (payload, signal) => this.callUnary("host.openPath", payload, signal)
-			};
-			workspace = {
-				list: (payload, signal) => this.callUnary("workspace.list", payload, signal),
-				create: (payload, signal) => this.callUnary("workspace.create", payload, signal),
-				rename: (payload, signal) => this.callUnary("workspace.rename", payload, signal),
-				delete: (payload, signal) => this.callUnary("workspace.delete", payload, signal),
-				insertBefore: (payload, signal) => this.callUnary("workspace.insertBefore", payload, signal),
-				insertSessionBefore: (payload, signal) => this.callUnary("workspace.insertSessionBefore", payload, signal),
-				archiveSession: (payload, signal) => this.callUnary("workspace.archiveSession", payload, signal)
-			};
-			skills = { list: (payload, signal) => this.callUnary("skill.list", payload, signal) };
-			agentPresets = {
-				list: (payload, signal) => this.callUnary("agentPreset.list", payload, signal),
-				select: (payload, signal) => this.callUnary("agentPreset.select", payload, signal),
-				read: (payload, signal) => this.callUnary("agentPreset.read", payload, signal),
-				copy: (payload, signal) => this.callUnary("agentPreset.copy", payload, signal),
-				openDocument: (payload, signal) => this.callUnary("agentPreset.openDocument", payload, signal),
-				remove: (payload, signal) => this.callUnary("agentPreset.remove", payload, signal)
-			};
-			goals = {
-				create: (payload, signal) => this.callUnary("goal.create", payload, signal),
-				edit: (payload, signal) => this.callUnary("goal.edit", payload, signal),
-				pause: (payload, signal) => this.callUnary("goal.pause", payload, signal),
-				resume: (payload, signal) => this.callUnary("goal.resume", payload, signal),
-				complete: (payload, signal) => this.callUnary("goal.complete", payload, signal),
-				clear: (payload, signal) => this.callUnary("goal.clear", payload, signal)
-			};
-			settings = {
-				describe: (payload, signal) => this.callUnary("settings.describe", payload, signal),
-				openDocument: (payload, signal) => this.callUnary("settings.openDocument", payload, signal),
-				update: (payload, signal) => this.callUnary("settings.update", payload, signal),
-				replace: (payload, signal) => this.callUnary("settings.replace", payload, signal),
-				mutate: (payload, signal) => this.callUnary("settings.mutate", payload, signal)
-			};
-			credentials = {
-				describe: (payload, signal) => this.callUnary("credentials.describe", payload, signal),
-				set: (payload, signal) => this.callUnary("credentials.set", payload, signal),
-				unset: (payload, signal) => this.callUnary("credentials.unset", payload, signal)
-			};
-			llm = {
-				providers: (payload, signal) => this.callUnary("llm.providers", payload, signal),
-				models: (payload, signal) => this.callUnary("llm.models", payload, signal),
-				discoverModels: (payload, signal) => this.callUnary("llm.discoverModels", payload, signal)
-			};
-			events = {
-				mux: (payload, signal, onOpen) => this.openMux(payload, signal, onOpen),
-				host: (payload, signal, onOpen) => this.openHost(payload, signal, onOpen)
-			};
-			async respond(message, signal) {
-				this.onEnvelope(message);
-				const response = await this.postJson("/api/respond", message, signal);
-				return rpcReceiptSchema.parse(await response.json());
-			}
-		};
 		//#endregion
 		//#region lib/types/client/random-uuid.js
 		/** Browser-safe UUID generation for client-side wire correlation. */
@@ -6375,12 +2029,14 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		//#endregion
 		//#region lib/types/client/fixture.js
-		/** The fake carrier mints like a real one (business code never mints). */
-		function rpcRequest(payload) {
-			return {
-				rpcId: RpcId(randomUuid()),
-				payload
-			};
+		const FIXTURE_SESSION_SEARCH_RESULT_LIMIT = 20;
+		function isFixtureTokenDelta(chunk) {
+			switch (chunk.type) {
+				case "text-delta":
+				case "reasoning-delta": return chunk.text !== "";
+				case "tool-call-delta": return chunk.argumentsDelta !== "" || chunk.name !== void 0;
+				default: return false;
+			}
 		}
 		function text(t) {
 			return [{
@@ -6405,7 +2061,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		function toolResultMessage(callId, content, isError) {
 			return createToolResultMessage({
-				callId: CallId(callId),
+				callId: brandString(callId),
 				content,
 				isError
 			});
@@ -6446,11 +2102,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		* basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
 		* `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
 		* rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
-		* height cap collapses the middle. The exit status is authored separately in
-		* TERMINAL_EXIT_STATUS and deliberately absent from this text: the real bash
-		* presenter CONSUMES its `[exit code: N]` marker out of the body, because a
-		* terminal card shows the exit as its own pill and leaving the marker in would
-		* render it twice (packages/shell/tool-bash/src/render.ts).
+		* height cap collapses the middle. This constant is the visible body; the call
+		* site appends the shell result's `[exit code: N]` marker so Client derivation
+		* can consume it into the terminal status pill.
 		*/
 		const TERMINAL_OUTPUT_FIXTURE = [
 			sgr(1, "Running 4 checks"),
@@ -6476,17 +2130,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			sgr(31, "1 of 4 checks failed")
 		].join("\n");
 		/**
-		* Exit status for each terminal sample, keyed by its output text. Authored
-		* alongside the sample rather than parsed back out of its trailing marker,
-		* which is the bash tool's own job and not something to reimplement here.
-		*/
-		const TERMINAL_EXIT_STATUS = { [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 } };
-		/**
-		* Structured grep result for the search sample (turn 67): matches grouped by
-		* file, authored inline because the client-side fixture cannot import the tool
-		* that produces the canonical value. `truncated` with a larger `total` than the
-		* retained match count exercises the search card's capped indicator; the file
-		* with more than CHAT_SEARCH_MAX_LINES rows exercises its head/tail height cap.
+		* Structured grep metadata for the search sample (turn 67). `truncated` with a
+		* larger `total` than the retained match count exercises the search card's
+		* capped indicator; the file with more than CHAT_SEARCH_MAX_LINES rows
+		* exercises its head/tail height cap.
 		*/
 		const SEARCH_MATCHES_FIXTURE = [
 			{
@@ -6538,13 +2185,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				]
 			}
 		];
-		/**
-		* The model-facing grep render text for the sample — what a UI without a search
-		* card shows, attached as the view's `content`. Mirrors the real grep
-		* presenter's shape (see formatGrepOutput in dsh-tool-fs-search): a
-		* `Found X of Y matches` header, the matches grouped under file headers with
-		* `Line N:` rows, then a spill-recovery footer.
-		*/
 		const SEARCH_MATCHES_TEXT = [
 			"Found 9 of 42 matches",
 			"",
@@ -6552,10 +2192,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"",
 			"(Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)"
 		].join("\n");
-		/**
-		* Structured glob result for the search sample (turn 68): a flat path list,
-		* truncated with a larger `total` so the path card shows its capped indicator.
-		*/
 		const SEARCH_PATHS_FIXTURE = [
 			"packages/client/ui-primitives/src/SearchBlock.tsx",
 			"packages/client/ui-primitives/src/SearchBlock.module.css",
@@ -6563,24 +2199,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			"packages/client/ui-tool/src/client/tool/toolviews/search-row.tsx",
 			"packages/client/ui-tool/tests/search-card.client.spec.tsx"
 		];
-		/**
-		* The model-facing glob render text — the newline-joined path list plus a
-		* spill-recovery footer, mirroring the real glob presenter's shape (see
-		* formatGlobOutput in dsh-tool-fs-search).
-		*/
 		const SEARCH_PATHS_TEXT = [
 			...SEARCH_PATHS_FIXTURE,
 			"",
 			"(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-67. Read it to see every path.)"
 		].join("\n");
-		/**
-		* Read-card sample for the read turn: a WINDOW past an offset, so the line
-		* numbers start above 1 (the card's gutter keeps the file's own numbering) and
-		* `totalLines` exceeds the window (the card shows a "showing N of M" note). The
-		* fixture is client-side and cannot import the read tool, so the structured
-		* window is authored inline exactly as the tool would project it through
-		* `presentationMeta`. `lang` is a `ts` hint so the shiki path highlights it.
-		*/
 		const READ_SAMPLE_FIRST_LINE = 41;
 		const READ_SAMPLE_SOURCE = [
 			"export interface ReadBlockProps {",
@@ -6601,17 +2224,22 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}));
 		const READ_SAMPLE_PATH = "packages/client/ui-primitives/src/ReadBlock.tsx";
 		const READ_SAMPLE_TOTAL = 180;
-		const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join("\n");
+		const READ_SAMPLE_LAST_LINE = READ_SAMPLE_FIRST_LINE + READ_SAMPLE_SOURCE.length - 1;
+		const READ_SAMPLE_TEXT = [
+			`<path>${READ_SAMPLE_PATH}</path>`,
+			"<type>file</type>",
+			"<content>",
+			...READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`),
+			"",
+			`(Showing lines ${READ_SAMPLE_FIRST_LINE}-${READ_SAMPLE_LAST_LINE} of ${READ_SAMPLE_TOTAL}. Use offset=${READ_SAMPLE_LAST_LINE + 1} to continue.)`,
+			"</content>"
+		].join("\n");
 		/**
-		* The structured `web_search` result view for the web-search turn, authored inline
-		* because this client-side fixture cannot import the web tool that projects it.
-		* The sources exercise the citation list's features: a titled source with a
-		* snippet and a date, a source with no title (its hostname labels the link) and
-		* a snippet but no date, and a source with a title and a date but no snippet.
-		* `truncated` marks the capped indicator. The shape is the contract's own
-		* search view minus its wire discriminants.
+		* The `web_search` result metadata for the web-search turn. The sources cover a
+		* titled source with a snippet and date, a hostname-label fallback, and a
+		* titled source without a snippet; `truncated` exercises the capped indicator.
 		*/
-		const WEB_SEARCH_RESULT = {
+		const WEB_SEARCH_META = {
 			answer: "USB Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.",
 			sources: [
 				{
@@ -6632,8 +2260,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			],
 			truncated: true
 		};
-		/** The `web_fetch` result view for the web-fetch turn, authored inline for the same reason. */
-		const WEB_FETCH_RESULT = {
+		/** The `web_fetch` result metadata for the web-fetch turn. */
+		const WEB_FETCH_META = {
 			url: "https://www.deepseek.com/blog/harness-architecture",
 			statusCode: 200,
 			truncated: false
@@ -6676,7 +2304,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			],
 			defaultEffort: "medium"
 		};
-		/** Catalog served by `session.models` and `llm.models` alike (fresh copies per call). */
+		/** Catalog served by `session/modelCatalog` (fresh copies per call). */
 		function fixtureModelGroups() {
 			return [{
 				id: "deepseek-official",
@@ -6723,6 +2351,45 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				cacheWriteTokens: turn % 10 === 0 ? 4 : 0
 			};
 		}
+		/** Build a lossless settled stream for static fixture messages. */
+		function fixtureSettledStream(message, usage, time) {
+			const stream = [];
+			for (const [index, block] of message.content.entries()) stream.push({
+				type: "chunk",
+				time,
+				chunk: {
+					type: "block-start",
+					index,
+					blockType: block.type
+				}
+			}, {
+				type: "chunk",
+				time,
+				chunk: {
+					type: "block-end",
+					index,
+					block
+				}
+			});
+			stream.push({
+				type: "chunk",
+				time,
+				chunk: {
+					type: "usage",
+					usage
+				}
+			}, {
+				type: "chunk",
+				time,
+				chunk: {
+					type: "finish",
+					reason: { kind: "stop" }
+				}
+			});
+			return stream;
+		}
+		/** Rendered system prompt of the fx-alpha history: surface node 0. */
+		const FIXTURE_SYSTEM_PROMPT = "你是 USB Harness 的 fixture 助手。用简洁的中文回答，并在需要时调用工具。";
 		/** fx-alpha history script: 75 turns (~150+ messages -> 4 pages at PAGE_MESSAGES=50),
 		*  mixing reasoning blocks / tool call+result / context. */
 		function buildAlphaLog() {
@@ -6731,16 +2398,18 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const push = (e) => {
 				const seq = events.length;
 				const data = e["data"];
+				const nextTime = time + 800;
 				const authored = e["type"] === "assistant/message" && data !== void 0 ? {
 					...e,
 					data: {
 						...data,
-						usage: fixtureUsage(data["turn"], data["step"])
+						usage: fixtureUsage(data["turn"], data["step"]),
+						stream: fixtureSettledStream(data["message"], fixtureUsage(data["turn"], data["step"]), nextTime)
 					}
 				} : e;
 				events.push({
 					seq,
-					time: time += 800,
+					time: time = nextTime,
 					...authored
 				});
 				return seq;
@@ -6757,6 +2426,15 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				push({
 					type: "turn/start",
 					data: { turn }
+				});
+				if (turn === 0) push({
+					type: "system/message",
+					surfaceOp: "append",
+					data: {
+						turn,
+						step: 0,
+						message: createSystemMessage(FIXTURE_SYSTEM_PROMPT, "@deepseek-ai/dsh-system-prompt")
+					}
 				});
 				const userSeq = push({
 					type: "user/message",
@@ -6889,7 +2567,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					}
 				});
 			}
-			const toolTurn = (turn, name, args, resultText) => {
+			const toolTurn = (turn, name, args, resultText, resultMeta) => {
 				const callId = `fx-call-${turn}`;
 				push({
 					type: "turn/start",
@@ -6937,7 +2615,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					data: {
 						turn,
 						step: 0,
-						message: toolResultMessage(callId, text(resultText), false)
+						message: toolResultMessage(callId, text(resultText), false),
+						...resultMeta === void 0 ? {} : { meta: resultMeta }
 					}
 				});
 				push({
@@ -6955,11 +2634,31 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					}
 				});
 			};
-			toolTurn(60, "fx-bash", "{\"command\":\"ls -la\\necho done\",\"cwd\":\"/tmp/fixture\"}", "total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt");
-			toolTurn(61, "fx-write", "{\"path\":\"notes/demo.txt\",\"content\":\"hello fixture\\n\"}", "wrote notes/demo.txt");
-			toolTurn(62, "edit", "{\"file_path\":\"notes/demo.txt\",\"old_string\":\"hello\",\"new_string\":\"hello fixture\"}", "已编辑");
-			toolTurn(63, "write", "{\"file_path\":\"notes/new-demo.txt\",\"content\":\"hello fixture\\n\"}", "已写入");
-			toolTurn(64, "edit", "{\"file_path\":\"src/config.ts\",\"old_string\":\"const timeout = 30\",\"new_string\":\"const timeout = 60\"}", "已编辑");
+			toolTurn(60, "bash", "{\"command\":\"ls -la\\necho done\",\"description\":\"fixture 终端样本\",\"workdir\":\"/tmp/fixture\"}", "total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt");
+			toolTurn(61, "write", "{\"file_path\":\"notes/demo.txt\",\"content\":\"hello fixture\\n\"}", "wrote notes/demo.txt", { diffs: [{
+				path: "notes/demo.txt",
+				oldText: null,
+				newText: "hello fixture\n"
+			}] });
+			toolTurn(62, "edit", "{\"file_path\":\"notes/demo.txt\",\"old_string\":\"hello\",\"new_string\":\"hello fixture\"}", "已编辑", { diffs: [{
+				path: "notes/demo.txt",
+				oldText: "hello",
+				newText: "hello fixture"
+			}] });
+			toolTurn(63, "write", "{\"file_path\":\"notes/new-demo.txt\",\"content\":\"hello fixture\\n\"}", "已写入", { diffs: [{
+				path: "notes/new-demo.txt",
+				oldText: null,
+				newText: "hello fixture\n"
+			}] });
+			toolTurn(64, "edit", "{\"file_path\":\"src/config.ts\",\"old_string\":\"const timeout = 30\",\"new_string\":\"const timeout = 60\"}", "已编辑", { diffs: [{
+				path: "src/config.ts",
+				oldText: "const timeout = 30",
+				newText: "const timeout = 60"
+			}, {
+				path: "src/config.ts",
+				oldText: "retries: 1",
+				newText: "retries: 3"
+			}] });
 			{
 				const turn = 65;
 				const callId = `fx-call-${turn}`;
@@ -7009,21 +2708,21 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				});
 				const dispatchPair = (n, name, dispatchArgs, resultText, isError = false) => {
 					push({
-						type: "tool/code-dispatch-start",
+						type: "tool/ptc-dispatch-start",
 						data: {
 							rootCallId: callId,
 							parentCallId: callId,
-							subCallId: `${callId}:code:${n}`,
+							subCallId: `${callId}:ptc:${n}`,
 							name,
 							arguments: dispatchArgs
 						}
 					});
 					push({
-						type: "tool/code-dispatch",
+						type: "tool/ptc-dispatch",
 						data: {
 							rootCallId: callId,
 							parentCallId: callId,
-							subCallId: `${callId}:code:${n}`,
+							subCallId: `${callId}:ptc:${n}`,
 							name,
 							arguments: dispatchArgs,
 							isError,
@@ -7082,12 +2781,28 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					status: "pending"
 				}
 			];
-			toolTurn(66, "bash", "{\"command\":\"pnpm run check\",\"cwd\":\"/tmp/fixture/deep/nested\"}", TERMINAL_OUTPUT_FIXTURE);
-			toolTurn(67, "grep", "{\"pattern\":\"SEARCH_MAX_LINES\",\"path\":\"packages/client\"}", SEARCH_MATCHES_TEXT);
-			toolTurn(68, "glob", "{\"pattern\":\"**/SearchBlock*\",\"path\":\"packages/client\"}", SEARCH_PATHS_TEXT);
-			toolTurn(69, "read", `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT);
-			toolTurn(70, "web_search", "{\"queries\":[\"deepseek harness architecture\"]}", "Search results for deepseek harness architecture.");
-			toolTurn(71, "web_fetch", "{\"url\":\"https://www.deepseek.com/blog/harness-architecture\"}", "# Harness architecture\n\nEverything is a plugin.");
+			toolTurn(66, "bash", "{\"command\":\"pnpm run check\",\"description\":\"fixture 终端样本\",\"workdir\":\"/tmp/fixture/deep/nested\"}", `${TERMINAL_OUTPUT_FIXTURE}\n[exit code: 1]`);
+			toolTurn(67, "grep", "{\"pattern\":\"SEARCH_MAX_LINES\",\"path\":\"packages/client\"}", SEARCH_MATCHES_TEXT, {
+				shape: "matches",
+				files: SEARCH_MATCHES_FIXTURE,
+				truncated: true,
+				total: 42
+			});
+			toolTurn(68, "glob", "{\"pattern\":\"**/SearchBlock*\",\"path\":\"packages/client\"}", SEARCH_PATHS_TEXT, {
+				shape: "paths",
+				paths: SEARCH_PATHS_FIXTURE,
+				truncated: true,
+				total: 23
+			});
+			toolTurn(69, "read", `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT, {
+				path: READ_SAMPLE_PATH,
+				offset: READ_SAMPLE_FIRST_LINE,
+				lines: READ_SAMPLE_LINES,
+				totalLines: READ_SAMPLE_TOTAL,
+				lang: "ts"
+			});
+			toolTurn(70, "web_search", "{\"queries\":[\"deepseek harness architecture\"]}", "Search results for deepseek harness architecture.", WEB_SEARCH_META);
+			toolTurn(71, "web_fetch", "{\"url\":\"https://www.deepseek.com/blog/harness-architecture\"}", "# Harness architecture\n\nEverything is a plugin.", WEB_FETCH_META);
 			push({
 				type: "turn/start",
 				data: { turn: 72 }
@@ -7185,179 +2900,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			});
 			return events;
 		}
-		/** Narrows a parsed-JSON field to string; fixture args are authored in-file, so non-strings only mean a typo here. */
-		/* v8 ignore next -- the fallback arm is the same in-file-typo guard as the JSON.parse catch above. */
-		const str = (value, fallback = "") => typeof value === "string" ? value : fallback;
-		/** Fixture presenter registry (mirrors host viewFor): pure derivation, undefined = no view. */
-		function presentCall(name, argsRaw) {
-			let args;
-			try {
-				args = JSON.parse(argsRaw);
-			} catch {
-				/* v8 ignore next 2 -- defensive: fixture args are authored in-file as valid JSON; only an in-file typo could reach the catch. */
-				return;
-			}
-			switch (name) {
-				case "fx-bash":
-				case "bash": return {
-					card: "terminal",
-					title: str(args.command),
-					cwd: str(args.cwd, "/tmp/fixture"),
-					description: "fixture 终端样本"
-				};
-				case "fx-write": return {
-					card: "diff",
-					title: `Write ${str(args.path)}`,
-					diffs: [{
-						path: str(args.path),
-						oldText: null,
-						newText: str(args.content)
-					}]
-				};
-				case "read": return {
-					card: "generic",
-					title: `Read ${str(args.file_path)}`,
-					kind: "read",
-					locations: [{ path: str(args.file_path) }]
-				};
-				case "edit":
-					if (str(args.file_path) === "src/config.ts") return {
-						card: "diff",
-						title: `Edit ${str(args.file_path)}`,
-						diffs: [{
-							path: str(args.file_path),
-							oldText: "const timeout = 30",
-							newText: "const timeout = 60"
-						}, {
-							path: str(args.file_path),
-							oldText: "retries: 1",
-							newText: "retries: 3"
-						}]
-					};
-					return {
-						card: "diff",
-						title: `Edit ${str(args.file_path)}`,
-						diffs: [{
-							path: str(args.file_path),
-							oldText: str(args.old_string),
-							newText: str(args.new_string)
-						}]
-					};
-				case "write": return {
-					card: "diff",
-					title: `Write ${str(args.file_path)}`,
-					diffs: [{
-						path: str(args.file_path),
-						oldText: null,
-						newText: str(args.content)
-					}]
-				};
-				case "grep": return {
-					card: "generic",
-					title: `Grep ${str(args.pattern)}`,
-					kind: "search",
-					rawInput: args
-				};
-				case "glob": return {
-					card: "generic",
-					title: `Glob ${str(args.pattern)}`,
-					kind: "search",
-					rawInput: args
-				};
-				case "web_search": return {
-					card: "generic",
-					title: `Search ${(Array.isArray(args.queries) ? args.queries.filter((query) => typeof query === "string" && query !== "") : []).join(", ")}`,
-					kind: "search",
-					rawInput: args
-				};
-				case "web_fetch": return {
-					card: "generic",
-					title: `Fetch ${str(args.url)}`,
-					kind: "fetch",
-					rawInput: args
-				};
-				default: return;
-			}
-		}
-		function presentResult(name, argsRaw, resultText) {
-			const call = presentCall(name, argsRaw);
-			if (call === void 0) return void 0;
-			if (name === "grep") return {
-				card: "search",
-				shape: "matches",
-				files: SEARCH_MATCHES_FIXTURE,
-				truncated: true,
-				total: 42
-			};
-			if (name === "glob") return {
-				card: "search",
-				shape: "paths",
-				paths: SEARCH_PATHS_FIXTURE,
-				truncated: true,
-				total: 23
-			};
-			if (name === "read") return {
-				card: "read",
-				path: READ_SAMPLE_PATH,
-				offset: READ_SAMPLE_FIRST_LINE,
-				lines: READ_SAMPLE_LINES,
-				totalLines: READ_SAMPLE_TOTAL,
-				lang: "ts",
-				content: text(resultText)
-			};
-			if (name === "web_search") return {
-				card: "web",
-				kind: "search",
-				...WEB_SEARCH_RESULT
-			};
-			if (name === "web_fetch") return {
-				card: "web",
-				kind: "fetch",
-				...WEB_FETCH_RESULT
-			};
-			switch (call.card) {
-				case "terminal": return {
-					card: "terminal",
-					output: resultText,
-					...TERMINAL_EXIT_STATUS[resultText] ?? { exitCode: 0 }
-				};
-				case "diff": return {
-					card: "diff",
-					diffs: call.diffs
-				};
-				case "generic": return {
-					card: "generic",
-					content: text(resultText)
-				};
-			}
-		}
-		/** Host-side viewFor mirror: tool/call presents from its own args; tool/result back-scans the log for the paired call. */
-		function viewFor(event, log) {
-			if (event.type === "tool/call") {
-				const view = presentCall(event.data.name, event.data.arguments);
-				return view === void 0 ? void 0 : {
-					for: "call",
-					view
-				};
-			}
-			if (event.type === "tool/result") {
-				const callId = String(event.data.message.source.callId);
-				for (let i = log.length - 1; i >= 0; i--) {
-					const candidate = log[i];
-					/* v8 ignore next -- dense-array guard: i stays within [0, log.length),
-					so the undefined arm needs a sparse log no code path builds. */
-					if (candidate !== void 0 && candidate.type === "tool/call" && String(candidate.data.callId) === callId) {
-						const resultText = event.data.message.content[0].content.map((b) => b.type === "text" ? b.text : "").join("");
-						const view = presentResult(candidate.data.name, candidate.data.arguments, resultText);
-						return view === void 0 ? void 0 : {
-							for: "result",
-							view
-						};
-					}
-				}
-				return;
-			}
-		}
 		/**
 		* Fixture parallel of the plan unit's lifecycle fold. The paired
 		* `command/done` retains successful plan selections and drops failures;
@@ -7448,11 +2990,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		/** Read one provider usage sample from either durable carrier. */
 		function usageSampleOf(event) {
-			const item = event;
-			const usage = item.type === "assistant/chunk" && item.data.chunk?.type === "usage" ? item.data.chunk.usage : item.type === "assistant/message" ? item.data.usage : void 0;
-			return usage === void 0 || item.data.turn === void 0 || item.data.step === void 0 ? void 0 : {
-				turn: item.data.turn,
-				step: item.data.step,
+			if (event.type !== "assistant/message" && event.type !== "assistant/attempt") return void 0;
+			let usage = event.type === "assistant/message" ? event.data.usage : void 0;
+			for (const member of expandAssistantStream(event.data.stream)) if (member.chunk.type === "usage") usage = member.chunk.usage;
+			return usage === void 0 ? void 0 : {
+				turn: event.data.turn,
+				step: event.data.step,
 				usage
 			};
 		}
@@ -7511,11 +3054,16 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						firstTokenTime: null
 					};
 					break;
-				case "assistant/chunk":
-					if (openStep !== null && openStep.turn === event.data.turn && openStep.step === event.data.step && openStep.firstTokenTime === null && isTokenDelta(event.data.chunk)) openStep.firstTokenTime = event.time;
-					break;
-				case "assistant/message":
+				case "assistant/attempt": {
 					if (openStep === null || openStep.turn !== event.data.turn || openStep.step !== event.data.step) break;
+					const first = expandAssistantStream(event.data.stream).find((member) => isFixtureTokenDelta(member.chunk))?.time;
+					if (openStep.firstTokenTime === null && first !== void 0) openStep.firstTokenTime = first;
+					break;
+				}
+				case "assistant/message": {
+					if (openStep === null || openStep.turn !== event.data.turn || openStep.step !== event.data.step) break;
+					const first = expandAssistantStream(event.data.stream).find((member) => isFixtureTokenDelta(member.chunk))?.time;
+					if (openStep.firstTokenTime === null && first !== void 0) openStep.firstTokenTime = first;
 					value.llmMs += Math.max(0, event.time - openStep.startTime);
 					if (openStep.firstTokenTime !== null) {
 						value.ttftMs += Math.max(0, openStep.firstTokenTime - openStep.startTime);
@@ -7528,6 +3076,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					}
 					openStep = null;
 					break;
+				}
 				case "tool/call":
 					pendingCalls.set(event.data.callId, event.time);
 					break;
@@ -7568,19 +3117,30 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				return tokens + densityPrice(JSON.stringify(block)) + BLOCK_OVERHEAD;
 			}, 0);
 		}
-		/** Fixture parallel of token-meter's heuristic context-composition projection. */
+		/**
+		* Fixture parallel of token-meter's heuristic context-composition projection.
+		* The system prompt is the system-role surface node; it prices as text plus
+		* role framing with no block overhead and stays out of the message figure.
+		*/
 		function contextBreakdownOf(log) {
 			const headerEvent = log.findLast((event) => event.type === "request/header");
 			const header = headerEvent === void 0 ? void 0 : headerEvent.data.header;
+			let systemTokens = 0;
 			let messageTokens = 0;
 			for (const seq of foldSurface(log).nodes) {
 				const event = log[seq];
 				if (event === void 0) continue;
 				const message = deriveEventMessage(event);
-				if (message !== null) messageTokens += estimateFixtureContent(message.content) + ROLE_OVERHEAD;
+				if (message === null) continue;
+				if (message.role === "system") {
+					const characters = message.content.reduce((total, block) => total + (block.type === "text" ? block.text.length : JSON.stringify(block).length), 0);
+					systemTokens = Math.ceil(characters / CHARS_PER_TOKEN) + ROLE_OVERHEAD;
+					continue;
+				}
+				messageTokens += estimateFixtureContent(message.content) + ROLE_OVERHEAD;
 			}
 			return {
-				systemTokens: header?.system === void 0 ? 0 : Math.ceil(header.system.length / CHARS_PER_TOKEN) + ROLE_OVERHEAD,
+				systemTokens,
 				toolsTokens: header?.tools === void 0 || header.tools.length === 0 ? 0 : Math.ceil(JSON.stringify(header.tools).length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD,
 				messageTokens
 			};
@@ -7614,6 +3174,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		}
 		function projectionValuesOf(log) {
 			const values = {};
+			values["modelSelection"] = modelSelectionProjectionOf(log);
 			const titleEvent = log.findLast((item) => item.type === "session/title");
 			if (titleEvent !== void 0) values["title"] = titleEvent.data.title;
 			values["todos"] = backscanTodos(log) ?? null;
@@ -7639,39 +3200,70 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			};
 			return values;
 		}
-		/** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
+		function modelSelectionProjectionOf(log) {
+			let lastUsed = null;
+			let pending = null;
+			for (const event of log) {
+				if (event.type === "model/selection") {
+					pending = event.data;
+					continue;
+				}
+				if (event.type !== "request/header") continue;
+				lastUsed = {
+					provider: event.data.header.config.provider,
+					model: event.data.header.config.model,
+					...event.data.header.config.reasoningEffort === void 0 ? {} : { reasoningEffort: event.data.header.config.reasoningEffort }
+				};
+				if (sameModelSelection(pending, lastUsed)) pending = null;
+			}
+			return {
+				lastUsed,
+				next: pending ?? lastUsed
+			};
+		}
+		function sameModelSelection(left, right) {
+			return left === right || left !== null && right !== null && left.provider === right.provider && left.model === right.model && left.reasoningEffort === right.reasoningEffort;
+		}
+		/** Host parallel: emit one Session control projection frame per key advanced by the event. */
 		function projectionFramesOf(id, log, event) {
 			const type = event.type;
 			const frames = [];
+			if (type === "model/selection" || type === "request/header") frames.push({
+				type: "projection",
+				sessionId: id,
+				key: "modelSelection",
+				value: modelSelectionProjectionOf(log),
+				seq: event.seq
+			});
 			if (usageSampleOf(event) !== void 0) frames.push({
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "tokenUsage",
 				value: tokenUsageOf(log),
 				seq: event.seq
 			}, {
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "contextPressure",
 				value: contextPressureOf(log),
 				seq: event.seq
 			});
 			if (type === "request/context") frames.push({
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "contextPressure",
 				value: contextPressureOf(log),
 				seq: event.seq
 			});
-			if (type === "request/header" || type === "user/message" || type === "assistant/message" || type === "tool/result") frames.push({
-				type: "session/projection",
+			if (type === "request/header" || type === "system/message" || type === "user/message" || type === "assistant/message" || type === "tool/result") frames.push({
+				type: "projection",
 				sessionId: id,
 				key: "contextBreakdown",
 				value: contextBreakdownOf(log),
 				seq: event.seq
 			});
 			if (type === "assistant/message" || type === "tool/result" || type === "step/end") frames.push({
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "sessionStats",
 				value: sessionStatsOf(log),
@@ -7683,7 +3275,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				/* v8 ignore next -- the advancing title event is in the log, so the key is present. */
 				if (!Object.hasOwn(values, "title")) return [];
 				return [{
-					type: "session/projection",
+					type: "projection",
 					sessionId: id,
 					key: "title",
 					value: values["title"],
@@ -7691,21 +3283,21 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				}];
 			}
 			if (type === "goal/change") return [{
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "goal",
 				value: backscanGoal(log),
 				seq: event.seq
 			}];
 			if (type === "todo/write" || type === "turn/start") return [{
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "todos",
 				value: backscanTodos(log) ?? null,
 				seq: event.seq
 			}];
 			if (type === "permission/preset" || type === "sandbox/mode" || type === "approval/policy") return [{
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "permissions",
 				value: permissionSelectOf(log),
@@ -7713,7 +3305,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}];
 			const commandData = event;
 			if (type === "plan/mode" || type === "command/run" && commandData.data.name === "plan" && typeof commandData.data.args === "string") return [{
-				type: "session/projection",
+				type: "projection",
 				sessionId: id,
 				key: "plan",
 				value: planViewOf(log),
@@ -7722,11 +3314,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			return [];
 		}
 		/**
-		* Message-boundary paging (mirrors the host's paging contract): count
-		* maxMessages messages
-		*  backwards from end, cut at a turn/start boundary.
-		Entries carry pagination-time views
-		*  (the host analogue computes viewFor per entry at page time). */
+		* Message-boundary paging mirrors the Host contract: count `maxMessages`
+		* backwards from the end and cut at a turn/start boundary.
+		*/
 		function pageOf(log, beforeSeq, maxMessages) {
 			const end = beforeSeq === void 0 ? log.length : Math.max(0, Math.min(beforeSeq, log.length));
 			let start = 0;
@@ -7742,13 +3332,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				}
 			}
 			return {
-				events: log.slice(start, end).map((event) => {
-					const view = viewFor(event, log);
-					return view === void 0 ? { event } : {
-						event,
-						view
-					};
-				}),
+				records: log.slice(start, end).map((event) => ({
+					type: "event",
+					event
+				})),
 				hasMore: start > 0
 			};
 		}
@@ -7904,8 +3491,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			inbox = [];
 			wake = null;
 			broken = false;
-			push(envelope) {
-				this.inbox.push(envelope);
+			push(value) {
+				this.inbox.push(value);
 				this.wake?.();
 			}
 			breakNow() {
@@ -7933,7 +3520,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				}
 			}
 		};
-		/** Build the fixture's legacy API and Remote RPC faces over one state graph. */
+		/** Build the fixture's Remote RPC face over one state graph. */
 		function createFixtureWorld(options) {
 			const sessions = options.empty ? [] : [
 				{
@@ -7960,6 +3547,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				}
 			];
 			const logs = new Map([[sid("fx-alpha"), buildAlphaLog()]]);
+			const goalActivations = /* @__PURE__ */ new Map();
 			const modelSelections = new Map(sessions.map((session) => [session.sessionId, {
 				provider: "deepseek-official",
 				model: "deepseek-v4-flash"
@@ -7970,6 +3558,109 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}]]);
 			/** Credential store double: set/unset flip the describe badge, values never read back. */
 			const fixtureCredentials = new Map([["DEEPSEEK_API_KEY", true]]);
+			/** Canonical fixture implementation of the generated Settings Remote contract. */
+			const settingsRemotes = {
+				describe() {
+					return {
+						ok: true,
+						value: {
+							writable: true,
+							hasDocument: true,
+							namespaces: [{
+								ns: "llm-deepseek",
+								schema: {},
+								value: { apiKeyEnv: "DEEPSEEK_API_KEY" },
+								applies: "live",
+								secrets: [{
+									path: ["apiKey"],
+									set: false
+								}],
+								revision: 0
+							}]
+						}
+					};
+				},
+				update(ns) {
+					return {
+						ok: false,
+						error: {
+							code: "settings/rejected",
+							message: "fixture: the minimal readiness settings descriptor is read-only",
+							details: { ns }
+						}
+					};
+				},
+				replace(ns) {
+					return {
+						ok: false,
+						error: {
+							code: "settings/rejected",
+							message: "fixture: the minimal readiness settings descriptor is read-only",
+							details: { ns }
+						}
+					};
+				},
+				mutate(ns) {
+					return {
+						ok: false,
+						error: {
+							code: "settings/rejected",
+							message: "fixture: no settings namespaces are registered",
+							details: { ns }
+						}
+					};
+				},
+				openSettingsDocument() {
+					return {
+						ok: true,
+						value: { opened: true }
+					};
+				},
+				openAgentPresetDirectory(agentPreset) {
+					const existing = fixturePresets.get(agentPreset);
+					if (existing === void 0 || existing.trust === "system") return {
+						ok: false,
+						error: {
+							code: "agent-preset/read-only",
+							message: `agent preset "${agentPreset}" ships with the deployment`,
+							details: {
+								agentPreset,
+								reason: "it ships with the deployment"
+							}
+						}
+					};
+					return {
+						ok: true,
+						value: { opened: true }
+					};
+				}
+			};
+			const credentialRemotes = {
+				describe(refs) {
+					return {
+						ok: true,
+						value: Object.fromEntries(refs.map((ref) => [ref, {
+							configured: fixtureCredentials.has(ref),
+							...fixtureCredentials.has(ref) ? { source: "file" } : {},
+							writable: true
+						}]))
+					};
+				},
+				set(ref) {
+					fixtureCredentials.set(ref, true);
+					return {
+						ok: true,
+						value: void 0
+					};
+				},
+				unset(ref) {
+					fixtureCredentials.delete(ref);
+					return {
+						ok: true,
+						value: void 0
+					};
+				}
+			};
 			/**
 			* Preset compositions the fixture serves. Held as state rather than
 			* constants so the settings editor's save and delete are exercisable: the
@@ -7992,8 +3683,6 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			let fixtureDefaultPreset = "standard";
 			const nextTurn = new Map([[sid("fx-alpha"), 75]]);
 			let nextSession = 1;
-			let nextRpc = 1;
-			let attachedSessions = options.empty ? 0 : 1;
 			const wid = (raw) => raw;
 			const fixtureEpoch = (/* @__PURE__ */ new Date(Date.now() - 3e5)).toISOString();
 			const FIXTURE_HOME = "/home/fixture";
@@ -8018,6 +3707,17 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			}];
 			let nextWorkspace = 1;
 			const archivedSessionIds = [];
+			const workspaceSnapshot = (workspace) => ({
+				...workspace,
+				sessionIds: [...workspace.sessionIds]
+			});
+			const workspaceBaseline = () => ({
+				type: "baseline",
+				value: {
+					items: workspaces.map(workspaceSnapshot),
+					archivedSessionIds: [...archivedSessionIds]
+				}
+			});
 			const directoryTree = new Map([
 				["/", ["home"]],
 				["/home", ["fixture"]],
@@ -8061,14 +3761,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				}
 				return crumbs;
 			};
-			const mint = () => RpcId(`fx-rpc-${nextRpc++}`);
-			/** Resident pending approval (stable rpcId: every mux open replays the same id while unanswered, matching host replay semantics). */
-			const pendingApprovalRpcId = mint();
-			const pendingApprovalId = "fx-approval-1";
-			/** Cleared once answered through respond; replay stops and approval/resolved is broadcast. */
-			let approvalPending = true;
-			const pendingQuestionRpcId = mint();
-			let questionPending = true;
+			/** Resident waterfalls retain their event ids across Remote Event generations. */
+			const pendingApprovalEventId = "fx-interaction-approval";
+			let approvalPending = !options.empty;
+			const pendingQuestionEventId = "fx-interaction-question";
+			let questionPending = !options.empty;
 			const fixtureQuestions = [
 				{
 					id: "harness-profile",
@@ -8114,59 +3811,123 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					]
 				}
 			];
-			const muxConns = /* @__PURE__ */ new Set();
-			const hostConns = /* @__PURE__ */ new Set();
-			const emitMux = (frame) => {
-				for (const conn of muxConns) conn.push({
-					rpcId: mint(),
-					payload: frame
+			const controlConns = /* @__PURE__ */ new Set();
+			const followConns = /* @__PURE__ */ new Map();
+			const activeAttempts = /* @__PURE__ */ new Map();
+			const assistantRevisions = /* @__PURE__ */ new Map();
+			const workspaceConns = /* @__PURE__ */ new Set();
+			const remoteEventConns = /* @__PURE__ */ new Map();
+			const emitControl = (frame) => {
+				for (const conn of controlConns) conn.push(frame);
+			};
+			const emitWorkspace = (frame) => {
+				for (const conn of workspaceConns) conn.push(frame);
+			};
+			const emitRemote = (event, args) => {
+				for (const conn of remoteEventConns.values()) conn.push({
+					type: "emit",
+					event,
+					args
 				});
 			};
-			const emitHost = (frame) => {
-				for (const conn of hostConns) conn.push({
-					rpcId: mint(),
-					payload: frame
+			const emitRemoteFrame = (frame) => {
+				for (const conn of remoteEventConns.values()) conn.push(frame);
+			};
+			const emitFollow = (sessionId, entry) => {
+				for (const conn of followConns.get(sessionId) ?? []) conn.push(entry);
+			};
+			const emitAssistant = (sessionId, frame) => {
+				for (const conn of followConns.get(sessionId) ?? []) conn.push({
+					type: "assistant-stream",
+					frame
 				});
 			};
-			/** OK response echoing the caller's rpcId (contract: responses always backfill, never mint). */
-			function ok(request, value) {
-				return Promise.resolve({
-					rpcId: request.rpcId,
-					result: {
-						ok: true,
-						value
+			const nextAssistantRevision = (sessionId) => {
+				const revision = (assistantRevisions.get(sessionId) ?? 0) + 1;
+				assistantRevisions.set(sessionId, revision);
+				return revision;
+			};
+			const beginAssistant = (sessionId, turn, step) => {
+				const attemptId = LlmAttemptId(`${sessionId}:fixture:${String(nextAssistantRevision(sessionId))}`);
+				const lastSeq = logOf(sessionId).length - 1;
+				const startedAfterSeq = lastSeq < 0 ? -1 : SessionSeq(lastSeq);
+				const attempt = {
+					attemptId,
+					startedAfterSeq,
+					turn,
+					step,
+					stream: new AssistantStreamAccumulator(),
+					index: 0
+				};
+				activeAttempts.set(sessionId, attempt);
+				emitAssistant(sessionId, {
+					type: "start",
+					attemptId,
+					revision: assistantRevisions.get(sessionId),
+					startedAfterSeq,
+					turn,
+					step
+				});
+				return attempt;
+			};
+			const pushAssistant = (sessionId, chunk) => {
+				const attempt = activeAttempts.get(sessionId);
+				if (attempt === void 0) throw new Error(`fixture: no active Assistant attempt for ${sessionId}`);
+				const timed = attempt.stream.push({
+					time: Date.now(),
+					chunk
+				});
+				emitAssistant(sessionId, {
+					type: "chunk",
+					attemptId: attempt.attemptId,
+					revision: nextAssistantRevision(sessionId),
+					index: attempt.index++,
+					time: timed.time,
+					chunk: timed.chunk
+				});
+			};
+			const commitAssistant = (sessionId, event) => {
+				const attempt = activeAttempts.get(sessionId);
+				if (attempt === void 0) throw new Error(`fixture: no active Assistant attempt for ${sessionId}`);
+				activeAttempts.delete(sessionId);
+				emitAssistant(sessionId, {
+					type: "end",
+					attemptId: attempt.attemptId,
+					revision: nextAssistantRevision(sessionId),
+					index: attempt.index,
+					outcome: {
+						kind: "committed",
+						eventType: event.type === "assistant/message" ? "assistant/message" : "assistant/attempt",
+						seq: event.seq
 					}
+				});
+			};
+			function sessionOk(value) {
+				return Promise.resolve({
+					ok: true,
+					value
 				});
 			}
-			function err(request, error) {
+			function sessionErr(error) {
 				return Promise.resolve({
-					rpcId: request.rpcId,
-					result: {
-						ok: false,
-						error
-					}
+					ok: false,
+					error
 				});
 			}
 			const summaryOf = (id) => sessions.find((s) => s.sessionId === id);
-			/** Shared session guard for sessionId-addressed catalog routes: the error
-			*  response when the session is unknown, undefined when it exists. */
-			const requireSession = (request) => {
-				if (summaryOf(request.payload.sessionId) !== void 0) return void 0;
-				return err(request, {
-					code: "session-not-found",
-					message: `no session ${request.payload.sessionId}`,
-					details: { sessionId: request.payload.sessionId }
+			const requireRemoteSession = (request) => {
+				if (summaryOf(request.sessionId) !== void 0) return void 0;
+				return sessionErr({
+					code: "session/not-found",
+					message: `no session ${request.sessionId}`,
+					details: { sessionId: request.sessionId }
 				});
 			};
 			const setRunning = (id, running) => {
 				const summary = summaryOf(id);
 				if (summary === void 0 || summary.running === running) return;
 				summary.running = running;
-				emitHost({
-					type: "host/session-status",
-					sessionId: id,
-					running
-				});
+				emitRemote("api-session/status", [id, running]);
 			};
 			const logOf = (id) => {
 				let log = logs.get(id);
@@ -8179,26 +3940,22 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const append = (id, e) => {
 				const log = logOf(id);
 				const event = {
-					seq: log.length,
+					seq: SessionSeq(log.length),
 					time: Date.now(),
 					...e
 				};
 				log.push(event);
-				const view = viewFor(event, log);
-				/* v8 ignore next 3 -- the view-present arm needs a live tool/call emission,
-				but the fixture replay produces text-only turns; view vocabulary is
-				exercised through the history samples (turns 60-62). */
-				emitMux(view === void 0 ? {
-					type: "session/event",
-					sessionId: id,
+				emitFollow(id, {
+					type: "event",
 					event
-				} : {
-					type: "session/event",
-					sessionId: id,
-					event,
-					view
 				});
-				for (const frame of projectionFramesOf(id, log, event)) emitMux(frame);
+				for (const frame of projectionFramesOf(id, log, event)) emitControl(frame);
+				if (event.type === "user/message" && event.data.source.kind === "user") {
+					const summary = summaryOf(id);
+					if (summary !== void 0) summary.updatedAt = event.time;
+					emitRemote("api-session/activity", [id, event.time]);
+				}
+				return event;
 			};
 			/** Append one durable goal/change (host GoalService parallel). */
 			const appendGoalChange = (id, change) => {
@@ -8209,10 +3966,30 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				});
 				return backscanGoal(log);
 			};
+			/** Update process-local goal activation and publish the forwarded edge. */
+			const setGoalActivation = (id, activation) => {
+				const current = backscanGoal(logOf(id));
+				if (current === null) {
+					if (!goalActivations.delete(id)) return;
+					emitRemote("goal/activation-changed", [{ sessionId: id }]);
+					return;
+				}
+				const previous = goalActivations.get(id);
+				goalActivations.set(id, activation);
+				if (previous === activation) return;
+				emitRemote("goal/activation-changed", [{
+					sessionId: id,
+					goal: {
+						id: current.goal.id,
+						revision: current.goal.revision,
+						activation
+					}
+				}]);
+			};
 			const goalFailure = (message) => ({
 				ok: false,
 				error: {
-					code: "internal",
+					code: "gateway/internal",
 					message,
 					details: {}
 				}
@@ -8220,7 +3997,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 			const requireGoalSession = (id) => summaryOf(id) === void 0 ? {
 				ok: false,
 				error: {
-					code: "session-not-found",
+					code: "session/not-found",
 					message: `no session ${id}`,
 					details: { sessionId: id }
 				}
@@ -8247,7 +4024,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								description: "set or view the goal for a long-running task",
 								input: {
 									hint: "<objective>",
-									images: true
+									attachments: true
 								}
 							},
 							{
@@ -8260,26 +4037,26 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 								description: "Enter or leave plan mode",
 								input: {
 									hint: "[off|message]",
-									images: true
+									attachments: true
 								}
 							}
 						]
 					};
 				},
-				execute(id, line, images = []) {
+				execute(id, line, attachments = []) {
 					const missing = requireGoalSession(id);
 					if (missing !== void 0) return missing;
 					const match = /^\/(\S+)((?:\s.*)?)$/.exec(line.trim());
 					const name = match?.[1];
 					const args = match?.[2] ?? "";
-					if (images.length > 0 && name !== void 0 && [
+					if (attachments.length > 0 && name !== void 0 && [
 						"permission",
 						"goal",
 						"compact",
 						"echo",
 						"plan"
 					].includes(name)) {
-						const rejection = name !== "goal" && name !== "plan" ? `/${name} does not accept image attachments` : name === "goal" && args.trim() === "" ? "Image attachments only accompany a goal objective: /goal <objective> or /goal edit <objective>." : name === "plan" && args.trim() === "off" ? "Image attachments cannot accompany /plan off." : void 0;
+						const rejection = name !== "goal" && name !== "plan" ? `/${name} does not accept attachments` : name === "goal" && args.trim() === "" ? "Attachments only accompany a goal objective: /goal <objective> or /goal edit <objective>." : name === "plan" && args.trim() === "off" ? "Attachments cannot accompany /plan off." : void 0;
 						if (rejection !== void 0) {
 							const commandId = `fx-cmd-${logOf(id).length}`;
 							append(id, {
@@ -8382,21 +4159,25 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						let text;
 						if (objective === "") text = current === null ? "No goal is set. Usage: /goal <objective>" : `Current goal: ${current.goal.objective}`;
 						else if (current !== null && current.goal.phase !== "complete") text = `A goal already exists (${current.goal.objective}). Clear it first.`;
-						else text = `Goal created: ${appendGoalChange(id, {
-							kind: "goal/change",
-							version: 1,
-							operation: "create",
-							goal: {
-								id: `fx-goal-${logOf(id).length}`,
-								revision: 1,
-								objective,
-								phase: "active",
-								maxGoalRounds: 256
-							},
-							roundsStarted: 0,
-							createdAt: Date.now(),
-							updatedAt: Date.now()
-						}).goal.objective}`;
+						else {
+							const created = appendGoalChange(id, {
+								kind: "goal/change",
+								version: 1,
+								operation: "create",
+								goal: {
+									id: `fx-goal-${logOf(id).length}`,
+									revision: 1,
+									objective,
+									phase: "active",
+									maxGoalRounds: 256
+								},
+								roundsStarted: 0,
+								createdAt: Date.now(),
+								updatedAt: Date.now()
+							});
+							setGoalActivation(id, "armed");
+							text = `Goal created: ${created.goal.objective}`;
+						}
 						const result = {
 							kind: "success",
 							text
@@ -8464,12 +4245,12 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					};
 				}
 			};
-			const goalView = (projection) => ({
+			const goalView = (id, projection) => ({
 				...projection.goal,
 				roundsStarted: projection.roundsStarted,
 				createdAt: projection.createdAt,
 				updatedAt: projection.updatedAt,
-				activation: projection.goal.phase === "active" ? "armed" : "disarmed"
+				activation: goalActivations.get(id) ?? (projection.goal.phase === "active" ? "armed" : "disarmed")
 			});
 			/** Canonical fixture implementation of the generated Goal Remote contract. */
 			/** Canonical fixture implementation of the generated reference-discovery Remote contracts. */
@@ -8516,7 +4297,288 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					};
 				}
 			};
+			/**
+			* Workspace text reads under `?fixture`.
+			*
+			* The sample content is deliberately more than one shape: the panel's states
+			* (text, oversized, unreadable) are only demonstrable if the fixture can
+			* produce each of them, and a preview that can only ever succeed hides its
+			* own failure rendering.
+			*/
+			const WORKSPACE_FILES_ROOT = "/tmp/fixture";
+			const workspaceFileTree = new Map([
+				["", [
+					{
+						name: ".gitignore",
+						type: "file",
+						size: 24
+					},
+					{
+						name: "dev.sock",
+						type: "other"
+					},
+					{
+						name: "notes",
+						type: "directory"
+					},
+					{
+						name: "package.json",
+						type: "file",
+						size: 512
+					},
+					{
+						name: "README.md",
+						type: "file",
+						size: 640
+					},
+					{
+						name: "src",
+						type: "directory"
+					}
+				]],
+				["notes", [{
+					name: "demo.txt",
+					type: "file",
+					size: 14
+				}, {
+					name: "new-demo.txt",
+					type: "file",
+					size: 14
+				}]],
+				["src", [
+					{
+						name: "config.ts",
+						type: "file",
+						size: 211
+					},
+					{
+						name: "index.ts",
+						type: "file",
+						size: 88
+					},
+					{
+						name: "lib",
+						type: "directory"
+					}
+				]],
+				["src/lib", Array.from({ length: 24 }, (_, index) => ({
+					name: `module-${String(index + 1).padStart(2, "0")}.ts`,
+					type: "file",
+					size: 96 + index
+				}))]
+			]);
+			/** Resolve a `list` argument to its workspace-relative path, or undefined when it leaves the root. */
+			const workspaceFilePath = (path) => {
+				const segments = [];
+				for (const segment of (path.startsWith("/") ? path : `${WORKSPACE_FILES_ROOT}/${path}`).split("/")) {
+					if (segment === "" || segment === ".") continue;
+					if (segment === "..") {
+						segments.pop();
+						continue;
+					}
+					segments.push(segment);
+				}
+				const absolute = `/${segments.join("/")}`;
+				if (absolute !== WORKSPACE_FILES_ROOT && !absolute.startsWith(`${WORKSPACE_FILES_ROOT}/`)) return void 0;
+				return absolute.slice(13);
+			};
+			const WORKSPACE_FILE_PAGE_LINES = 5e3;
+			/**
+			* Sample text for any readable path: a heading plus two lines of copy. The
+			* replayed conversation's `demo` files, and any `huge` path, run past two
+			* default pages so paging can be exercised without a real workspace.
+			*/
+			const workspaceFileLines = (path) => {
+				const head = [
+					`# ${path.slice(path.lastIndexOf("/") + 1)}`,
+					"",
+					"fixture 模式下的示例文本，用于验收侧栏的文本预览。",
+					"真实构建从工作区读取同名文件。"
+				];
+				return path.includes("demo") || path.includes("huge") ? [...head, ...Array.from({ length: 12e3 }, (_, index) => `第 ${index + 5} 行：用于验收分页与滚动的长文本样本。`)] : head;
+			};
+			const workspaceFileRemotes = {
+				list(path) {
+					if (path.length === 0) return {
+						ok: false,
+						error: {
+							code: "gateway/bad-request",
+							message: "path is required",
+							details: {}
+						}
+					};
+					const relative = workspaceFilePath(path);
+					if (relative === void 0) return {
+						ok: false,
+						error: {
+							code: "workspace-file/outside-workspace",
+							message: `${path} is outside the workspace`,
+							details: { path }
+						}
+					};
+					const entries = workspaceFileTree.get(relative);
+					if (entries === void 0) {
+						const cut = relative.lastIndexOf("/");
+						const name = relative.slice(cut + 1);
+						const sibling = workspaceFileTree.get(cut === -1 ? "" : relative.slice(0, cut))?.find((entry) => entry.name === name);
+						if (sibling === void 0) return {
+							ok: false,
+							error: {
+								code: "workspace-file/not-found",
+								message: `no entry at ${path}`,
+								details: { path }
+							}
+						};
+						return {
+							ok: false,
+							error: {
+								code: "workspace-file/not-directory",
+								message: `${path} is a ${sibling.type}`,
+								details: {
+									path,
+									kind: sibling.type === "file" ? "file" : "other"
+								}
+							}
+						};
+					}
+					return {
+						ok: true,
+						value: {
+							path: relative,
+							entries,
+							truncated: relative === "src/lib"
+						}
+					};
+				},
+				read(path, range) {
+					const located = workspaceFileRemotes.stat(path);
+					if (!located.ok) return located;
+					const offset = range.offset ?? 1;
+					const limit = range.limit ?? WORKSPACE_FILE_PAGE_LINES;
+					if (!Number.isInteger(offset) || offset < 1 || !Number.isInteger(limit) || limit < 1 || limit > WORKSPACE_FILE_PAGE_LINES) return {
+						ok: false,
+						error: {
+							code: "gateway/bad-request",
+							message: "offset and limit must be positive integers within the page cap",
+							details: {}
+						}
+					};
+					const lines = workspaceFileLines(path);
+					const page = lines.slice(offset - 1, offset - 1 + limit);
+					return {
+						ok: true,
+						value: {
+							...located.value,
+							offset,
+							text: page.join("\n"),
+							lines: page.length,
+							eof: offset - 1 + limit >= lines.length
+						}
+					};
+				},
+				stat(path) {
+					if (path.length === 0) return {
+						ok: false,
+						error: {
+							code: "gateway/bad-request",
+							message: "path is required",
+							details: {}
+						}
+					};
+					if (path.endsWith(".png") || path.endsWith(".bin")) return {
+						ok: false,
+						error: {
+							code: "workspace-file/not-text",
+							message: `${path} is not UTF-8 text`,
+							details: { path }
+						}
+					};
+					return {
+						ok: true,
+						value: {
+							absolutePath: path.startsWith("/") ? path : `/${path}`,
+							version: "fx-v1",
+							bytes: new TextEncoder().encode(workspaceFileLines(path).join("\n")).byteLength
+						}
+					};
+				}
+			};
+			/**
+			* Canonical fixture implementation of the generated Directory Picker Remote
+			* contract. The pick is deterministic — the keyless lanes drive the full
+			* pick-then-adopt path without an OS chooser — over the same design-mock
+			* tree the browse primitives serve.
+			*/
+			const directoryPickerRemotes = {
+				pick() {
+					return {
+						ok: true,
+						value: `${FIXTURE_HOME}/Documents/project`
+					};
+				},
+				list(path) {
+					const target = path ?? FIXTURE_HOME;
+					const children = childrenOf(target);
+					if (children === void 0) return {
+						ok: false,
+						error: {
+							code: "directory-picker/unreadable",
+							message: `cannot list ${target}: not in the fixture tree`,
+							details: { path: target }
+						}
+					};
+					return {
+						ok: true,
+						value: {
+							path: target,
+							home: FIXTURE_HOME,
+							crumbs: crumbsOf(target),
+							entries: [...children].sort((a, b) => a.localeCompare(b)).map((name) => ({
+								name,
+								path: target === "/" ? `/${name}` : `${target}/${name}`,
+								hidden: name.startsWith(".")
+							})),
+							truncated: false
+						}
+					};
+				},
+				createDirectory(parent, name) {
+					const children = childrenOf(parent);
+					if (children === void 0) return {
+						ok: false,
+						error: {
+							code: "directory-picker/create-failed",
+							message: `missing parent ${parent}`,
+							details: { path: parent }
+						}
+					};
+					const target = parent === "/" ? `/${name}` : `${parent}/${name}`;
+					if (children.includes(name)) return {
+						ok: false,
+						error: {
+							code: "directory-picker/exists",
+							message: `${target} already exists`,
+							details: { path: target }
+						}
+					};
+					directoryTree.set(parent, [...children, name]);
+					directoryTree.set(target, []);
+					return {
+						ok: true,
+						value: target
+					};
+				}
+			};
 			const goalRemotes = {
+				get(id) {
+					const missing = requireGoalSession(id);
+					if (missing !== void 0) return missing;
+					const current = backscanGoal(logOf(id));
+					return {
+						ok: true,
+						value: current === null ? void 0 : goalView(id, current)
+					};
+				},
 				create(id, request) {
 					const missing = requireGoalSession(id);
 					if (missing !== void 0) return missing;
@@ -8538,6 +4600,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						createdAt: now,
 						updatedAt: now
 					});
+					setGoalActivation(id, "armed");
 					return {
 						ok: true,
 						value: { ref: {
@@ -8590,6 +4653,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						cleared: tombstone,
 						clearedAt: Date.now()
 					});
+					setGoalActivation(id, "disarmed");
 					return {
 						ok: true,
 						value: tombstone
@@ -8614,34 +4678,122 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const current = resolved.value;
 				const goal = next(current);
 				if (goal === void 0) return goalFailure(`invalid goal transition from "${current.goal.phase}"`);
+				const currentActivation = goalActivations.get(id) ?? (current.goal.phase === "active" ? "armed" : "disarmed");
+				const activation = goal.phase === "active" ? current.goal.phase === "active" ? currentActivation : "armed" : "disarmed";
+				const projection = appendGoalChange(id, {
+					kind: "goal/change",
+					version: 1,
+					operation: goal.phase === current.goal.phase ? "edit" : goal.phase === "paused" ? "pause" : goal.phase === "active" ? "resume" : "complete",
+					goal,
+					roundsStarted: current.roundsStarted,
+					createdAt: current.createdAt,
+					updatedAt: Date.now()
+				});
+				setGoalActivation(id, activation);
 				return {
 					ok: true,
-					value: goalView(appendGoalChange(id, {
-						kind: "goal/change",
-						version: 1,
-						operation: goal.phase === current.goal.phase ? "edit" : goal.phase === "paused" ? "pause" : goal.phase === "active" ? "resume" : "complete",
-						goal,
-						roundsStarted: current.roundsStarted,
-						createdAt: current.createdAt,
-						updatedAt: Date.now()
-					}))
+					value: goalView(id, projection)
 				};
 			}
-			const mapGoalResult = (result, map) => result.ok ? {
-				ok: true,
-				value: map(result.value)
-			} : result;
-			const goalRefResult = (result) => mapGoalResult(result, (view) => ({ ref: {
-				id: view.id,
-				revision: view.revision
-			} }));
-			const legacyGoalResponse = (request, result) => Promise.resolve({
-				rpcId: request.rpcId,
-				result
-			});
+			/** Canonical fixture implementation of the generated AgentPresets Remote contract. */
+			const presetRemotes = {
+				list() {
+					return {
+						ok: true,
+						value: {
+							presets: [...fixturePresets].map(([id, preset]) => ({
+								id,
+								trust: preset.trust,
+								isDefault: id === fixtureDefaultPreset
+							})),
+							authorable: true
+						}
+					};
+				},
+				select(_id, agentPreset) {
+					fixtureDefaultPreset = agentPreset;
+					return {
+						ok: true,
+						value: agentPreset
+					};
+				},
+				read(agentPreset) {
+					const preset = fixturePresets.get(agentPreset);
+					if (preset === void 0) return {
+						ok: false,
+						error: {
+							code: "agent-preset/not-found",
+							message: `unknown agent preset "${agentPreset}"`,
+							details: {
+								agentPreset,
+								available: [...fixturePresets.keys()]
+							}
+						}
+					};
+					return {
+						ok: true,
+						value: {
+							agentPreset,
+							trust: preset.trust,
+							content: preset.content
+						}
+					};
+				},
+				copy(from, id) {
+					const source = fixturePresets.get(from);
+					if (source === void 0) return {
+						ok: false,
+						error: {
+							code: "agent-preset/not-found",
+							message: `unknown agent preset "${from}"`,
+							details: {
+								agentPreset: from,
+								available: [...fixturePresets.keys()]
+							}
+						}
+					};
+					if (fixturePresets.has(id)) return {
+						ok: false,
+						error: {
+							code: "agent-preset/invalid",
+							message: `agent preset "${id}" already exists`,
+							details: {
+								agentPreset: id,
+								reason: "already exists"
+							}
+						}
+					};
+					fixturePresets.set(id, {
+						trust: "user",
+						content: source.content
+					});
+					return {
+						ok: true,
+						value: void 0
+					};
+				},
+				deletePreset(id) {
+					if (fixturePresets.get(id)?.trust === "system") return {
+						ok: false,
+						error: {
+							code: "agent-preset/read-only",
+							message: `agent preset "${id}" ships with the deployment`,
+							details: {
+								agentPreset: id,
+								reason: "it ships with the deployment"
+							}
+						}
+					};
+					fixturePresets.delete(id);
+					return {
+						ok: true,
+						value: void 0
+					};
+				}
+			};
 			/** At most one in-flight replay per session; cancel clears it. */
 			const replays = /* @__PURE__ */ new Map();
-			/** history transit delay (timing hooks below); the page snapshot is taken at request time, like a real host. */
+			/** History transit delay; the page snapshot is taken at request time. */
 			let historyDelayMs = 0;
 			/** One-shot history failure (timing hook: a pre-disconnect history request already doomed when reconnect lands). */
 			let failNextHistory = false;
@@ -8659,7 +4811,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				failNextHistory() {
 					failNextHistory = true;
 				},
-				/** Log append + mux emit (the normal live path). */
+				/** Log append plus follow-stream delivery (the normal live path). */
 				appendUser(id, msg) {
 					append(sid(id), {
 						type: "user/message",
@@ -8681,6 +4833,16 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							}
 						}
 					});
+				},
+				/** Disarm the single active goal without a durable phase change. */
+				disarmOnlyGoal() {
+					const active = [...logs.entries()].filter(([, log]) => {
+						return backscanGoal(log)?.goal.phase === "active";
+					});
+					if (active.length !== 1) throw new Error(`fixture: expected one active goal, found ${String(active.length)}`);
+					const [session] = active;
+					if (session === void 0) return;
+					setGoalActivation(session[0], "disarmed");
 				},
 				/** Start an externally paced reasoning stream for the opt-in browser stress lane. */
 				startReasoningChunkStorm(id, chunkCount, chunksPerInterval, intervalMs) {
@@ -8730,38 +4892,22 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							step: 0
 						}
 					});
-					append(sessionId, {
-						type: "assistant/chunk",
-						data: {
-							turn,
-							step: 0,
-							chunk: {
-								type: "block-start",
-								index: 0,
-								blockType: "reasoning"
-							}
-						}
+					beginAssistant(sessionId, turn, 0);
+					pushAssistant(sessionId, {
+						type: "block-start",
+						index: 0,
+						blockType: "reasoning"
 					});
 					const startedAt = Date.now();
 					const pump = () => {
 						const elapsedIntervals = Math.floor((Date.now() - startedAt) / intervalMs) + 1;
 						const due = Math.max(state.emitted + chunksPerInterval, elapsedIntervals * chunksPerInterval);
 						const end = Math.min(due, chunkCount);
-						for (let index = state.emitted; index < end; index++) {
-							const chunkText = index === chunkCount - 1 ? `\n${marker}` : index % 64 === 63 ? "推理\n" : "推理";
-							append(sessionId, {
-								type: "assistant/chunk",
-								data: {
-									turn,
-									step: 0,
-									chunk: {
-										type: "reasoning-delta",
-										index: 0,
-										text: chunkText
-									}
-								}
-							});
-						}
+						for (let index = state.emitted; index < end; index++) pushAssistant(sessionId, {
+							type: "reasoning-delta",
+							index: 0,
+							text: index === chunkCount - 1 ? `\n${marker}` : index % 64 === 63 ? "推理\n" : "推理"
+						});
 						state.emitted = end;
 						if (end < chunkCount) setTimeout(pump, intervalMs);
 						else state.emitting = false;
@@ -8802,29 +4948,16 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							step: 1
 						}
 					});
-					append(sessionId, {
-						type: "assistant/chunk",
-						data: {
-							turn,
-							step: 1,
-							chunk: {
-								type: "block-start",
-								index: 0,
-								blockType: "text"
-							}
-						}
+					beginAssistant(sessionId, turn, 1);
+					pushAssistant(sessionId, {
+						type: "block-start",
+						index: 0,
+						blockType: "text"
 					});
-					append(sessionId, {
-						type: "assistant/chunk",
-						data: {
-							turn,
-							step: 1,
-							chunk: {
-								type: "text-delta",
-								index: 0,
-								text: "应撤回的半截回复"
-							}
-						}
+					pushAssistant(sessionId, {
+						type: "text-delta",
+						index: 0,
+						text: "应撤回的半截回复"
 					});
 				},
 				/** Record one retry decision; the next attempt remains in the same step. */
@@ -8833,32 +4966,39 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					const scenario = retryScenarios.get(sessionId);
 					if (scenario === void 0) throw new Error(`fixture: no model retry scenario for ${id}`);
 					if (!scenario.stepStarted) {
-						append(sessionId, {
-							type: "assistant/chunk",
-							data: {
-								turn: scenario.turn,
-								step: 1,
-								chunk: {
-									type: "block-start",
-									index: 0,
-									blockType: "text"
-								}
-							}
+						beginAssistant(sessionId, scenario.turn, 1);
+						pushAssistant(sessionId, {
+							type: "block-start",
+							index: 0,
+							blockType: "text"
 						});
-						append(sessionId, {
-							type: "assistant/chunk",
-							data: {
-								turn: scenario.turn,
-								step: 1,
-								chunk: {
-									type: "text-delta",
-									index: 0,
-									text: `第 ${String(retry)} 次应撤回的回复`
-								}
-							}
+						pushAssistant(sessionId, {
+							type: "text-delta",
+							index: 0,
+							text: `第 ${String(retry)} 次应撤回的回复`
 						});
 						scenario.stepStarted = true;
 					}
+					const failure = {
+						code: "TRANSPORT",
+						message: "连接被重置"
+					};
+					pushAssistant(sessionId, {
+						type: "finish",
+						reason: {
+							kind: "error",
+							failure
+						}
+					});
+					const attempt = activeAttempts.get(sessionId);
+					commitAssistant(sessionId, append(sessionId, {
+						type: "assistant/attempt",
+						data: {
+							turn: scenario.turn,
+							step: 1,
+							stream: attempt.stream.snapshot()
+						}
+					}));
 					append(sessionId, {
 						type: "llm/retry",
 						data: {
@@ -8870,10 +5010,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							retry,
 							maxRetries: 2,
 							delayMs,
-							failure: {
-								code: "TRANSPORT",
-								message: "连接被重置"
-							}
+							failure
 						}
 					});
 					scenario.stepStarted = false;
@@ -8883,6 +5020,28 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					const sessionId = sid(id);
 					const scenario = retryScenarios.get(sessionId);
 					if (scenario === void 0) throw new Error(`fixture: no model retry scenario for ${id}`);
+					const failure = {
+						code: "TRANSPORT",
+						message: "连接被重置"
+					};
+					const active = activeAttempts.get(sessionId);
+					if (active !== void 0) {
+						pushAssistant(sessionId, {
+							type: "finish",
+							reason: {
+								kind: "error",
+								failure
+							}
+						});
+						commitAssistant(sessionId, append(sessionId, {
+							type: "assistant/attempt",
+							data: {
+								turn: scenario.turn,
+								step: 1,
+								stream: active.stream.snapshot()
+							}
+						}));
+					}
 					append(sessionId, {
 						type: "llm/retry",
 						data: {
@@ -8894,10 +5053,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 							retry: 1,
 							maxRetries: 2,
 							delayMs,
-							failure: {
-								code: "TRANSPORT",
-								message: "连接被重置"
-							}
+							failure
 						}
 					});
 					append(sessionId, {
@@ -8926,27 +5082,41 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					const scenario = retryScenarios.get(sessionId);
 					if (scenario === void 0) throw new Error(`fixture: no model retry scenario for ${id}`);
 					retryScenarios.delete(sessionId);
-					append(sessionId, {
-						type: "assistant/chunk",
-						data: {
-							turn: scenario.turn,
-							step: 1,
-							chunk: {
-								type: "block-start",
-								index: 0,
-								blockType: "text"
-							}
+					const completed = "重试后的完整回复";
+					beginAssistant(sessionId, scenario.turn, 1);
+					pushAssistant(sessionId, {
+						type: "block-start",
+						index: 0,
+						blockType: "text"
+					});
+					pushAssistant(sessionId, {
+						type: "text-delta",
+						index: 0,
+						text: completed
+					});
+					pushAssistant(sessionId, {
+						type: "block-end",
+						index: 0,
+						block: {
+							type: "text",
+							text: completed
 						}
 					});
-					append(sessionId, {
+					pushAssistant(sessionId, {
+						type: "finish",
+						reason: { kind: "stop" }
+					});
+					const attempt = activeAttempts.get(sessionId);
+					commitAssistant(sessionId, append(sessionId, {
 						type: "assistant/message",
 						surfaceOp: "append",
 						data: {
 							turn: scenario.turn,
 							step: 1,
-							message: assistantMessage(text("重试后的完整回复"))
+							message: assistantMessage(text(completed)),
+							stream: attempt.stream.snapshot()
 						}
-					});
+					}));
 					append(sessionId, {
 						type: "step/end",
 						data: {
@@ -8963,13 +5133,13 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					});
 					setRunning(sessionId, false);
 				},
-				/** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
+				/** Log append without follow delivery: a frame lost in transit that page repair must recover. */
 				appendSilent(id, msg) {
 					const log = logOf(sid(id));
 					log.push({
 						type: "user/message",
 						surfaceOp: "append",
-						seq: log.length,
+						seq: SessionSeq(log.length),
 						time: Date.now(),
 						data: userMessage(text(msg))
 					});
@@ -8989,17 +5159,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						step
 					}
 				});
-				append(id, {
-					type: "assistant/chunk",
-					data: {
-						turn,
-						step,
-						chunk: {
-							type: "block-start",
-							index: 0,
-							blockType: "text"
-						}
-					}
+				beginAssistant(id, turn, step);
+				pushAssistant(id, {
+					type: "block-start",
+					index: 0,
+					blockType: "text"
 				});
 				/* v8 ignore next -- the ?? arm needs a null match, but every fixture reply is non-empty. */
 				const pieces = replyText.match(/[\s\S]{1,6}/gu) ?? [replyText];
@@ -9007,31 +5171,35 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				const finish = (aborted) => {
 					replays.delete(id);
 					const done = pieces.slice(0, i).join("");
-					append(id, {
-						type: "assistant/chunk",
-						data: {
-							turn,
-							step,
-							chunk: {
-								type: "block-end",
-								index: 0,
-								block: {
-									type: "text",
-									text: done
-								}
-							}
+					pushAssistant(id, {
+						type: "block-end",
+						index: 0,
+						block: {
+							type: "text",
+							text: done
 						}
 					});
-					append(id, {
+					pushAssistant(id, {
+						type: "usage",
+						usage: fixtureUsage(turn, step)
+					});
+					if (!aborted) pushAssistant(id, {
+						type: "finish",
+						reason: { kind: "stop" }
+					});
+					const attempt = activeAttempts.get(id);
+					commitAssistant(id, append(id, {
 						type: "assistant/message",
 						surfaceOp: "append",
 						data: {
 							turn,
 							step,
-							message: assistantMessage(text(aborted ? `${done}（已中断）` : done)),
-							usage: fixtureUsage(turn, step)
+							message: assistantMessage(text(done)),
+							stream: attempt.stream.snapshot(),
+							usage: fixtureUsage(turn, step),
+							...aborted ? { interrupted: true } : {}
 						}
-					});
+					}));
 					append(id, {
 						type: "step/end",
 						data: {
@@ -9043,7 +5211,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						type: "turn/end",
 						data: {
 							turn,
-							reason: { kind: aborted ? "cancelled" : "completed" }
+							reason: aborted ? {
+								kind: "aborted",
+								reason: { kind: "user" }
+							} : { kind: "completed" }
 						}
 					});
 					setRunning(id, false);
@@ -9055,17 +5226,10 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 						return;
 					}
 					i++;
-					append(id, {
-						type: "assistant/chunk",
-						data: {
-							turn,
-							step,
-							chunk: {
-								type: "text-delta",
-								index: 0,
-								text: piece
-							}
-						}
+					pushAssistant(id, {
+						type: "text-delta",
+						index: 0,
+						text: piece
 					});
 					replays.set(id, {
 						timer: setTimeout(tick, 80),
@@ -9077,1017 +5241,905 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 					finish
 				});
 			};
-			return {
-				api: {
-					sessions: {
-						list: (request) => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
-						search: (request, signal) => {
-							if (signal.aborted) return err(request, {
-								code: "cancelled",
-								message: "fixture session search was aborted",
-								details: {}
-							});
-							const query = searchTokenSpans(request.payload.query).tokens.map((token) => token.value);
-							const matches = sessions.flatMap((summary) => {
-								const log = logs.get(summary.sessionId) ?? [];
-								const current = new Set(foldSurface(log).nodes);
-								const best = log.flatMap((event) => {
-									if (!current.has(event.seq)) return [];
-									const eventText = searchEventText(event);
-									const document = searchTokenSpans(eventText);
-									const match = phraseMatch(document.tokens, query);
-									if (match.count === 0) return [];
-									return [{
-										sessionId: summary.sessionId,
-										seq: event.seq,
-										time: event.time,
-										text: document.text,
-										matchCount: match.count,
-										matchStart: match.start,
-										matchEnd: match.end,
-										documentLength: Array.from(eventText).length
-									}];
-								}).sort(compareSearchCandidates)[0];
-								return best === void 0 ? [] : [best];
-							}).sort(compareSearchCandidates);
-							return ok(request, {
-								items: matches.slice(0, 20).map((match) => ({
-									sessionId: match.sessionId,
-									snippet: searchSnippet(match.text, match.matchStart, match.matchEnd)
-								})),
-								hasMore: matches.length > 20
-							});
-						},
-						create: async (request) => {
-							const workspace = request.payload.workspaceId === void 0 ? void 0 : workspaces.find((w) => w.workspaceId === request.payload.workspaceId);
-							if (request.payload.workspaceId !== void 0 && workspace === void 0) return err(request, {
-								code: "workspace-not-found",
-								message: `no workspace ${request.payload.workspaceId}`,
-								details: { workspaceId: request.payload.workspaceId }
-							});
-							const cwd = workspace?.path ?? request.payload.cwd ?? "/tmp/fixture";
-							const requestedId = request.payload.sessionId;
-							const attachWorkspace = (sessionId) => {
-								/* v8 ignore next -- callers enter only when a target Workspace exists. */
-								if (workspace === void 0 || workspace.sessionIds.includes(sessionId)) return;
-								workspace.sessionIds = [sessionId, ...workspace.sessionIds];
-								workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-								emitHost({
-									type: "host/workspace-changed",
-									workspace: { ...workspace }
-								});
-							};
-							const attachFailure = (sessionId, workspaceId) => err(request, {
-								code: "workspace-attach-failed",
-								message: `fixture rejected Workspace attachment for ${sessionId}`,
-								details: {
-									sessionId,
-									workspaceId
-								}
-							});
-							if (requestedId !== void 0) {
-								const existing = summaryOf(requestedId);
-								if (existing !== void 0) {
-									if (existing.cwd !== cwd) return err(request, {
-										code: "session-conflict",
-										message: `session ${requestedId} already uses ${existing.cwd ?? "no cwd"}`,
-										details: {
-											sessionId: requestedId,
-											requestedCwd: cwd,
-											...existing.cwd === void 0 ? {} : { existingCwd: existing.cwd }
-										}
-									});
-									if (workspace !== void 0 && !workspace.sessionIds.includes(requestedId)) {
-										if (options.failWorkspaceAttach) return attachFailure(requestedId, workspace.workspaceId);
-										attachWorkspace(requestedId);
-									}
-									return ok(request, { sessionId: requestedId });
-								}
-							}
-							const created = {
-								sessionId: requestedId ?? sid(`fx-${nextSession++}`),
-								updatedAt: Date.now(),
-								running: false,
-								blank: true,
-								cwd
-							};
-							sessions.push(created);
-							modelSelections.set(created.sessionId, {
-								provider: "deepseek-official",
-								model: "deepseek-v4-flash"
-							});
-							attachedSessions += 1;
-							const emitSession = () => {
-								emitHost({
-									type: "host/session-added",
-									sessionId: created.sessionId,
-									blank: true,
-									cwd
-								});
-							};
-							if (workspace !== void 0 && options.failWorkspaceAttach) {
-								emitSession();
-								return attachFailure(created.sessionId, workspace.workspaceId);
-							}
-							if (workspace !== void 0 && options.createFrameOrder === "workspace-first") {
-								attachWorkspace(created.sessionId);
-								emitSession();
-							} else {
-								emitSession();
-								if (workspace !== void 0) attachWorkspace(created.sessionId);
-							}
-							if (options.dropSessionCreateResponse) throw new Error("fixture: dropped session.create response after publication");
-							return ok(request, { sessionId: created.sessionId });
-						},
-						rename: (request) => {
-							const missing = requireSession(request);
-							if (missing !== void 0) return missing;
-							const { sessionId, title } = request.payload;
-							const normalized = title.trim().replace(/\s+/g, " ");
-							if (normalized.length === 0) return err(request, {
-								code: "title-invalid",
-								message: "session title must contain visible characters",
-								details: { sessionId }
-							});
-							append(sessionId, {
-								type: "session/title",
-								data: {
-									title: normalized,
-									messageSeqs: [],
-									source: { kind: "user" }
-								}
-							});
-							return ok(request, {
-								title: normalized,
-								seq: logOf(sessionId).at(-1).seq
-							});
-						},
-						fork: (request) => {
-							const { sessionId, atSeq } = request.payload;
-							const source = summaryOf(sessionId);
-							if (source === void 0) return err(request, {
-								code: "session-not-found",
-								message: `no session ${sessionId}`,
-								details: { sessionId }
-							});
-							const log = logs.get(sessionId) ?? [];
-							const lastSeq = log.at(-1)?.seq ?? -1;
-							const boundary = (atSeq === void 0 ? void 0 : log.find((e) => e.type === "turn/end" && e.seq >= atSeq)) ?? (atSeq === void 0 || atSeq > lastSeq ? log.findLast((e) => e.type === "turn/end") : void 0);
-							if (boundary === void 0) return err(request, {
-								code: "fork-unavailable",
-								message: atSeq !== void 0 && atSeq <= lastSeq ? `session ${sessionId} has not completed the turn containing event ${String(atSeq)}` : `session ${sessionId} has no completed turn`,
-								details: { sessionId }
-							});
-							let cut = boundary.seq + 1;
-							while (cut < log.length && log[cut]?.type !== "turn/start") cut++;
-							const child = {
-								sessionId: sid(`fx-${nextSession++}`),
-								updatedAt: Date.now(),
-								running: false,
-								blank: false,
-								parentSessionId: sessionId,
-								...source.cwd === void 0 ? {} : { cwd: source.cwd }
-							};
-							logs.set(child.sessionId, log.slice(0, cut));
-							sessions.push(child);
-							emitHost({
-								type: "host/session-added",
-								sessionId: child.sessionId,
-								blank: false,
-								parentSessionId: sessionId,
-								...source.cwd === void 0 ? {} : { cwd: source.cwd }
-							});
-							const workspace = workspaces.find((w) => w.sessionIds.includes(sessionId));
-							if (workspace !== void 0) {
-								workspace.sessionIds = [child.sessionId, ...workspace.sessionIds];
-								workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-								emitHost({
-									type: "host/workspace-changed",
-									workspace: { ...workspace }
-								});
-							}
-							return ok(request, { sessionId: child.sessionId });
-						},
-						history: async (request) => {
-							const log = logs.get(request.payload.sessionId) ?? [];
-							const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50);
-							const projections = request.payload.beforeSeq === void 0 ? {
-								asOfSeq: log.length - 1,
-								values: projectionValuesOf(log)
-							} : void 0;
-							const doomed = failNextHistory;
-							failNextHistory = false;
-							const delay = historyDelayMs;
-							if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-							if (doomed) throw new Error("fixture: simulated history transport failure");
-							return ok(request, {
-								...page,
-								...projections === void 0 ? {} : { projections }
-							});
-						},
-						models: (request) => ok(request, {
-							current: modelSelections.get(request.payload.sessionId) ?? {
-								provider: "deepseek-official",
-								model: "deepseek-v4-flash"
-							},
-							routable: true,
-							groups: fixtureModelGroups(),
-							failures: []
-						}),
-						selectModel: (request) => {
-							const selected = {
-								provider: request.payload.provider,
-								model: request.payload.model,
-								...request.payload.reasoningEffort === void 0 ? {} : { reasoningEffort: request.payload.reasoningEffort }
-							};
-							modelSelections.set(request.payload.sessionId, selected);
-							return ok(request, { selected });
-						},
-						prompt: (request) => {
-							const { sessionId: id, mode, content } = request.payload;
-							const summary = summaryOf(id);
-							if (summary === void 0) return err(request, {
-								code: "session-not-found",
-								message: `no session ${id}`,
-								details: { sessionId: id }
-							});
-							if (options.rejectPrompt) {
-								if (content.some((block) => block.type === "image")) return err(request, {
-									code: "attachment-error",
-									message: "fixture: image side exceeds the deployment limit",
-									details: { reason: "IMAGE_DIMENSION_TOO_LARGE" }
-								});
-								return err(request, {
-									code: "agent-busy",
-									message: "fixture: prompt rejected before acceptance",
-									details: { reason: "fixture-prompt-rejection" }
-								});
-							}
-							summary.updatedAt = Date.now();
-							summary.blank = false;
-							const userText = content.map((b) => b.type === "text" ? b.text : "").join("");
-							const durable = content.map((block) => {
-								if (block.type === "text") return block;
-								const attachment = {
-									attachmentId: `fixture:${randomUuid()}`,
-									mediaType: block.mediaType,
-									bytes: Math.max(1, Math.floor(block.data.length * 3 / 4) - (block.data.endsWith("==") ? 2 : block.data.endsWith("=") ? 1 : 0)),
-									width: 160,
-									height: 90,
-									...block.name === void 0 ? {} : { name: block.name }
-								};
-								attachments.set(String(attachment.attachmentId), {
-									attachment,
-									data: block.data
-								});
-								return {
-									type: "image",
-									attachment
-								};
-							});
-							if (mode === "steer" && replays.has(id)) {
-								append(id, {
-									type: "user/message",
-									surfaceOp: "append",
-									data: userMessage(durable)
-								});
-								return ok(request, { accepted: true });
-							}
-							const turn = nextTurn.get(id) ?? 0;
-							nextTurn.set(id, turn + 1);
-							setRunning(id, true);
-							append(id, {
-								type: "turn/start",
-								data: { turn }
-							});
-							const plan = foldPlan(logOf(id));
-							if (plan.wanted !== null && plan.wanted !== plan.active) append(id, {
-								type: "plan/mode",
-								data: { active: plan.wanted }
-							});
-							append(id, {
-								type: "user/message",
-								surfaceOp: "append",
-								data: userMessage(durable)
-							});
-							const selection = modelSelections.get(id) ?? {
-								provider: "deepseek",
-								model: "deepseek-v4-flash"
-							};
-							if (lastRequestContext(logOf(id))?.model !== selection.model) append(id, {
-								type: "request/context",
-								data: {
-									provider: selection.provider,
-									model: selection.model,
-									contextWindow: 128e3
-								}
-							});
-							startReply(id, turn, userText === "render markdown" ? MARKDOWN_FIXTURE : userText === "report model" ? (() => {
-								const selection = modelSelections.get(id);
-								return `当前模型：${selection?.provider ?? "unknown"}/${selection?.model ?? "unknown"}` + (selection?.reasoningEffort === void 0 ? "" : ` · 推理等级：${selection.reasoningEffort}`);
-							})() : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`);
-							return ok(request, { accepted: true });
-						},
-						attachment: (request) => {
-							const stored = attachments.get(String(request.payload.attachmentId));
-							if (stored === void 0) return err(request, {
-								code: "attachment-error",
-								message: "fixture attachment missing",
-								details: { reason: "ATTACHMENT_NOT_FOUND" }
-							});
-							if (!logReferencesAttachment(logs.get(request.payload.sessionId) ?? [], String(request.payload.attachmentId))) return err(request, {
-								code: "attachment-error",
-								message: "fixture attachment is not referenced by this session",
-								details: { reason: "ATTACHMENT_NOT_REFERENCED" }
-							});
-							return ok(request, stored);
-						},
-						updateQueue: (request) => err(request, {
-							code: "queue-item-not-found",
-							message: "fixture has no pending queue item",
-							details: { itemId: request.payload.itemId }
-						}),
-						cancel: (request) => {
-							const replay = replays.get(request.payload.sessionId);
-							if (replay !== void 0) {
-								clearTimeout(replay.timer);
-								replay.finish(true);
-							} else setRunning(request.payload.sessionId, false);
-							return ok(request, { accepted: true });
-						}
-					},
-					subagents: {
-						list: (request) => ok(request, {
-							entries: [],
-							parentAvailable: true
-						}),
-						history: (request) => {
-							const log = logs.get(request.payload.childSessionId) ?? [];
-							return Promise.resolve(ok(request, pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)));
-						},
-						prompt: (request) => Promise.resolve(ok(request, { messageId: `fixture-message-${request.payload.childSessionId}` })),
-						interrupt: (request) => Promise.resolve(ok(request, { accepted: true }))
-					},
-					host: {
-						describe: (request) => ok(request, {
-							version: "0.0.0-fixture",
-							cwd: "/tmp/fixture",
-							attachedSessions,
-							home: FIXTURE_HOME,
-							canOpenPath: true
-						}),
-						pickDirectory: (request) => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
-						listDirectory: (request) => {
-							const target = request.payload.path ?? FIXTURE_HOME;
-							const children = childrenOf(target);
-							if (children === void 0) return err(request, {
-								code: "directory-unreadable",
-								message: `cannot list ${target}: not in the fixture tree`,
-								details: { path: target }
-							});
-							return ok(request, {
-								path: target,
-								home: FIXTURE_HOME,
-								crumbs: crumbsOf(target),
-								entries: [...children].sort((a, b) => a.localeCompare(b)).map((name) => ({
-									name,
-									path: target === "/" ? `/${name}` : `${target}/${name}`,
-									hidden: name.startsWith(".")
-								})),
-								truncated: false
-							});
-						},
-						createDirectory: (request) => {
-							const parent = request.payload.path;
-							const children = childrenOf(parent);
-							if (children === void 0) return err(request, {
-								code: "directory-create-failed",
-								message: `missing parent ${parent}`,
-								details: { path: parent }
-							});
-							const target = parent === "/" ? `/${request.payload.name}` : `${parent}/${request.payload.name}`;
-							if (children.includes(request.payload.name)) return err(request, {
-								code: "directory-exists",
-								message: `${target} already exists`,
-								details: { path: target }
-							});
-							directoryTree.set(parent, [...children, request.payload.name]);
-							directoryTree.set(target, []);
-							return ok(request, { path: target });
-						},
-						openPath: (request) => ok(request, { opened: true })
-					},
-					workspace: {
-						list: (request) => ok(request, {
-							items: workspaces.map((w) => ({ ...w })),
-							archivedSessionIds: [...archivedSessionIds]
-						}),
-						create: (request) => {
-							const { path } = request.payload;
-							const existing = workspaces.find((w) => w.path === path);
-							if (existing !== void 0) return ok(request, {
-								workspace: { ...existing },
-								created: false
-							});
-							const now = (/* @__PURE__ */ new Date()).toISOString();
-							const created = {
-								workspaceId: wid(`fx-ws-${nextWorkspace++}`),
-								path,
-								title: path.split("/").filter(Boolean).at(-1) ?? path,
-								sessionIds: [],
-								createdAt: now,
-								updatedAt: now
-							};
-							workspaces.unshift(created);
-							emitHost({
-								type: "host/workspace-changed",
-								workspace: { ...created }
-							});
-							return ok(request, {
-								workspace: { ...created },
-								created: true
-							});
-						},
-						rename: (request) => {
-							const { workspaceId, title } = request.payload;
-							const workspace = workspaces.find((w) => w.workspaceId === workspaceId);
-							if (workspace === void 0) return err(request, {
-								code: "workspace-not-found",
-								message: `no workspace ${workspaceId}`,
-								details: { workspaceId }
-							});
-							const trimmed = title.trim();
-							if (trimmed !== workspace.title) {
-								if (workspaces.some((w) => w.workspaceId !== workspaceId && w.title === trimmed)) return err(request, {
-									code: "workspace-name-conflict",
-									message: `workspace name '${trimmed}' is already in use`,
-									details: { name: trimmed }
-								});
-								workspace.title = trimmed;
-								workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-								emitHost({
-									type: "host/workspace-changed",
-									workspace: { ...workspace }
-								});
-							}
-							return ok(request, { workspace: { ...workspace } });
-						},
-						delete: (request) => {
-							const { workspaceId } = request.payload;
-							const index = workspaces.findIndex((workspace) => workspace.workspaceId === workspaceId);
-							if (index === -1) return err(request, {
-								code: "workspace-not-found",
-								message: `no workspace ${workspaceId}`,
-								details: { workspaceId }
-							});
-							workspaces.splice(index, 1);
-							emitHost({
-								type: "host/workspace-removed",
-								workspaceId
-							});
-							return ok(request, { deleted: true });
-						},
-						insertBefore: (request) => {
-							const { workspaceId, beforeWorkspaceId } = request.payload;
-							const source = workspaces.findIndex((workspace) => workspace.workspaceId === workspaceId);
-							const anchor = beforeWorkspaceId === void 0 ? workspaces.length : workspaces.findIndex((workspace) => workspace.workspaceId === beforeWorkspaceId);
-							const missing = source === -1 ? workspaceId : anchor === -1 ? beforeWorkspaceId : void 0;
-							if (missing !== void 0) return err(request, {
-								code: "workspace-not-found",
-								message: `no workspace ${missing}`,
-								details: { workspaceId: missing }
-							});
-							if (beforeWorkspaceId !== workspaceId) {
-								const previousOrder = workspaces.map((candidate) => candidate.workspaceId);
-								const [workspace] = workspaces.splice(source, 1);
-								/* v8 ignore next -- source was resolved from the same array immediately above. */
-								if (workspace === void 0) throw new Error(`fixture lost workspace ${workspaceId}`);
-								const at = beforeWorkspaceId === void 0 ? workspaces.length : workspaces.findIndex((candidate) => candidate.workspaceId === beforeWorkspaceId);
-								workspaces.splice(at, 0, workspace);
-								if (workspaces.some((candidate, index) => candidate.workspaceId !== previousOrder[index])) emitHost({
-									type: "host/workspace-order-changed",
-									workspaceIds: workspaces.map((candidate) => candidate.workspaceId)
-								});
-							}
-							return ok(request, { workspaceIds: workspaces.map((candidate) => candidate.workspaceId) });
-						},
-						insertSessionBefore: (request) => {
-							const { workspaceId, sessionId, beforeSessionId } = request.payload;
-							const workspace = workspaces.find((w) => w.workspaceId === workspaceId);
-							if (workspace === void 0) return err(request, {
-								code: "workspace-not-found",
-								message: `no workspace ${workspaceId}`,
-								details: { workspaceId }
-							});
-							if (!workspace.sessionIds.includes(sessionId) || beforeSessionId !== void 0 && !workspace.sessionIds.includes(beforeSessionId)) return err(request, {
-								code: "workspace-move-invalid",
-								message: `session or anchor is not accounted by workspace ${workspaceId}`,
-								details: {
-									workspaceId,
-									sessionId,
-									...beforeSessionId === void 0 ? {} : { beforeSessionId }
-								}
-							});
-							const without = workspace.sessionIds.filter((id) => id !== sessionId);
-							const at = beforeSessionId === void 0 ? without.length : without.indexOf(beforeSessionId);
-							const sessionIds = [
-								...without.slice(0, at),
-								sessionId,
-								...without.slice(at)
-							];
-							if (!sessionIds.every((id, index) => id === workspace.sessionIds[index])) {
-								workspace.sessionIds = sessionIds;
-								workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-								emitHost({
-									type: "host/workspace-changed",
-									workspace: { ...workspace }
-								});
-							}
-							return ok(request, { workspace: { ...workspace } });
-						},
-						archiveSession: (request) => {
-							const missing = requireSession(request);
-							if (missing !== void 0) return missing;
-							const { sessionId } = request.payload;
-							if (!archivedSessionIds.includes(sessionId)) {
-								archivedSessionIds.push(sessionId);
-								emitHost({
-									type: "host/archived-sessions-changed",
-									archivedSessionIds: [...archivedSessionIds]
-								});
-							}
-							return ok(request, { archivedSessionIds: [...archivedSessionIds] });
-						}
-					},
-					agentPresets: {
-						list: (request) => ok(request, {
-							presets: [...fixturePresets].map(([id, preset]) => ({
-								id,
-								trust: preset.trust,
-								isDefault: id === fixtureDefaultPreset
-							})),
-							authorable: true,
-							hasDocument: true
-						}),
-						select: (request) => {
-							fixtureDefaultPreset = request.payload.agentPreset;
-							return ok(request, { agentPreset: request.payload.agentPreset });
-						},
-						read: (request) => {
-							const { agentPreset } = request.payload;
-							const preset = fixturePresets.get(agentPreset);
-							if (preset === void 0) return err(request, {
-								code: "agent-preset-not-found",
-								message: `unknown agent preset "${agentPreset}"`,
-								details: {
-									agentPreset,
-									available: [...fixturePresets.keys()]
-								}
-							});
-							return ok(request, {
-								agentPreset,
-								trust: preset.trust,
-								content: preset.content
-							});
-						},
-						copy: (request) => {
-							const { from, agentPreset } = request.payload;
-							const source = fixturePresets.get(from);
-							if (source === void 0) return err(request, {
-								code: "agent-preset-not-found",
-								message: `unknown agent preset "${from}"`,
-								details: {
-									agentPreset: from,
-									available: [...fixturePresets.keys()]
-								}
-							});
-							if (fixturePresets.has(agentPreset)) return err(request, {
-								code: "agent-preset-invalid",
-								message: `agent preset "${agentPreset}" already exists`,
-								details: {
-									agentPreset,
-									reason: "already exists"
-								}
-							});
-							fixturePresets.set(agentPreset, {
-								trust: "user",
-								content: source.content
-							});
-							return ok(request, { agentPreset });
-						},
-						openDocument: (request) => {
-							const { agentPreset } = request.payload;
-							const existing = fixturePresets.get(agentPreset);
-							if (existing === void 0 || existing.trust === "system") return err(request, {
-								code: "agent-preset-read-only",
-								message: `agent preset "${agentPreset}" ships with the deployment`,
-								details: {
-									agentPreset,
-									reason: "it ships with the deployment"
-								}
-							});
-							return ok(request, { opened: true });
-						},
-						remove: (request) => {
-							const { agentPreset } = request.payload;
-							if (fixturePresets.get(agentPreset)?.trust === "system") return err(request, {
-								code: "agent-preset-read-only",
-								message: `agent preset "${agentPreset}" ships with the deployment`,
-								details: {
-									agentPreset,
-									reason: "it ships with the deployment"
-								}
-							});
-							fixturePresets.delete(agentPreset);
-							return ok(request, {});
-						}
-					},
-					skills: { list: (request) => {
-						const missing = requireSession(request);
-						if (missing !== void 0) return missing;
-						return ok(request, { skills: [{
-							name: "fixture-demo",
-							description: "fixture 技能样本",
-							whenToUse: "仅供 UI 目录渲染验收",
-							modelInvocable: true
-						}, {
-							name: "fixture-user-only",
-							description: "fixture 仅用户技能样本",
-							modelInvocable: false
-						}] });
-					} },
-					goals: {
-						create: (request) => legacyGoalResponse(request, mapGoalResult(goalRemotes.create(request.payload.sessionId, {
-							objective: request.payload.objective,
-							...request.payload.maxGoalRounds === void 0 ? {} : { maxGoalRounds: request.payload.maxGoalRounds }
-						}), (value) => ({ ref: {
-							id: value.ref.id,
-							revision: value.ref.revision
-						} }))),
-						edit: (request) => legacyGoalResponse(request, goalRefResult(goalRemotes.edit(request.payload.sessionId, request.payload.ref, {
-							...request.payload.objective === void 0 ? {} : { objective: request.payload.objective },
-							...request.payload.maxGoalRounds === void 0 ? {} : { maxGoalRounds: request.payload.maxGoalRounds }
-						}))),
-						pause: (request) => legacyGoalResponse(request, goalRefResult(goalRemotes.pause(request.payload.sessionId, request.payload.ref))),
-						resume: (request) => legacyGoalResponse(request, goalRefResult(goalRemotes.resume(request.payload.sessionId, request.payload.ref))),
-						complete: (request) => legacyGoalResponse(request, goalRefResult(goalRemotes.complete(request.payload.sessionId, request.payload.ref))),
-						clear: (request) => legacyGoalResponse(request, mapGoalResult(goalRemotes.clear(request.payload.sessionId, request.payload.ref), () => ({ cleared: true })))
-					},
-					events: {
-						async *mux(_request, signal) {
-							const conn = new FxInbox();
-							muxConns.add(conn);
-							const breakNow = () => {
-								conn.breakNow();
-							};
-							streamBreakers.add(breakNow);
-							for (const s of sessions) {
-								if (!s.running) continue;
-								const log = logs.get(s.sessionId) ?? [];
-								conn.push({
-									rpcId: mint(),
-									payload: {
-										type: "session/subscribed",
-										sessionId: s.sessionId,
-										lastSeq: log.length - 1
-									}
-								});
-								const values = projectionValuesOf(log);
-								for (const key of Object.keys(values)) conn.push({
-									rpcId: mint(),
-									payload: {
-										type: "session/projection",
-										sessionId: s.sessionId,
-										key,
-										value: values[key],
-										seq: log.length - 1
-									}
-								});
-							}
-							if (approvalPending) conn.push({
-								rpcId: pendingApprovalRpcId,
-								payload: {
-									type: "approval/requested",
-									sessionId: sid("fx-alpha"),
-									approvalId: pendingApprovalId,
-									toolName: "dangerous_tool",
-									reason: "fixture 常驻审批（可答：批准/拒绝后消失）"
-								}
-							});
-							if (questionPending) conn.push({
-								rpcId: pendingQuestionRpcId,
-								payload: {
-									type: "question/requested",
-									sessionId: sid("fx-alpha"),
-									questions: fixtureQuestions
-								}
-							});
-							try {
-								yield* conn.drain(signal);
-							} finally {
-								streamBreakers.delete(breakNow);
-								muxConns.delete(conn);
-							}
-						},
-						async *host(_request, signal) {
-							const conn = new FxInbox();
-							hostConns.add(conn);
-							const breakNow = () => {
-								conn.breakNow();
-							};
-							streamBreakers.add(breakNow);
-							const timer = setInterval(() => {
-								const gamma = summaryOf(sid("fx-gamma"));
-								/* v8 ignore next -- the undefined arm needs fx-gamma deleted, but the fixture never removes sessions. */
-								if (gamma !== void 0) setRunning(gamma.sessionId, !gamma.running);
-							}, 5e3);
-							try {
-								yield* conn.drain(signal);
-							} finally {
-								clearInterval(timer);
-								streamBreakers.delete(breakNow);
-								hostConns.delete(conn);
-							}
-						}
-					},
-					settings: {
-						describe: (request) => ok(request, {
-							writable: true,
-							hasDocument: true,
-							namespaces: [{
-								ns: "llm-deepseek",
-								schema: {},
-								value: { apiKeyEnv: "DEEPSEEK_API_KEY" },
-								applies: "live",
-								secrets: [{
-									path: ["apiKey"],
-									set: false
-								}],
-								revision: 0
-							}]
-						}),
-						openDocument: (request) => ok(request, { opened: true }),
-						update: (request) => err(request, {
-							code: "settings-rejected",
-							message: "fixture: the minimal readiness settings descriptor is read-only",
-							details: { ns: request.payload.ns }
-						}),
-						replace: (request) => err(request, {
-							code: "settings-rejected",
-							message: "fixture: the minimal readiness settings descriptor is read-only",
-							details: { ns: request.payload.ns }
-						}),
-						mutate: (request) => err(request, {
-							code: "settings-rejected",
-							message: "fixture: no settings namespaces are registered",
-							details: { ns: request.payload.ns }
-						})
-					},
-					credentials: {
-						describe: (request) => ok(request, { credentials: Object.fromEntries(request.payload.refs.map((ref) => [ref, {
-							configured: fixtureCredentials.has(ref),
-							...fixtureCredentials.has(ref) ? { source: "file" } : {},
-							writable: true
-						}])) }),
-						set: (request) => {
-							fixtureCredentials.set(request.payload.ref, true);
-							return ok(request, {});
-						},
-						unset: (request) => {
-							fixtureCredentials.delete(request.payload.ref);
-							return ok(request, {});
-						}
-					},
-					llm: {
-						providers: (request) => ok(request, { providers: [
-							{
-								provider: "deepseek-official",
-								displayName: "DeepSeek",
-								settingsNs: "llm-deepseek",
-								settingsPath: [],
-								active: true
-							},
-							{
-								provider: "openai",
-								displayName: "openai",
-								settingsNs: "llm-pi-ai",
-								settingsPath: ["providers", "openai"],
-								active: true,
-								declared: false
-							},
-							{
-								provider: "anthropic",
-								displayName: "anthropic",
-								settingsNs: "llm-pi-ai",
-								settingsPath: ["providers", "anthropic"],
-								active: false,
-								declared: false
-							},
-							{
-								provider: "acme-gateway",
-								displayName: "Acme Gateway",
-								settingsNs: "llm-pi-ai",
-								settingsPath: ["providers", "acme-gateway"],
-								active: true,
-								declared: true
-							}
-						] }),
-						models: (request) => ok(request, {
-							groups: fixtureModelGroups(),
-							failures: []
-						}),
-						discoverModels: (request) => ok(request, { models: fixtureModelGroups().flatMap((group) => group.models.map((model) => ({
-							id: model.id,
-							name: model.name
-						}))) })
-					},
-					respond(message) {
-						if (message.rpcId === pendingApprovalRpcId) {
-							if (!approvalPending) return Promise.resolve({
-								accepted: false,
-								reason: "not-pending"
-							});
-							if (!message.result.ok) return Promise.resolve({
-								accepted: false,
-								reason: "bad-response"
-							});
-							const value = message.result.value;
-							if (value.approvalId !== pendingApprovalId || value.outcome !== "allowed-once" && value.outcome !== "rejected") return Promise.resolve({
-								accepted: false,
-								reason: "bad-response"
-							});
-							approvalPending = false;
-							emitMux({
-								type: "approval/resolved",
-								sessionId: sid("fx-alpha"),
-								approvalId: pendingApprovalId,
-								outcome: value.outcome
-							});
-							return Promise.resolve({ accepted: true });
-						}
-						if (!questionPending || message.rpcId !== pendingQuestionRpcId) return Promise.resolve({
-							accepted: false,
-							reason: "not-pending"
-						});
-						questionPending = false;
-						emitMux({
-							type: "question/resolved",
-							sessionId: sid("fx-alpha"),
-							questionRpcId: pendingQuestionRpcId,
-							outcome: message.result.ok ? "answered" : "cancelled"
-						});
-						return Promise.resolve({ accepted: true });
-					},
-					downloads: { sessionLog: () => Promise.resolve(new Response("fixture mode does not serve session export", { status: 404 })) }
+			const sessionApi = {
+				list: (_request) => sessionOk({ items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
+				search: (request, signal) => {
+					if (signal.aborted) return sessionErr({
+						code: "gateway/cancelled",
+						message: "fixture session search was aborted",
+						details: {}
+					});
+					const query = searchTokenSpans(request.query).tokens.map((token) => token.value);
+					const matches = sessions.flatMap((summary) => {
+						const log = logs.get(summary.sessionId) ?? [];
+						const current = new Set(foldSurface(log).nodes);
+						const best = log.flatMap((event) => {
+							if (!current.has(event.seq)) return [];
+							const eventText = searchEventText(event);
+							const document = searchTokenSpans(eventText);
+							const match = phraseMatch(document.tokens, query);
+							if (match.count === 0) return [];
+							return [{
+								sessionId: summary.sessionId,
+								seq: event.seq,
+								time: event.time,
+								text: document.text,
+								matchCount: match.count,
+								matchStart: match.start,
+								matchEnd: match.end,
+								documentLength: Array.from(eventText).length
+							}];
+						}).sort(compareSearchCandidates)[0];
+						return best === void 0 ? [] : [best];
+					}).sort(compareSearchCandidates);
+					return sessionOk({
+						items: matches.slice(0, FIXTURE_SESSION_SEARCH_RESULT_LIMIT).map((match) => ({
+							sessionId: match.sessionId,
+							snippet: searchSnippet(match.text, match.matchStart, match.matchEnd)
+						})),
+						hasMore: matches.length > FIXTURE_SESSION_SEARCH_RESULT_LIMIT
+					});
 				},
-				rpc: { call(channel, endpoint, payload) {
+				create: async (request) => {
+					const workspace = request.workspaceId === void 0 ? void 0 : workspaces.find((w) => w.workspaceId === request.workspaceId);
+					if (request.workspaceId !== void 0 && workspace === void 0) return sessionErr({
+						code: "workspace/not-found",
+						message: `no workspace ${request.workspaceId}`,
+						details: { workspaceId: request.workspaceId }
+					});
+					const cwd = workspace?.path ?? request.cwd ?? "/tmp/fixture";
+					const requestedId = request.sessionId;
+					const attachWorkspace = (sessionId) => {
+						/* v8 ignore next -- callers enter only when a target Workspace exists. */
+						if (workspace === void 0 || workspace.sessionIds.includes(sessionId)) return;
+						workspace.sessionIds = [sessionId, ...workspace.sessionIds];
+						workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+						emitWorkspace({
+							type: "upsert",
+							workspace: workspaceSnapshot(workspace)
+						});
+					};
+					const attachFailure = (sessionId, workspaceId) => sessionErr({
+						code: "session/workspace-attach-failed",
+						message: `fixture rejected Workspace attachment for ${sessionId}`,
+						details: {
+							sessionId,
+							workspaceId
+						}
+					});
+					if (requestedId !== void 0) {
+						const existing = summaryOf(requestedId);
+						if (existing !== void 0) {
+							if (existing.cwd !== cwd) return sessionErr({
+								code: "session/conflict",
+								message: `session ${requestedId} already uses ${existing.cwd ?? "no cwd"}`,
+								details: {
+									sessionId: requestedId,
+									requestedCwd: cwd,
+									...existing.cwd === void 0 ? {} : { existingCwd: existing.cwd }
+								}
+							});
+							if (workspace !== void 0 && !workspace.sessionIds.includes(requestedId)) {
+								if (options.failWorkspaceAttach) return attachFailure(requestedId, workspace.workspaceId);
+								attachWorkspace(requestedId);
+							}
+							return sessionOk({ sessionId: requestedId });
+						}
+					}
+					const created = {
+						sessionId: requestedId ?? sid(`fx-${nextSession++}`),
+						updatedAt: Date.now(),
+						running: false,
+						blank: true,
+						cwd
+					};
+					sessions.push(created);
+					modelSelections.set(created.sessionId, {
+						provider: "deepseek-official",
+						model: "deepseek-v4-flash"
+					});
+					const emitSession = () => {
+						emitRemote("api-session/added", [created]);
+					};
+					if (workspace !== void 0 && options.failWorkspaceAttach) {
+						emitSession();
+						return attachFailure(created.sessionId, workspace.workspaceId);
+					}
+					if (workspace !== void 0 && options.createFrameOrder === "workspace-first") {
+						attachWorkspace(created.sessionId);
+						emitSession();
+					} else {
+						emitSession();
+						if (workspace !== void 0) attachWorkspace(created.sessionId);
+					}
+					if (options.dropSessionCreateResponse) throw new Error("fixture: dropped session.create response after publication");
+					return sessionOk({ sessionId: created.sessionId });
+				},
+				rename: (request) => {
+					const missing = requireRemoteSession(request);
+					if (missing !== void 0) return missing;
+					const { sessionId, title } = request;
+					const normalized = title.trim().replace(/\s+/g, " ");
+					if (normalized.length === 0) return sessionErr({
+						code: "session/title-invalid",
+						message: "session title must contain visible characters",
+						details: { sessionId }
+					});
+					append(sessionId, {
+						type: "session/title",
+						data: {
+							title: normalized,
+							messageSeqs: [],
+							source: { kind: "user" }
+						}
+					});
+					return sessionOk({
+						title: normalized,
+						seq: logOf(sessionId).at(-1).seq
+					});
+				},
+				fork: (request) => {
+					const { sessionId, atSeq } = request;
+					const source = summaryOf(sessionId);
+					if (source === void 0) return sessionErr({
+						code: "session/not-found",
+						message: `no session ${sessionId}`,
+						details: { sessionId }
+					});
+					const log = logs.get(sessionId) ?? [];
+					const lastSeq = log.at(-1)?.seq ?? -1;
+					const boundary = (atSeq === void 0 ? void 0 : log.find((e) => e.type === "turn/end" && e.seq >= atSeq)) ?? (atSeq === void 0 || atSeq > lastSeq ? log.findLast((e) => e.type === "turn/end") : void 0);
+					if (boundary === void 0) return sessionErr({
+						code: "session/fork-unavailable",
+						message: atSeq !== void 0 && atSeq <= lastSeq ? `session ${sessionId} has not completed the turn containing event ${String(atSeq)}` : `session ${sessionId} has no completed turn`,
+						details: { sessionId }
+					});
+					let cut = boundary.seq + 1;
+					while (cut < log.length && log[cut]?.type !== "turn/start") cut++;
+					const child = {
+						sessionId: sid(`fx-${nextSession++}`),
+						updatedAt: Date.now(),
+						running: false,
+						blank: false,
+						parentSessionId: sessionId,
+						...source.cwd === void 0 ? {} : { cwd: source.cwd }
+					};
+					logs.set(child.sessionId, log.slice(0, cut));
+					sessions.push(child);
+					emitRemote("api-session/added", [child]);
+					const workspace = workspaces.find((w) => w.sessionIds.includes(sessionId));
+					if (workspace !== void 0) {
+						workspace.sessionIds = [child.sessionId, ...workspace.sessionIds];
+						workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+						emitWorkspace({
+							type: "upsert",
+							workspace: workspaceSnapshot(workspace)
+						});
+					}
+					return sessionOk({ sessionId: child.sessionId });
+				},
+				history: async (request) => {
+					const log = logs.get(request.sessionId) ?? [];
+					const throughSeq = request.throughSeq ?? log.length - 1;
+					const page = pageOf(log.slice(0, throughSeq + 1), request.beforeSeq, request.maxMessages ?? 50);
+					const doomed = failNextHistory;
+					failNextHistory = false;
+					const delay = historyDelayMs;
+					if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+					if (doomed) throw new Error("fixture: simulated history transport failure");
+					return sessionOk(page);
+				},
+				selectModel: (request) => {
+					const selected = {
+						provider: request.provider,
+						model: request.model,
+						...request.reasoningEffort === void 0 ? {} : { reasoningEffort: request.reasoningEffort }
+					};
+					append(request.sessionId, {
+						type: "model/selection",
+						data: selected
+					});
+					modelSelections.set(request.sessionId, selected);
+					return sessionOk({ selected });
+				},
+				prompt: (request) => {
+					const { sessionId: id, mode, content } = request;
+					const summary = summaryOf(id);
+					if (summary === void 0) return sessionErr({
+						code: "session/not-found",
+						message: `no session ${id}`,
+						details: { sessionId: id }
+					});
+					if (options.rejectPrompt) {
+						if (content.some((block) => block.type === "image")) return sessionErr({
+							code: "session/attachment-invalid",
+							message: "fixture: image side exceeds the deployment limit",
+							details: { reason: "IMAGE_DIMENSION_TOO_LARGE" }
+						});
+						return sessionErr({
+							code: "session/agent-busy",
+							message: "fixture: prompt rejected before acceptance",
+							details: { reason: "fixture-prompt-rejection" }
+						});
+					}
+					summary.updatedAt = Date.now();
+					summary.blank = false;
+					const userText = content.map((b) => b.type === "text" ? b.text : "").join("");
+					const durable = content.map((block) => {
+						if (block.type === "text") return block;
+						const attachment = {
+							attachmentId: `fixture:${randomUuid()}`,
+							mediaType: block.mediaType,
+							bytes: Math.max(1, Math.floor(block.data.length * 3 / 4) - (block.data.endsWith("==") ? 2 : block.data.endsWith("=") ? 1 : 0)),
+							width: 160,
+							height: 90,
+							...block.name === void 0 ? {} : { name: block.name }
+						};
+						attachments.set(String(attachment.attachmentId), {
+							attachment,
+							data: block.data
+						});
+						return {
+							type: "image",
+							attachment
+						};
+					});
+					const promptSource = {
+						kind: "user",
+						rpcId: request.requestId
+					};
+					if (mode === "steer" && replays.has(id)) {
+						append(id, {
+							type: "user/message",
+							surfaceOp: "append",
+							data: userMessage(durable, promptSource)
+						});
+						return sessionOk({ accepted: true });
+					}
+					const turn = nextTurn.get(id) ?? 0;
+					nextTurn.set(id, turn + 1);
+					setRunning(id, true);
+					append(id, {
+						type: "turn/start",
+						data: { turn }
+					});
+					const plan = foldPlan(logOf(id));
+					if (plan.wanted !== null && plan.wanted !== plan.active) append(id, {
+						type: "plan/mode",
+						data: { active: plan.wanted }
+					});
+					append(id, {
+						type: "user/message",
+						surfaceOp: "append",
+						data: userMessage(durable, promptSource)
+					});
+					const selection = modelSelections.get(id) ?? {
+						provider: "deepseek",
+						model: "deepseek-v4-flash"
+					};
+					const previousHeader = logOf(id).findLast((event) => event.type === "request/header");
+					if (!sameModelSelection(previousHeader?.type === "request/header" ? {
+						provider: previousHeader.data.header.config.provider,
+						model: previousHeader.data.header.config.model,
+						...previousHeader.data.header.config.reasoningEffort === void 0 ? {} : { reasoningEffort: previousHeader.data.header.config.reasoningEffort }
+					} : null, selection)) append(id, {
+						type: "request/header",
+						data: {
+							header: { config: selection },
+							reason: previousHeader === void 0 ? "initial" : "change"
+						}
+					});
+					if (lastRequestContext(logOf(id))?.model !== selection.model) append(id, {
+						type: "request/context",
+						data: {
+							provider: selection.provider,
+							model: selection.model,
+							contextWindow: 128e3
+						}
+					});
+					startReply(id, turn, userText === "render markdown" ? MARKDOWN_FIXTURE : userText === "report model" ? (() => {
+						const selection = modelSelections.get(id);
+						return `当前模型：${selection?.provider ?? "unknown"}/${selection?.model ?? "unknown"}` + (selection?.reasoningEffort === void 0 ? "" : ` · 推理等级：${selection.reasoningEffort}`);
+					})() : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`);
+					return sessionOk({ accepted: true });
+				},
+				attachment: (request) => {
+					const stored = attachments.get(String(request.attachmentId));
+					if (stored === void 0) return sessionErr({
+						code: "session/attachment-invalid",
+						message: "fixture attachment missing",
+						details: { reason: "ATTACHMENT_NOT_FOUND" }
+					});
+					if (!logReferencesAttachment(logs.get(request.sessionId) ?? [], String(request.attachmentId))) return sessionErr({
+						code: "session/attachment-invalid",
+						message: "fixture attachment is not referenced by this session",
+						details: { reason: "ATTACHMENT_NOT_REFERENCED" }
+					});
+					return sessionOk(stored);
+				},
+				updateQueue: (request) => sessionErr({
+					code: "session/queue-item-not-found",
+					message: "fixture has no pending queue item",
+					details: { itemId: request.itemId }
+				}),
+				cancel: (request) => {
+					const replay = replays.get(request.sessionId);
+					if (replay !== void 0) {
+						clearTimeout(replay.timer);
+						replay.finish(true);
+					} else setRunning(request.sessionId, false);
+					return sessionOk({ accepted: true });
+				}
+			};
+			const controlBaseline = () => {
+				const queues = {};
+				const jobs = {};
+				const projections = {};
+				for (const summary of sessions) {
+					queues[summary.sessionId] = [];
+					jobs[summary.sessionId] = [];
+					const log = logs.get(summary.sessionId) ?? [];
+					projections[summary.sessionId] = {
+						asOfSeq: log.length - 1,
+						values: projectionValuesOf(log)
+					};
+				}
+				return {
+					type: "baseline",
+					value: {
+						queues,
+						jobs,
+						approvals: [],
+						questions: [],
+						projections
+					}
+				};
+			};
+			const approvalInvocation = () => ({
+				type: "waterfall",
+				event: "approval/request",
+				eventId: pendingApprovalEventId,
+				agentId: sid("fx-alpha"),
+				request: {
+					toolName: "dangerous_tool",
+					reason: "fixture 常驻审批（可答：批准/拒绝后消失）"
+				}
+			});
+			const questionInvocation = () => ({
+				type: "waterfall",
+				event: "user-questions/request",
+				eventId: pendingQuestionEventId,
+				agentId: sid("fx-alpha"),
+				request: { questions: fixtureQuestions }
+			});
+			async function* openControl(signal) {
+				signal.throwIfAborted();
+				const conn = new FxInbox();
+				controlConns.add(conn);
+				const breakNow = () => {
+					conn.breakNow();
+				};
+				streamBreakers.add(breakNow);
+				try {
+					yield controlBaseline();
+					yield* conn.drain(signal);
+				} finally {
+					streamBreakers.delete(breakNow);
+					controlConns.delete(conn);
+				}
+			}
+			async function* openWorkspace(signal) {
+				signal.throwIfAborted();
+				const conn = new FxInbox();
+				workspaceConns.add(conn);
+				const breakNow = () => {
+					conn.breakNow();
+				};
+				streamBreakers.add(breakNow);
+				try {
+					yield workspaceBaseline();
+					yield* conn.drain(signal);
+				} finally {
+					streamBreakers.delete(breakNow);
+					workspaceConns.delete(conn);
+				}
+			}
+			async function* openWorkspaceFileChanges(signal) {
+				signal.throwIfAborted();
+				const conn = new FxInbox();
+				const breakNow = () => {
+					conn.breakNow();
+				};
+				streamBreakers.add(breakNow);
+				const announce = options.fileChanges ? setTimeout(() => {
+					conn.push({
+						kind: "change",
+						change: {
+							absolutePath: `${WORKSPACE_FILES_ROOT}/notes/demo.txt`,
+							version: "fx-demo-v2"
+						}
+					});
+				}, 1e3) : void 0;
+				try {
+					yield { kind: "ready" };
+					yield* conn.drain(signal);
+				} finally {
+					if (announce !== void 0) clearTimeout(announce);
+					streamBreakers.delete(breakNow);
+				}
+			}
+			async function* openRemoteEvents(signal) {
+				signal.throwIfAborted();
+				const clientId = randomUuid();
+				const conn = new FxInbox();
+				remoteEventConns.set(clientId, conn);
+				const timer = setInterval(() => {
+					const gamma = summaryOf(sid("fx-gamma"));
+					/* v8 ignore next -- the fixture never removes fx-gamma. */
+					if (gamma !== void 0) setRunning(gamma.sessionId, !gamma.running);
+				}, 5e3);
+				try {
+					yield {
+						type: "ready",
+						clientId,
+						host: { home: FIXTURE_HOME }
+					};
+					if (approvalPending) yield approvalInvocation();
+					if (questionPending) yield questionInvocation();
+					yield* conn.drain(signal);
+				} finally {
+					clearInterval(timer);
+					remoteEventConns.delete(clientId);
+				}
+			}
+			async function* openFollow(request, signal) {
+				signal.throwIfAborted();
+				const sessionId = request.address.kind === "session" ? request.address.sessionId : request.address.childSessionId;
+				if (summaryOf(sessionId) === void 0) throw new Error(`fixture: no session ${sessionId}`);
+				const conn = new FxInbox();
+				let conns = followConns.get(sessionId);
+				if (conns === void 0) {
+					conns = /* @__PURE__ */ new Set();
+					followConns.set(sessionId, conns);
+				}
+				conns.add(conn);
+				const breakNow = () => {
+					conn.breakNow();
+				};
+				streamBreakers.add(breakNow);
+				const snapshot = [...logOf(sessionId)];
+				const cursor = snapshot.at(-1)?.seq ?? -1;
+				const summary = summaryOf(sessionId);
+				/* v8 ignore next -- existence was checked before the stream registered. */
+				if (summary === void 0) throw new Error(`fixture: no session ${sessionId}`);
+				const initial = pageOf(snapshot, void 0, request.maxMessages ?? 50);
+				let nextSeq = cursor + 1;
+				try {
+					yield {
+						type: "snapshot",
+						header: {
+							version: 3,
+							id: sessionId,
+							createdAt: summary.updatedAt,
+							...summary.cwd === void 0 ? {} : { cwd: summary.cwd },
+							...summary.parentSessionId === void 0 ? {} : { parentSession: summary.parentSessionId },
+							isSeeded: summary.parentSessionId !== void 0,
+							...summary.origin === void 0 ? {} : { origin: summary.origin },
+							...summary.agentPreset === void 0 ? {} : { agentPreset: summary.agentPreset }
+						},
+						cursor,
+						records: initial.records,
+						hasMore: initial.hasMore,
+						projections: {
+							asOfSeq: cursor,
+							values: projectionValuesOf(snapshot)
+						},
+						...request.assistantStream === true ? { assistantStream: {
+							revision: assistantRevisions.get(sessionId) ?? 0,
+							...activeAttempts.get(sessionId) === void 0 ? {} : { activeAttempt: {
+								attemptId: activeAttempts.get(sessionId).attemptId,
+								startedAfterSeq: activeAttempts.get(sessionId).startedAfterSeq,
+								turn: activeAttempts.get(sessionId).turn,
+								step: activeAttempts.get(sessionId).step,
+								nextIndex: activeAttempts.get(sessionId).index,
+								stream: activeAttempts.get(sessionId).stream.snapshot()
+							} }
+						} } : {}
+					};
+					for await (const frame of conn.drain(signal)) {
+						if (frame.type === "assistant-stream") {
+							yield frame;
+							continue;
+						}
+						if (frame.event.seq < nextSeq) continue;
+						if (frame.event.seq !== nextSeq) throw new Error(`fixture: session event stream skipped seq ${String(nextSeq)}`);
+						nextSeq++;
+						yield frame;
+					}
+				} finally {
+					streamBreakers.delete(breakNow);
+					conns.delete(conn);
+					if (conns.size === 0) followConns.delete(sessionId);
+				}
+			}
+			const answerRemoteEvent = (result) => {
+				if (!remoteEventConns.has(result.clientId)) return {
+					ok: false,
+					error: {
+						code: "gateway/invocation-unavailable",
+						message: "fixture Remote event result identifies no active event stream",
+						details: {}
+					}
+				};
+				if (result.eventId === pendingApprovalEventId) {
+					if (!approvalPending) return {
+						ok: true,
+						value: void 0
+					};
+					approvalPending = false;
+				} else if (result.eventId === pendingQuestionEventId) {
+					if (!questionPending) return {
+						ok: true,
+						value: void 0
+					};
+					questionPending = false;
+				} else return {
+					ok: true,
+					value: void 0
+				};
+				emitRemoteFrame({
+					type: "cancel",
+					eventId: result.eventId
+				});
+				return {
+					ok: true,
+					value: void 0
+				};
+			};
+			const workspaceApi = {
+				create: (request) => {
+					const existing = workspaces.find((workspace) => workspace.path === request.path);
+					if (existing !== void 0) return sessionOk({
+						workspace: workspaceSnapshot(existing),
+						created: false
+					});
+					const now = (/* @__PURE__ */ new Date()).toISOString();
+					const created = {
+						workspaceId: wid(`fx-ws-${nextWorkspace++}`),
+						path: request.path,
+						title: request.path.split("/").filter(Boolean).at(-1) ?? request.path,
+						sessionIds: [],
+						createdAt: now,
+						updatedAt: now
+					};
+					workspaces.unshift(created);
+					const workspace = workspaceSnapshot(created);
+					emitWorkspace({
+						type: "upsert",
+						workspace
+					});
+					return sessionOk({
+						workspace,
+						created: true
+					});
+				},
+				rename: (request) => {
+					const workspace = workspaces.find((candidate) => candidate.workspaceId === request.workspaceId);
+					if (workspace === void 0) return sessionErr({
+						code: "workspace/not-found",
+						message: `no workspace ${request.workspaceId}`,
+						details: { workspaceId: request.workspaceId }
+					});
+					const title = request.title.trim();
+					if (title === "") return sessionErr({
+						code: "gateway/bad-request",
+						message: "Workspace rename requires a non-blank title",
+						details: {}
+					});
+					if (title !== workspace.title) {
+						if (workspaces.some((candidate) => candidate.workspaceId !== request.workspaceId && candidate.title === title)) return sessionErr({
+							code: "workspace/name-conflict",
+							message: `workspace name '${title}' is already in use`,
+							details: { name: title }
+						});
+						workspace.title = title;
+						workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+						emitWorkspace({
+							type: "upsert",
+							workspace: workspaceSnapshot(workspace)
+						});
+					}
+					return sessionOk({ workspace: workspaceSnapshot(workspace) });
+				},
+				delete: (request) => {
+					const index = workspaces.findIndex((workspace) => workspace.workspaceId === request.workspaceId);
+					if (index === -1) return sessionErr({
+						code: "workspace/not-found",
+						message: `no workspace ${request.workspaceId}`,
+						details: { workspaceId: request.workspaceId }
+					});
+					workspaces.splice(index, 1);
+					emitWorkspace({
+						type: "remove",
+						workspaceId: request.workspaceId
+					});
+					return sessionOk({ deleted: true });
+				},
+				insertBefore: (request) => {
+					const source = workspaces.findIndex((workspace) => workspace.workspaceId === request.workspaceId);
+					const anchor = request.beforeWorkspaceId === void 0 ? workspaces.length : workspaces.findIndex((workspace) => workspace.workspaceId === request.beforeWorkspaceId);
+					const missing = source === -1 ? request.workspaceId : anchor === -1 ? request.beforeWorkspaceId : void 0;
+					if (missing !== void 0) return sessionErr({
+						code: "workspace/not-found",
+						message: `no workspace ${missing}`,
+						details: { workspaceId: missing }
+					});
+					if (request.beforeWorkspaceId !== request.workspaceId) {
+						const previousOrder = workspaces.map((workspace) => workspace.workspaceId);
+						const [workspace] = workspaces.splice(source, 1);
+						/* v8 ignore next -- source was resolved from the same array immediately above. */
+						if (workspace === void 0) throw new Error(`fixture lost workspace ${request.workspaceId}`);
+						const at = request.beforeWorkspaceId === void 0 ? workspaces.length : workspaces.findIndex((candidate) => candidate.workspaceId === request.beforeWorkspaceId);
+						workspaces.splice(at, 0, workspace);
+						if (workspaces.some((candidate, index) => candidate.workspaceId !== previousOrder[index])) emitWorkspace({
+							type: "order",
+							workspaceIds: workspaces.map((candidate) => candidate.workspaceId)
+						});
+					}
+					return sessionOk({ workspaceIds: workspaces.map((candidate) => candidate.workspaceId) });
+				},
+				insertSessionBefore: (request) => {
+					const workspace = workspaces.find((candidate) => candidate.workspaceId === request.workspaceId);
+					if (workspace === void 0) return sessionErr({
+						code: "workspace/not-found",
+						message: `no workspace ${request.workspaceId}`,
+						details: { workspaceId: request.workspaceId }
+					});
+					if (!workspace.sessionIds.includes(request.sessionId) || request.beforeSessionId !== void 0 && !workspace.sessionIds.includes(request.beforeSessionId)) return sessionErr({
+						code: "workspace/move-invalid",
+						message: `session or anchor is not accounted by workspace ${request.workspaceId}`,
+						details: {
+							workspaceId: request.workspaceId,
+							sessionId: request.sessionId,
+							...request.beforeSessionId === void 0 ? {} : { beforeSessionId: request.beforeSessionId }
+						}
+					});
+					const without = workspace.sessionIds.filter((id) => id !== request.sessionId);
+					const at = request.beforeSessionId === void 0 ? without.length : without.indexOf(request.beforeSessionId);
+					const sessionIds = [
+						...without.slice(0, at),
+						request.sessionId,
+						...without.slice(at)
+					];
+					if (!sessionIds.every((id, index) => id === workspace.sessionIds[index])) {
+						workspace.sessionIds = sessionIds;
+						workspace.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+						emitWorkspace({
+							type: "upsert",
+							workspace: workspaceSnapshot(workspace)
+						});
+					}
+					return sessionOk({ workspace: workspaceSnapshot(workspace) });
+				},
+				archiveSession: (request) => {
+					if (summaryOf(request.sessionId) === void 0) return sessionErr({
+						code: "session/not-found",
+						message: `no session ${request.sessionId}`,
+						details: { sessionId: request.sessionId }
+					});
+					if (!archivedSessionIds.includes(request.sessionId)) {
+						archivedSessionIds.push(request.sessionId);
+						emitWorkspace({
+							type: "archived",
+							archivedSessionIds: [...archivedSessionIds]
+						});
+					}
+					return sessionOk({ archivedSessionIds: [...archivedSessionIds] });
+				}
+			};
+			return { rpc: {
+				call(channel, endpoint, payload, signal) {
 					if (channel !== "/api") return Promise.reject(/* @__PURE__ */ new Error(`fixture connection RPC channel ${JSON.stringify(channel)} is unavailable`));
 					const args = payload.args;
 					const sessionId = args.agentId;
+					const callSignal = signal ?? new AbortController().signal;
+					const request = args.request;
 					switch (endpoint) {
 						case "commands/list": return Promise.resolve(commandRemotes.list(sessionId));
 						case "commands/execute": return Promise.resolve(commandRemotes.execute(sessionId, args.line, args.images ?? []));
 						case "fileReferences/list": return Promise.resolve(referenceRemotes.files(sessionId, args.query ?? ""));
 						case "sessionReferenceResolver/candidates": return Promise.resolve(referenceRemotes.sessions(sessionId, args.query ?? ""));
+						case "directoryPicker/pick": return Promise.resolve(directoryPickerRemotes.pick());
+						case "directoryPicker/list": return Promise.resolve(directoryPickerRemotes.list(args.path));
+						case "directoryPicker/createDirectory": return Promise.resolve(directoryPickerRemotes.createDirectory(args.path ?? "", args.name ?? ""));
+						case "goals/get": return Promise.resolve(goalRemotes.get(sessionId));
 						case "goals/create": return Promise.resolve(goalRemotes.create(sessionId, {
-							objective: args.request?.objective,
-							...args.request?.maxGoalRounds === void 0 ? {} : { maxGoalRounds: args.request.maxGoalRounds }
+							objective: request?.objective,
+							...request?.maxGoalRounds === void 0 ? {} : { maxGoalRounds: request.maxGoalRounds }
 						}));
-						case "goals/edit": return Promise.resolve(goalRemotes.edit(sessionId, args.ref, args.request ?? {}));
+						case "goals/edit": return Promise.resolve(goalRemotes.edit(sessionId, args.ref, request));
 						case "goals/pause": return Promise.resolve(goalRemotes.pause(sessionId, args.ref));
 						case "goals/resume": return Promise.resolve(goalRemotes.resume(sessionId, args.ref));
 						case "goals/complete": return Promise.resolve(goalRemotes.complete(sessionId, args.ref));
 						case "goals/clear": return Promise.resolve(goalRemotes.clear(sessionId, args.ref));
+						case "agentPresets/list": return Promise.resolve(presetRemotes.list());
+						case "agentPresets/select": return Promise.resolve(presetRemotes.select(sessionId, args.agentPreset));
+						case "agentPresets/read": return Promise.resolve(presetRemotes.read(args.agentPreset));
+						case "agentPresets/copy": return Promise.resolve(presetRemotes.copy(args.from, args.id));
+						case "agentPresets/deletePreset": return Promise.resolve(presetRemotes.deletePreset(args.id));
+						case "subagents/list": return Promise.resolve({
+							ok: true,
+							value: {
+								entries: [],
+								parentAvailable: true
+							}
+						});
+						case "subagents/prompt": return Promise.resolve({
+							ok: true,
+							value: { messageId: `fixture-message-${request.childSessionId}` }
+						});
+						case "subagents/interruptByParent": return Promise.resolve({
+							ok: true,
+							value: { accepted: true }
+						});
+						case "credentials/describe": return Promise.resolve(credentialRemotes.describe(args.refs ?? []));
+						case "credentials/set": return Promise.resolve(credentialRemotes.set(args.ref));
+						case "credentials/unset": return Promise.resolve(credentialRemotes.unset(args.ref));
+						case "settings/describe": return Promise.resolve(settingsRemotes.describe());
+						case "settings/canOpenAgentPresetDirectory": return Promise.resolve({
+							ok: true,
+							value: true
+						});
+						case "settings/openSettingsDocument": return Promise.resolve(settingsRemotes.openSettingsDocument());
+						case "settings/openAgentPresetDirectory": return Promise.resolve(settingsRemotes.openAgentPresetDirectory(args.agentPreset));
+						case "skills/list": {
+							const missing = requireRemoteSession(request);
+							if (missing !== void 0) return missing;
+							return sessionOk({ skills: [{
+								name: "fixture-demo",
+								description: "fixture 技能样本",
+								whenToUse: "仅供 UI 目录渲染验收",
+								modelInvocable: true
+							}, {
+								name: "fixture-user-only",
+								description: "fixture 仅用户技能样本",
+								modelInvocable: false
+							}] });
+						}
+						case "session/openWorkspacePath": return sessionOk({ opened: true });
+						case "workspaceFiles/read": return Promise.resolve(workspaceFileRemotes.read(args.path ?? "", args.range ?? {}));
+						case "workspaceFiles/stat": return Promise.resolve(workspaceFileRemotes.stat(args.path ?? ""));
+						case "workspaceFiles/list": return Promise.resolve(workspaceFileRemotes.list(args.path ?? ""));
+						case "session/canOpenWorkspacePath": return Promise.resolve({
+							ok: true,
+							value: true
+						});
+						case "session/modelCatalog": return Promise.resolve({
+							ok: true,
+							value: {
+								default: {
+									provider: "deepseek-official",
+									model: "deepseek-v4-flash"
+								},
+								routableProviders: [
+									"deepseek-official",
+									"openai",
+									"acme-gateway"
+								],
+								groups: fixtureModelGroups(),
+								failures: []
+							}
+						});
+						case "llm/listProviders": return Promise.resolve({
+							ok: true,
+							value: [
+								{
+									id: "deepseek-official",
+									name: "DeepSeek"
+								},
+								{
+									id: "openai",
+									name: "openai"
+								},
+								{
+									id: "acme-gateway",
+									name: "Acme Gateway"
+								}
+							]
+						});
+						case "llm/listConfigurableProviders": return Promise.resolve({
+							ok: true,
+							value: [
+								{
+									provider: "deepseek-official",
+									displayName: "DeepSeek",
+									settingsNs: "llm-deepseek",
+									settingsPath: []
+								},
+								{
+									provider: "openai",
+									displayName: "openai",
+									settingsNs: "llm-pi-ai",
+									settingsPath: ["providers", "openai"],
+									declared: false
+								},
+								{
+									provider: "anthropic",
+									displayName: "anthropic",
+									settingsNs: "llm-pi-ai",
+									settingsPath: ["providers", "anthropic"],
+									declared: false
+								},
+								{
+									provider: "acme-gateway",
+									displayName: "Acme Gateway",
+									settingsNs: "llm-pi-ai",
+									settingsPath: ["providers", "acme-gateway"],
+									declared: true
+								}
+							]
+						});
+						case "llm/discoverModels": return Promise.resolve({
+							ok: true,
+							value: fixtureModelGroups().flatMap((group) => group.models.map((model) => ({
+								id: model.id,
+								name: model.name
+							})))
+						});
+						case "settings/update": return Promise.resolve(settingsRemotes.update(args.ns));
+						case "settings/replace": return Promise.resolve(settingsRemotes.replace(args.ns));
+						case "settings/mutate": return Promise.resolve(settingsRemotes.mutate(args.ns));
+						case "session/list": return sessionApi.list(args._request);
+						case "session/search": return sessionApi.search(request, callSignal);
+						case "session/create": return sessionApi.create(request);
+						case "session/selectModel": return sessionApi.selectModel(request);
+						case "session/rename": return sessionApi.rename(request);
+						case "session/fork": return sessionApi.fork(request);
+						case "session/prompt": return sessionApi.prompt(request);
+						case "session/attachment": return sessionApi.attachment(request);
+						case "session/updateQueue": return sessionApi.updateQueue(request);
+						case "session/cancel": return sessionApi.cancel(request);
+						case "session/page": {
+							const page = request;
+							const pageSessionId = page.address.kind === "session" ? page.address.sessionId : page.address.childSessionId;
+							return sessionApi.history({
+								sessionId: pageSessionId,
+								throughSeq: page.throughSeq,
+								...page.beforeSeq === void 0 ? {} : { beforeSeq: page.beforeSeq },
+								...page.maxMessages === void 0 ? {} : { maxMessages: page.maxMessages }
+							});
+						}
+						case "$events/result": return Promise.resolve(answerRemoteEvent(args));
+						case "workspace/create": return workspaceApi.create(request);
+						case "workspace/rename": return workspaceApi.rename(request);
+						case "workspace/delete": return workspaceApi.delete(request);
+						case "workspace/insertBefore": return workspaceApi.insertBefore(request);
+						case "workspace/insertSessionBefore": return workspaceApi.insertSessionBefore(request);
+						case "workspace/archiveSession": return workspaceApi.archiveSession(request);
 						default: return Promise.reject(/* @__PURE__ */ new Error(`fixture connection RPC endpoint ${JSON.stringify(endpoint)} is unavailable`));
 					}
-				} }
-			};
+				},
+				open(channel, endpoint, payload, signal) {
+					if (channel !== "/api") throw new Error(`fixture connection RPC channel ${JSON.stringify(channel)} is unavailable`);
+					const args = payload.args;
+					switch (endpoint) {
+						case "$events": return openRemoteEvents(signal);
+						case "session/control": return openControl(signal);
+						case "session/follow": return openFollow(args.request, signal);
+						case "workspace/follow": return openWorkspace(signal);
+						case "workspaceFiles/changes": return openWorkspaceFileChanges(signal);
+						default: throw new Error(`fixture connection stream endpoint ${JSON.stringify(endpoint)} is unavailable`);
+					}
+				}
+			} };
 		}
 		/**
-		* Fixture platform subclass: there is no HTTP at all, so instead of a doFetch transport it
-		* overrides the protocol-level virtuals (callUnary/openMux/openHost/respond) to dispatch
-		* straight into the in-memory ApiProxy — while still minting rpcIds, fabricating the four
-		* named full forms, and feeding the same tap as a real carrier. TODO: delete when the fixture
-		* moves to the isomorphic pipeline (InProcessApiClient over toFetchHandler(fixtureImpl)).
+		* Build the browser fixture transport from the current page's query switches.
+		* @returns an in-memory Connection RPC transport.
 		*/
-		var FixtureApiClient = class extends AbstractApiClient {
-			api;
-			/** Generic Remote caller backed by the same in-memory state as the legacy fixture API. */
-			rpc;
-			constructor() {
-				super();
-				const world = createFixtureWorld(fixtureOptionsFromLocation());
-				this.api = world.api;
-				this.rpc = world.rpc;
-			}
-			doFetch() {
-				throw new Error("FixtureApiClient overrides all protocol paths; doFetch must be unreachable");
-			}
-			async callUnary(method, payload, signal) {
-				const request = rpcRequest(payload);
-				const full = {
-					type: "client-request",
-					rpcId: request.rpcId,
-					method,
-					payload
-				};
-				this.onEnvelope(full);
-				const response = await this.dispatch(method, request, signal ?? new AbortController().signal);
-				const fullResponse = {
-					type: "server-response",
-					rpcId: response.rpcId,
-					result: response.result
-				};
-				this.onEnvelope(fullResponse);
-				return response;
-			}
-			/** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
-			dispatch(method, request, signal) {
-				switch (method) {
-					case "session.list": return this.api.sessions.list(request);
-					case "session.search": return this.api.sessions.search(request, signal);
-					case "session.create": return this.api.sessions.create(request);
-					case "session.history": return this.api.sessions.history(request);
-					case "session.models": return this.api.sessions.models(request);
-					case "session.selectModel": return this.api.sessions.selectModel(request);
-					case "session.rename": return this.api.sessions.rename(request);
-					case "session.fork": return this.api.sessions.fork(request);
-					case "session.prompt": return this.api.sessions.prompt(request);
-					case "session.attachment": return this.api.sessions.attachment(request);
-					case "session.updateQueue": return this.api.sessions.updateQueue(request);
-					case "session.cancel": return this.api.sessions.cancel(request);
-					case "subagent.list": return this.api.subagents.list(request);
-					case "subagent.history": return this.api.subagents.history(request);
-					case "subagent.prompt": return this.api.subagents.prompt(request, signal);
-					case "subagent.interrupt": return this.api.subagents.interrupt(request);
-					case "host.describe": return this.api.host.describe(request);
-					case "host.pickDirectory": return this.api.host.pickDirectory(request, new AbortController().signal);
-					case "host.listDirectory": return this.api.host.listDirectory(request, new AbortController().signal);
-					case "host.createDirectory": return this.api.host.createDirectory(request);
-					case "host.openPath": return this.api.host.openPath(request, new AbortController().signal);
-					case "workspace.list": return this.api.workspace.list(request);
-					case "workspace.create": return this.api.workspace.create(request);
-					case "workspace.rename": return this.api.workspace.rename(request);
-					case "workspace.delete": return this.api.workspace.delete(request);
-					case "workspace.insertBefore": return this.api.workspace.insertBefore(request);
-					case "workspace.insertSessionBefore": return this.api.workspace.insertSessionBefore(request);
-					case "workspace.archiveSession": return this.api.workspace.archiveSession(request);
-					case "skill.list": return this.api.skills.list(request);
-					case "agentPreset.list": return this.api.agentPresets.list(request);
-					case "agentPreset.select": return this.api.agentPresets.select(request);
-					case "agentPreset.read": return this.api.agentPresets.read(request);
-					case "agentPreset.copy": return this.api.agentPresets.copy(request);
-					case "agentPreset.openDocument": return this.api.agentPresets.openDocument(request, new AbortController().signal);
-					case "agentPreset.remove": return this.api.agentPresets.remove(request);
-					case "goal.create": return this.api.goals.create(request);
-					case "goal.edit": return this.api.goals.edit(request);
-					case "goal.pause": return this.api.goals.pause(request);
-					case "goal.resume": return this.api.goals.resume(request);
-					case "goal.complete": return this.api.goals.complete(request);
-					case "goal.clear": return this.api.goals.clear(request);
-					case "settings.describe": return this.api.settings.describe(request);
-					case "settings.openDocument": return this.api.settings.openDocument(request, signal);
-					case "settings.update": return this.api.settings.update(request);
-					case "settings.replace": return this.api.settings.replace(request);
-					case "settings.mutate": return this.api.settings.mutate(request);
-					case "credentials.describe": return this.api.credentials.describe(request);
-					case "credentials.set": return this.api.credentials.set(request);
-					case "credentials.unset": return this.api.credentials.unset(request);
-					case "llm.providers": return this.api.llm.providers(request);
-					case "llm.models": return this.api.llm.models(request);
-					case "llm.discoverModels": return this.api.llm.discoverModels(request, signal);
-				}
-			}
-			openMux(payload, signal, onOpen) {
-				return this.tapStream(this.api.events.mux(rpcRequest(payload), signal), onOpen);
-			}
-			openHost(payload, signal, onOpen) {
-				return this.tapStream(this.api.events.host(rpcRequest(payload), signal), onOpen);
-			}
-			async *tapStream(stream, onOpen) {
-				onOpen?.();
-				for await (const envelope of stream) {
-					const full = {
-						type: "server-request",
-						rpcId: envelope.rpcId,
-						method: envelope.payload.type,
-						payload: envelope.payload
-					};
-					this.onEnvelope(full);
-					yield envelope;
-				}
-			}
-			/**
-			* Deliver a client response to the in-memory contract impl (no HTTP POST),
-			* echoing the envelope to the observation tap like every other path.
-			* @param message - the client-response envelope answering a server request.
-			* @returns the carrier receipt from the fixture impl.
-			*/
-			async respond(message) {
-				this.onEnvelope(message);
-				return this.api.respond(message);
-			}
-		};
+		function createFixtureConnectionRpc() {
+			return createFixtureWorld(fixtureOptionsFromLocation()).rpc;
+		}
 		/** Browser query mapping; direct unit callers pass FixtureOptions explicitly. */
 		function fixtureOptionsFromLocation() {
 			if (typeof location === "undefined") return {};
@@ -10097,101 +6149,36 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 				rejectPrompt: query.get("fixturePrompt") === "reject",
 				failWorkspaceAttach: query.get("fixtureAttach") === "fail",
 				dropSessionCreateResponse: query.get("fixtureSessionCreate") === "drop-response",
-				createFrameOrder: query.get("fixtureFrames") === "workspace-first" ? "workspace-first" : "session-first"
+				createFrameOrder: query.get("fixtureFrames") === "workspace-first" ? "workspace-first" : "session-first",
+				fileChanges: query.get("fixtureFileChanges") === "demo"
 			};
 		}
 		//#endregion
-		//#region lib/types/api-path.js
+		//#region lib/types/rpc.js
+		/** Generic unary RPC contracts shared by the Host and Client Connection halves. */
 		/**
-		* The /api URL prefix — single source for both halves of the web transport.
-		* The node half registers this prefix on the web server; both halves share the
-		* event paths below for the browser WebSocket downlinks.
+		* Brand one validated string as a Connection correlation id.
+		* @param id - validated wire identity.
+		* @returns the same string with the correlation-id brand.
 		*/
-		/** Route prefix owning every api request (`/api` and `/api/<anything>`). */
-		const API_PATH = "/api";
-		/** Browser mux-frame WebSocket pathname. */
-		const MUX_EVENTS_PATH = `${API_PATH}/events.mux`;
-		/** Browser host-frame WebSocket pathname. */
-		const HOST_EVENTS_PATH = `${API_PATH}/events.host`;
-		//#endregion
-		//#region lib/types/client/web-api-client.js
-		/** Browser API carrier: HTTP upstream plus one WebSocket per downstream event stream. */
-		/** Browser platform subclass: unary/respond use fetch; mux/host use downlink-only WebSockets. */
-		var WebApiClient = class extends AbstractApiClient {
-			doFetch(input, init) {
-				return globalThis.fetch(input, init);
-			}
-			openMux(_payload, signal, onOpen) {
-				return this.readWebSocket(MUX_EVENTS_PATH, signal, muxFrameSchema, onOpen);
-			}
-			openHost(_payload, signal, onOpen) {
-				return this.readWebSocket(HOST_EVENTS_PATH, signal, hostFrameSchema, onOpen);
-			}
-			async *readWebSocket(path, signal, frameSchema, onOpen) {
-				const url = new URL(path, this.resolveBase());
-				url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-				const socket = new WebSocket(url);
-				const inbox = [];
-				let wake;
-				const enqueue = (item) => {
-					inbox.push(item);
-					wake?.();
-					wake = void 0;
-				};
-				const handleOpen = () => {
-					onOpen?.();
-				};
-				const handleMessage = (event) => {
-					let full;
-					let frame;
-					try {
-						if (typeof event.data !== "string") throw new Error("binary WebSocket frame");
-						full = serverRequestSchema.parse(JSON.parse(event.data));
-						frame = frameSchema.parse(full.payload);
-					} catch (error) {
-						console.error(`[client-connection] dropping malformed WebSocket frame on ${path}:`, error);
-						return;
-					}
-					this.onEnvelope(full);
-					enqueue({
-						kind: "frame",
-						envelope: {
-							rpcId: full.rpcId,
-							payload: frame
-						}
-					});
-				};
-				const handleClose = () => {
-					enqueue({ kind: "end" });
-				};
-				const handleAbort = () => {
-					if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) socket.close();
-				};
-				socket.addEventListener("open", handleOpen);
-				socket.addEventListener("message", handleMessage);
-				socket.addEventListener("close", handleClose, { once: true });
-				signal.addEventListener("abort", handleAbort, { once: true });
-				if (signal.aborted) handleAbort();
-				try {
-					while (true) {
-						while (inbox.length > 0) {
-							const item = inbox.shift();
-							if (item.kind === "end") return;
-							yield item.envelope;
-						}
-						await new Promise((resolve) => {
-							wake = resolve;
-						});
-					}
-				} finally {
-					signal.removeEventListener("abort", handleAbort);
-					socket.removeEventListener("open", handleOpen);
-					socket.removeEventListener("message", handleMessage);
-					socket.removeEventListener("close", handleClose);
-					handleAbort();
+		function RpcId(id) {
+			return id;
+		}
+		/**
+		* Convert a rejected transport operation into a generic failure result.
+		* @param error - rejected transport value.
+		* @returns an `internal` failure preserving the available message.
+		*/
+		function transportError(error) {
+			return {
+				ok: false,
+				error: {
+					code: "gateway/internal",
+					message: error instanceof Error ? error.message : String(error),
+					details: {}
 				}
-			}
-		};
+			};
+		}
 		//#endregion
 		//#region lib/types/client/rpc.js
 		/** Browser caller for generic Connection unary RPC channels. */
@@ -10201,30 +6188,67 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		/**
 		* Create the browser-backed generic RPC caller.
 		* @param doFetch - transport override; defaults to the page's global fetch.
+		* @param openStream - optional worker-local Gateway stream carrier.
 		* @returns caller that owns request correlation and response-envelope validation.
 		*/
-		function createWebConnectionRpc(doFetch) {
+		function createWebConnectionRpc(doFetch, openStream) {
 			const send = doFetch ?? ((input, init) => globalThis.fetch(input, init));
-			return { async call(channel, endpoint, payload, signal) {
-				assertTarget(channel, endpoint);
-				const rpcId = RpcId(randomUuid());
-				const message = {
-					type: "client-request",
-					rpcId,
-					method: endpoint,
-					payload
-				};
-				const response = await send(new URL(`${channel}/${endpoint}`, resolveBase()), {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify(message),
-					...signal === void 0 ? {} : { signal }
-				});
-				if (!response.ok) throw new Error(`transport failure for ${channel}/${endpoint}: HTTP ${response.status}`);
-				const full = serverResponseSchema.parse(await response.json());
-				if (full.rpcId !== rpcId) throw new Error(`rpcId mismatch for ${endpoint}: sent ${rpcId}, got ${full.rpcId}`);
-				return full.result;
-			} };
+			return {
+				async call(channel, endpoint, payload, signal) {
+					assertTarget(channel, endpoint);
+					const rpcId = RpcId(randomUuid());
+					const message = {
+						type: "client-request",
+						rpcId,
+						method: endpoint,
+						payload
+					};
+					const response = await send(new URL(`${channel}/${endpoint}`, resolveBase()), {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify(message),
+						...signal === void 0 ? {} : { signal }
+					});
+					if (!response.ok) throw new Error(`transport failure for ${channel}/${endpoint}: HTTP ${response.status}`);
+					const full = parseConnectionResponse(await response.json());
+					if (full.rpcId !== rpcId) throw new Error(`rpcId mismatch for ${endpoint}: sent ${rpcId}, got ${full.rpcId}`);
+					return full.result;
+				},
+				...openStream === void 0 ? {} : { open(channel, endpoint, payload, signal) {
+					assertTarget(channel, endpoint);
+					if (channel !== "/api") throw new Error(`connection: worker-local streams require the /api channel, got ${JSON.stringify(channel)}`);
+					return openStream(endpoint, payload, signal);
+				} }
+			};
+		}
+		function parseConnectionResponse(value) {
+			if (!isRecord(value) || value.type !== "server-response" || typeof value.rpcId !== "string") throw new TypeError("connection: invalid server-response envelope");
+			const result = value.result;
+			if (!isRecord(result)) throw new TypeError("connection: invalid server-response result");
+			if (result.ok === true) return {
+				rpcId: RpcId(value.rpcId),
+				result: {
+					ok: true,
+					value: result.value
+				}
+			};
+			if (result.ok !== false || !isRecord(result.error)) throw new TypeError("connection: invalid server-response result");
+			const error = result.error;
+			if (typeof error.code !== "string" || typeof error.message !== "string" || !isRecord(error.details)) throw new TypeError("connection: invalid server-response failure");
+			return {
+				rpcId: RpcId(value.rpcId),
+				result: {
+					ok: false,
+					error: {
+						code: error.code,
+						message: error.message,
+						details: error.details
+					}
+				}
+			};
+		}
+		function isRecord(value) {
+			return typeof value === "object" && value !== null && !Array.isArray(value);
 		}
 		function resolveBase() {
 			const location = globalThis.location;
@@ -10255,67 +6279,144 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 		//#region lib/types/client/index.js
 		/** Required services (none — this is the wire root). */
 		const inject = [];
+		function watchBrowserNetwork(controller) {
+			const browser = globalThis.window;
+			const initiallyAvailable = browser?.navigator?.onLine;
+			if (browser === void 0 || initiallyAvailable === void 0) return () => {};
+			const online = () => {
+				controller.setNetworkAvailable(true);
+			};
+			const offline = () => {
+				controller.setNetworkAvailable(false);
+			};
+			controller.setNetworkAvailable(initiallyAvailable);
+			browser.addEventListener("online", online);
+			browser.addEventListener("offline", offline);
+			return () => {
+				browser.removeEventListener("online", online);
+				browser.removeEventListener("offline", offline);
+			};
+		}
 		/**
-		* Client plugin body: pick the api by page mode and provide ctx.connection.
+		* Client plugin body: pick physical carriers by page mode and provide ctx.connection.
 		* @param ctx - client cordis context.
 		*/
 		function apply(ctx) {
 			const pageLocation = typeof location === "undefined" ? void 0 : location;
-			const fixtureClient = pageLocation !== void 0 && new URLSearchParams(pageLocation.search).has("fixture") ? new FixtureApiClient() : void 0;
+			const fixtureRpc = pageLocation !== void 0 && new URLSearchParams(pageLocation.search).has("fixture") ? createFixtureConnectionRpc() : void 0;
 			const transport = globalThis.__DSH_TRANSPORT__;
-			const api = fixtureClient ?? transport?.createApiClient() ?? new WebApiClient();
-			const rpc = fixtureClient?.rpc ?? createWebConnectionRpc(transport?.fetch);
-			let started = false;
-			let description;
-			const descriptionListeners = /* @__PURE__ */ new Set();
-			const publishDescription = (next) => {
-				if (Object.is(description, next)) return;
-				description = next;
-				for (const listener of [...descriptionListeners]) try {
+			const recovery = resolveConnectionConfig(globalThis.__DSH_CONNECTION_RECOVERY__);
+			const rpc = fixtureRpc ?? createWebConnectionRpc(transport?.fetch, transport?.openStream);
+			let generationSource;
+			let owner;
+			let generationId = 0;
+			let generation;
+			let state;
+			const generationListeners = /* @__PURE__ */ new Set();
+			const stateListeners = /* @__PURE__ */ new Set();
+			const publishGeneration = (next) => {
+				if (Object.is(generation, next)) return;
+				generation = next;
+				for (const listener of [...generationListeners]) try {
 					listener();
 				} catch (error) {
-					console.error("[web-runtime] host-description listener threw:", error);
+					console.error("[connection] generation listener threw:", error);
 				}
 			};
+			const publishState = (next) => {
+				if (state === next) return;
+				state = next;
+				for (const listener of [...stateListeners]) try {
+					listener();
+				} catch (error) {
+					console.error("[connection] state listener threw:", error);
+				}
+			};
+			const releaseOwner = (current) => {
+				if (owner !== current) return;
+				owner = void 0;
+				current.stopNetworkWatch();
+				current.controller.stop();
+				publishGeneration(void 0);
+				publishState(void 0);
+			};
 			const handle = {
-				api,
-				isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname),
-				hostDescription: {
-					getSnapshot: () => description,
+				isLoopback: transport?.ownsHost === true || pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname),
+				generation: {
+					getSnapshot: () => generation,
 					subscribe: (listener) => {
-						descriptionListeners.add(listener);
+						generationListeners.add(listener);
 						return () => {
-							descriptionListeners.delete(listener);
+							generationListeners.delete(listener);
+						};
+					}
+				},
+				state: {
+					getSnapshot: () => state,
+					subscribe: (listener) => {
+						stateListeners.add(listener);
+						return () => {
+							stateListeners.delete(listener);
 						};
 					}
 				},
 				rpc,
+				reconnect() {
+					owner?.controller.reconnect();
+				},
+				registerGenerationSource(source) {
+					if (generationSource !== void 0) throw new Error("connection: a generation source is already registered");
+					generationSource = source;
+					return () => {
+						if (generationSource !== source) return;
+						generationSource = void 0;
+						const current = owner;
+						if (current?.source === source) releaseOwner(current);
+					};
+				},
 				start(sinks, config) {
-					if (started) throw new Error("connection: the stream loop is already owned by another consumer");
-					started = true;
-					const controller = new ConnectionController(api, {
+					if (owner !== void 0) throw new Error("connection: the stream loop is already owned by another consumer");
+					const source = generationSource;
+					if (source === void 0) throw new Error("connection: no generation source is registered");
+					const token = {};
+					const ownsGeneration = () => owner?.token === token;
+					const controller = new ConnectionController(source, {
 						...sinks,
-						onConnected: (next) => {
-							publishDescription(next);
-							if (!Object.is(description, next)) return;
-							sinks.onConnected?.(next);
+						onConnected: (host) => {
+							const nextGeneration = {
+								id: ++generationId,
+								host
+							};
+							publishGeneration(nextGeneration);
+							if (!ownsGeneration() || !Object.is(generation, nextGeneration)) return;
+							sinks.onConnected?.(host);
 						},
 						onStateChange: (state) => {
-							if (state === "reconnecting") publishDescription(void 0);
+							if (state !== "connected") publishGeneration(void 0);
+							if (!ownsGeneration()) return;
+							publishState(state);
 							sinks.onStateChange?.(state);
 						}
-					}, config ?? {});
+					}, {
+						...recovery,
+						...config
+					});
+					const current = {
+						token,
+						source,
+						controller,
+						stopNetworkWatch: watchBrowserNetwork(controller)
+					};
+					owner = current;
 					controller.start();
 					return { stop: () => {
-						controller.stop();
-						publishDescription(void 0);
+						releaseOwner(current);
 					} };
 				}
 			};
 			ctx.provide("connection", handle);
 		}
 		//#endregion
-		exports.AbstractApiClient = AbstractApiClient;
 		exports.RpcId = RpcId;
 		exports.apply = apply;
 		exports.inject = inject;

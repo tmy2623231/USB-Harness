@@ -13,6 +13,86 @@
 
 ---
 
+## [0.1.5-rc.2] — 2026-09-17
+
+### 上游对齐（dsh `0.1.1-rc.2` → `0.1.5-rc.2`）
+
+- **版本锁定同步**：`scripts/setup-windows.ps1` 的 `$DshVersion` 与 `scripts/setup-unix.sh`
+  的 `DSH_VERSION` 同步为 `0.1.5-rc.2`；CI 正则解析的版本源保持不变（仍是单一数据源）。
+- **brand-patch 全部 17 个文件按新基线重建**（关键）。此前 17 个补丁文件中有 **9 个**是
+  `0.1.1-rc.2` 的**整文件快照**——整文件沿用会把这些文件在新版本里的**全部上游修复一起回滚**。
+  本次改为「新上游基线 + 重新施加定制意图」重建，定制点逐条以**功能断言**校验。
+  - 校验结果：**安全 17 / 需确认 0 / 阻断 0 / 异常 0**。
+  - 定制清单（全部保留）：品牌标识与文案（8 处）、`--host 0.0.0.0` 放行、
+    符号链接失败回退目录复制、默认模型 `provider: pi-ai`、官方 `llm-deepseek` 禁用、
+    权限模式中文化、Web 首页标题与 `crypto.randomUUID` polyfill 等。
+- **peer 补齐清单重定：25 → 26 个**。dsh 子包互相声明 `peerDependencies` 而主包 bundle
+  未包含，`--legacy-peer-deps` 会跳过它们 → 启动报 `ERR_MODULE_NOT_FOUND`。
+  重定方法（对安装树里全部 `@deepseek-ai/*` 的 import 说明符逐个做模块解析）
+  已写入 `docs/TROUBLESHOOTING.md`。实测 95 个说明符全部可解析、缺失 0。
+  - 第三方包（`react@^18.3.1` 等）版本**不跟随** dsh 版本，按各自兼容范围锁定。
+
+### 修复（补丁定制丢失导致 Web 无法启动 —— 严重）
+
+- **根因**：`startup.js` 的定制是删除上游那句
+  `program.error("error: --host 0.0.0.0 is intentionally not supported yet for safety ...")`。
+  补丁重建时该文件被误判为「仅品牌改名」，删除动作未编码为意图 → 定制静默丢失 →
+  `dsh web` 起不来。**而既有的三方校验工具报 OK**：它只比较「补丁 vs 上游」，
+  无法回答「定制意图是否还在」。
+- **修复**：新增 `allow_all_interfaces` 意图类型，以**字面量查找**确认拦截语句已被移除；
+  若未逐字命中而文件里仍有 `0.0.0.0` 相关代码，则**报错退出**（绝不静默跳过），
+  交由人工核对上游是否改了写法。
+- **教训**：补丁重建后必须补一道**功能断言**，逐条验证定制点存在，不能只信三方差异校验。
+
+### 新增（控制台 CLI 模式）
+
+- 启动器新增 **[4] 切换运行模式**，可在 **Web 界面**（默认）与 **命令行模式（dsh TUI）** 间切换。
+  - Windows：`scripts/launch-windows.ps1` 新增 `Get-LaunchMode` / `Set-LaunchMode` /
+    `Get-LaunchModeLabel` / `Start-Cli` / `Switch-LaunchMode`；菜单重新编号为
+    `[1] 启动（当前模式）` `[2] 检查更新` `[3] 重置` `[4] 切换运行模式` `[5] 退出`。
+  - Linux/macOS：`launch.sh` 新增同语义的 `get_launch_mode` / `set_launch_mode` /
+    `mode_label` / `start_cli` / `switch_launch_mode`。
+  - 新增 `config/launch.conf`（`mode = web | cli`），为运行模式**唯一持久化位置**，
+    双端共用同一格式。
+- **默认行为不变（硬约束）**：`config/launch.conf` 不存在、为空、或 `mode` 值无法识别时，
+  一律按 `web` 处理——删除该文件即可恢复默认，且**任何既有默认行为均未改变**。
+- 状态面板新增「运行模式」行，并显示当前模式；CLI 模式下不再显示监听地址。
+- 命令行模式底层为 `dsh --profile headless`（dsh 0.1.5 起仅有 `web`/`acp`/`headless`/`sdk`），
+  日志写入 `data/logs/dsh-cli.log`。
+
+### 变更（适配 dsh 0.1.5 的执行档位）
+
+- dsh 0.1.5 起**没有默认 profile**：裸跑 `dsh` 直接报 `error: --profile <name> is required`。
+  本项目的 CLI 模式已封装为 `--profile headless`，用户无需手敲。
+- dsh 0.1.5 新增 `dsh.configTrees` 挂载机制，`agent-presets` 从发布包内 `config/` 迁出；
+  本项目的 `brand-patch` 已随之调整落点。
+
+### 文档
+
+- `README.md`：版本锁定表、dsh 徽章、变更要点（重写为 `0.1.1-rc.2 → 0.1.5-rc.2`）、
+  新增「运行模式」章节与 `config/launch.conf` 说明、目录结构、维护者升级步骤
+  （新增「重定 peer 清单」与「跑冒烟测试」两步）。
+- `docs/COMPATIBILITY.md`：验证表按 `0.1.5-rc.2` 复核并补充 6 项实测；
+  新增 `0.1.1-rc.2 → 0.1.5-rc.2` 逐条变更追踪与**冲突差异表**（7 项定制逐条说明保留原因）；
+  已知坑位补充「补齐清单必须逐版本重定」及「整文件沿用补丁的高危性」。
+- `docs/TROUBLESHOOTING.md`：新增「peer 依赖补齐清单的重定方法」完整操作章节
+  （含可直接运行的 `refscan.mjs`）；症状表新增 4 条（`ERR_MODULE_NOT_FOUND`、
+  `--profile is required`、`401`、`0.0.0.0` 拦截残留）。
+- `docs/RELEASE_README_SYNC.md`：第 6 节扩写为「三方校验的检测边界」「按新基线 + 定制意图重建」
+  三小节，并明确**默认按重做执行**；操作步骤与验收检查表同步补充。
+- `scripts/COMMANDS.md`、`.github/RELEASE_NOTES.md`、`.github/workflows/release.yml`：同步更新。
+
+### 验证
+
+- **冒烟测试 9/9 通过（100%）**，退出码 0，无跳过、无注释、无屏蔽：
+  依赖就绪 / 模块解析 / 补丁基线校验 / headless CLI / Web 启动 / 首页 HTTP / 首页标题 /
+  静态资源 / 端口监听。
+- `@deepseek-ai/*` 模块解析：95 个说明符全部可解析，缺失 0。
+- Web 首页全链路：`token → 303 + Set-Cookie → cookie → 200`，`<title>USB Harness</title>`，
+  4 个 JS/CSS 资源全部 HTTP 200；486 处 `deepseek` 均为 `@deepseek-ai/` 包名路径，品牌零泄漏。
+
+---
+
 ## [0.1.1-rc.2.2] — 2026-08-31
 
 ### 修复（检查更新误报「没有可用更新」）

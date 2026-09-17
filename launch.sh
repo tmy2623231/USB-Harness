@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 # launch.sh — USB Harness 启动器（Linux/macOS）
-# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/检查更新/配置/重置/状态/退出）
-# 用法：bash launch.sh [web|setup|reset|status|check-update|upgrade]
+# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/检查更新/重置/切换模式/退出）
+# 用法：bash launch.sh [web|cli|setup|reset|status|check-update|upgrade]
 # =============================================================================
 set -euo pipefail
 
@@ -31,6 +31,9 @@ DSH_BIN="$ROOT/.cache/app/node_modules/.bin/dsh"
 DSH_HOME_DIR="$ROOT/data/dsh"
 LOG_DIR="$ROOT/data/logs"
 LOG_FILE="$LOG_DIR/dsh-web.log"
+CLI_LOG_FILE="$LOG_DIR/dsh-cli.log"
+# 运行模式持久化位置（config/launch.conf，与 launch-windows.ps1 共用同一格式）
+LAUNCH_CONF="$ROOT/config/launch.conf"
 
 # 兜底：把便携 node 提到 PATH 最前（对 dsh 内部再派生的子进程同样生效）。
 # 注意：这只是兜底——dsh 主进程的 node 解析已不再依赖 PATH（见 dsh()）。
@@ -51,6 +54,37 @@ get_harness_ver() {
 }
 
 mkdir -p "$DSH_HOME_DIR" "$LOG_DIR"
+
+# ---------------------------------------------------------------------------
+# 运行模式（web / cli）读写
+# 默认 web：文件缺失、为空、值无法识别时一律回落 web —— 保证不改变既有默认行为。
+# ---------------------------------------------------------------------------
+get_launch_mode() {
+  local v=""
+  if [ -f "$LAUNCH_CONF" ]; then
+    v="$(sed -n 's/^[[:space:]]*mode[[:space:]]*=[[:space:]]*//p' "$LAUNCH_CONF" | head -1 | tr -d '\r' \
+         | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^["'"'"']//' -e 's/["'"'"']$//')"
+  fi
+  case "$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')" in
+    cli) printf 'cli' ;;
+    *)   printf 'web' ;;
+  esac
+}
+
+set_launch_mode() {
+  mkdir -p "$(dirname "$LAUNCH_CONF")"
+  cat > "$LAUNCH_CONF" <<EOF
+# USB Harness 运行模式（由启动器菜单 [4] 切换）
+#   mode = web   启动 Web 界面（默认）
+#   mode = cli   启动 dsh 命令行交互模式
+# 本文件缺失或值无法识别时按 web 处理，删除即恢复默认。
+mode = $1
+EOF
+}
+
+mode_label() {
+  if [ "$1" = "cli" ]; then printf 'CLI（命令行）'; else printf 'Web（图形界面）'; fi
+}
 
 echo ""
 echo "============================================"
@@ -91,7 +125,13 @@ show_status() {
     HARNESS_VER="$(get_harness_ver)"
     if [ -n "$HARNESS_VER" ]; then echo "  程序版本  : $HARNESS_VER"; else echo "  程序版本  : 未记录（旧版包）"; fi
     echo "  数据目录  : $DSH_HOME_DIR"
-    echo "  监听地址  : http://0.0.0.0:3080（本机 + 局域网）"
+    LAUNCH_MODE="$(get_launch_mode)"
+    echo "  运行模式  : $(mode_label "$LAUNCH_MODE")（菜单 [4] 切换）"
+    if [ "$LAUNCH_MODE" = "web" ]; then
+      echo "  监听地址  : http://0.0.0.0:3080（本机 + 局域网）"
+    else
+      echo "  监听地址  : 不适用（CLI 模式不监听端口）"
+    fi
   else
     echo "  环境      : 未安装（首次使用需联网下载）"
   fi
@@ -128,6 +168,60 @@ start_web() {
   fi
 }
 
+# 启动 dsh 命令行（TUI）模式
+# 与 start_web 共用同一份环境变量（DSH_HOME / PATH），模型配置、会话数据完全一致，
+# 只是交互界面从浏览器换成终端。dsh 不带子命令时进入交互式 TUI。
+start_cli() {
+  export DSH_HOME="$DSH_HOME_DIR"
+  export PATH="$NODE_DIR/bin:$ROOT/.cache/app/node_modules/.bin:$PATH"
+  echo ""
+  echo "  提示: 本模式在终端内交互，不监听端口，浏览器访问不可用"
+  echo "  可用命令: /help 查看帮助，Ctrl+C 或输入 /exit 退出"
+  echo "  想切回 Web 界面: 返回菜单后用 [4] 切换运行模式"
+  echo ""
+  if [ -f "$DSH_CLI" ]; then
+    "$NODE_BIN" "$DSH_CLI" 2>&1 | tee -a "$CLI_LOG_FILE"
+    rc=${PIPESTATUS[0]}
+  else
+    "$DSH_BIN" 2>&1 | tee -a "$CLI_LOG_FILE"
+    rc=${PIPESTATUS[0]}
+  fi
+  echo ""
+  echo "dsh CLI 已退出（代码 $rc）。按回车键返回菜单 ..."
+  read -r _
+}
+
+# 切换运行模式（默认 web；只改 config/launch.conf，不触碰任何 dsh 配置）
+switch_launch_mode() {
+  cur="$(get_launch_mode)"
+  echo ""
+  echo "--------------------------------------------"
+  echo "  切换运行模式"
+  echo "--------------------------------------------"
+  echo "  当前: $(mode_label "$cur")"
+  echo ""
+  echo "  [1] Web 界面（图形化，浏览器访问，默认）"
+  echo "  [2] CLI 命令行（终端内交互，不监听端口）"
+  echo "  [0] 取消"
+  echo ""
+  read -r -p "  请选择 " pick
+  case "$pick" in
+    1) new="web" ;;
+    2) new="cli" ;;
+    0|"") echo "  已取消。"; return ;;
+    *) echo "[警告] 无效选择：$pick"; return ;;
+  esac
+  if [ "$new" = "$cur" ]; then
+    echo "  已是 $(mode_label "$new")，无需改动。"
+    return
+  fi
+  set_launch_mode "$new"
+  echo ""
+  echo "  运行模式已切换为: $(mode_label "$new")"
+  echo "  记录位置: $LAUNCH_CONF"
+  echo "  下次选 [1] 启动即生效。"
+}
+
 # 重置
 do_reset() {
   bash "$ROOT/scripts/reset-unix.sh"
@@ -149,8 +243,11 @@ fi
 bash "$UPGRADE_SCRIPT" --reconcile-only || true
 
 # 命令行动作直通
+# web / cli 为显式指定，优先于 config/launch.conf 里记录的当前模式；
+# 不带参数（进入交互菜单）时才按记录的模式分派。
 case "$ACTION" in
   web)    start_web; exit 0 ;;
+  cli)    start_cli; exit 0 ;;
   setup)  do_setup; exit 0 ;;
   reset)  do_reset; exit 0 ;;
   status) show_status; exit 0 ;;
@@ -161,17 +258,23 @@ esac
 # 交互菜单
 while true; do
   show_status
-  echo "  [1] 启动 Web 界面"
+  if [ "$(get_launch_mode)" = "cli" ]; then
+    echo "  [1] 启动（当前模式：CLI 命令行）"
+  else
+    echo "  [1] 启动（当前模式：Web 图形界面）"
+  fi
   echo "  [2] 检查更新（程序与 dsh 版本）"
   echo "  [3] 重置（清配置数据，保留运行环境，无需下载）"
-  echo "  [4] 退出"
+  echo "  [4] 切换运行模式（Web 界面 / CLI 命令行）"
+  echo "  [5] 退出"
   echo ""
   read -r -p "  请选择 " choice
   case "$choice" in
-    1) start_web ;;
+    1) if [ "$(get_launch_mode)" = "cli" ]; then start_cli; else start_web; fi ;;
     2) bash "$UPGRADE_SCRIPT" --check-only || true ;;
     3) do_reset ;;
-    4) exit 0 ;;
+    4) switch_launch_mode ;;
+    5) exit 0 ;;
     *) echo "[警告] 无效选择：$choice" ;;
   esac
 done

@@ -1,13 +1,14 @@
 ﻿# =============================================================================
 # launch-windows.ps1 — USB Harness 启动器（Windows）
-# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/检查更新/配置/重置/状态/退出）
+# 职责：环境校验 → 首启自动安装 → 交互菜单（启动/检查更新/重置/切换模式/退出）
 # 用法：由 launch.bat 调用；也可直接：
-#   powershell -ExecutionPolicy Bypass -File .\scripts\launch-windows.ps1 [web|setup|reset|status|check-update|upgrade]
+#   powershell -ExecutionPolicy Bypass -File .\scripts\launch-windows.ps1 [web|cli|setup|reset|status|check-update|upgrade]
 # =============================================================================
 [CmdletBinding()]
 param(
-    [string]$Action = ''   # web=直接启动；setup=重新配置；reset=重置；status=查看状态；
-                          # check-update=检查更新；upgrade=检查并升级；空=交互菜单
+    [string]$Action = ''   # web=直接启动 Web 界面；cli=直接启动命令行模式；setup=重新配置；
+                          # reset=重置；status=查看状态；check-update=检查更新；
+                          # upgrade=检查并升级；空=交互菜单（按 config/launch.conf 的模式启动）
 )
 
 Set-StrictMode -Version Latest
@@ -27,6 +28,8 @@ $LogFile   = Join-Path $LogDir 'dsh-web.log'
 $ErrLog    = Join-Path $LogDir 'dsh-web.err.log'
 $ReadyFlag = Join-Path $Root '.ready.flag'
 $UpgradeScript = Join-Path $PSScriptRoot 'upgrade-windows.ps1'
+# 运行模式持久化位置（config/launch.conf，与 launch.sh 共用同一格式）
+$LaunchConf = Join-Path $Root 'config\launch.conf'
 
 # 兜底：把便携 node 目录提到 PATH 最前（对 dsh 内部再派生的子进程同样生效）。
 # 注意：这只是兜底——dsh 主进程的 node 解析已不再依赖 PATH（见 Invoke-Dsh）。
@@ -58,6 +61,45 @@ function Get-FreePort {
         if (Test-Port -Port $p) { return $p }
     }
     throw "在 $StartPort - $($StartPort + 99) 范围内未找到空闲端口"
+}
+
+# ---------------------------------------------------------------------------
+# 运行模式（web / cli）读写
+# 默认 web：文件缺失、为空、值无法识别时一律回落 web —— 保证不改变既有默认行为。
+# ---------------------------------------------------------------------------
+function Get-LaunchMode {
+    if (-not (Test-Path $LaunchConf)) { return 'web' }
+    try {
+        $line = Get-Content $LaunchConf -ErrorAction SilentlyContinue |
+                Where-Object { $_ -match '^\s*mode\s*=' } | Select-Object -First 1
+        if (-not $line) { return 'web' }
+        $v = ($line -split '=', 2)[1]
+        if ($null -eq $v) { return 'web' }
+        $v = $v.Trim().Trim('"').Trim("'").ToLower()
+        if ($v -eq 'cli') { return 'cli' }
+        return 'web'
+    } catch { return 'web' }
+}
+
+function Set-LaunchMode {
+    param([ValidateSet('web', 'cli')][string]$Mode)
+    $dir = Split-Path -Parent $LaunchConf
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $body = @(
+        '# USB Harness 运行模式（由启动器菜单 [4] 切换）',
+        '#   mode = web   启动 Web 界面（默认）',
+        '#   mode = cli   启动 dsh 命令行交互模式',
+        '# 本文件缺失或值无法识别时按 web 处理，删除即恢复默认。',
+        "mode = $Mode"
+    ) -join "`r`n"
+    [IO.File]::WriteAllText($LaunchConf, $body + "`r`n")
+    return $Mode
+}
+
+function Get-LaunchModeLabel {
+    param([string]$Mode)
+    if ($Mode -eq 'cli') { return 'CLI（命令行）' }
+    return 'Web（图形界面）'
 }
 
 # 环境就绪？（便携 Node 与 dsh 入口都在；bin.js 缺失时接受垫片回退）
@@ -118,7 +160,13 @@ function Show-Status {
         if ($harnessVer) { Write-Host "  程序版本  : $harnessVer" -ForegroundColor Green }
         else { Write-Host '  程序版本  : 未记录（旧版包）' -ForegroundColor DarkGray }
         Write-Host "  数据目录  : $DshHome"
-        Write-Host "  监听地址  : http://0.0.0.0:3080（本机 + 局域网）"
+        $mode = Get-LaunchMode
+        Write-Host "  运行模式  : $(Get-LaunchModeLabel $mode)（菜单 [4] 切换）"
+        if ($mode -eq 'web') {
+            Write-Host '  监听地址  : http://0.0.0.0:3080（本机 + 局域网）'
+        } else {
+            Write-Host '  监听地址  : 不适用（CLI 模式不监听端口）' -ForegroundColor DarkGray
+        }
         if (Test-Path $ReadyFlag) { Write-Host '  就绪标记  : 已就绪' -ForegroundColor Green }
         else { Write-Host '  就绪标记  : 缺失（将自动重新配置）' -ForegroundColor Yellow }
     } else {
@@ -184,6 +232,73 @@ function Start-Web {
     Read-Host
 }
 
+# 启动 dsh 命令行（TUI）模式
+# 与 Start-Web 共用同一份环境变量（DSH_HOME / PATH），因此模型配置、会话数据完全一致，
+# 只是交互界面从浏览器换成终端。dsh 不带子命令时进入交互式 TUI。
+function Start-Cli {
+    Write-Step '启动 dsh 命令行（CLI）模式'
+    Write-Host '  提示: 本模式在终端内交互，不监听端口，浏览器访问不可用' -ForegroundColor DarkGray
+    Write-Host '  可用命令: /help 查看帮助，Ctrl+C 或输入 /exit 退出' -ForegroundColor DarkGray
+    Write-Host '  想切回 Web 界面: 返回菜单后用 [4] 切换运行模式' -ForegroundColor DarkGray
+    Write-Host ''
+
+    $env:DSH_HOME = $DshHome
+    $env:Path = "$NodeDir;$env:Path"
+    $CliLog = Join-Path $LogDir 'dsh-cli.log'
+    $CliErr = Join-Path $LogDir 'dsh-cli.err.log'
+    Remove-Item $CliErr -Force -ErrorAction SilentlyContinue
+    Invoke-Dsh 2>>$CliErr | Tee-Object -FilePath $CliLog -Append
+    $exit = $LASTEXITCODE
+    if ($exit -ne 0 -and (Test-Path $CliErr)) {
+        $errBody = Get-Content $CliErr -Raw -ErrorAction SilentlyContinue
+        if ($errBody -and $errBody.Trim()) {
+            Write-Host ''
+            Write-Host "[错误] dsh CLI 退出码 $exit。错误详情（$CliErr）：" -ForegroundColor Red
+            Get-Content $CliErr -Tail 30 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+        }
+    }
+    Write-Host ''
+    Write-Host "dsh CLI 已退出（代码 $exit）。按回车键返回菜单 ..." -ForegroundColor DarkGray
+    Read-Host
+}
+
+# 启动（按当前运行模式分派）
+function Start-Harness {
+    if ((Get-LaunchMode) -eq 'cli') { Start-Cli } else { Start-Web }
+}
+
+# 切换运行模式（默认 web；切换只改 config/launch.conf，不触碰任何 dsh 配置）
+function Switch-LaunchMode {
+    $cur = Get-LaunchMode
+    Write-Host ''
+    Write-Host '--------------------------------------------' -ForegroundColor Cyan
+    Write-Host '  切换运行模式' -ForegroundColor Cyan
+    Write-Host '--------------------------------------------' -ForegroundColor Cyan
+    Write-Host "  当前: $(Get-LaunchModeLabel $cur)"
+    Write-Host ''
+    Write-Host '  [1] Web 界面（图形化，浏览器访问，默认）' -ForegroundColor White
+    Write-Host '  [2] CLI 命令行（终端内交互，不监听端口）' -ForegroundColor White
+    Write-Host '  [0] 取消' -ForegroundColor Gray
+    Write-Host ''
+    $pick = (Read-Host '  请选择').Trim()
+    switch ($pick) {
+        '1' { $new = 'web' }
+        '2' { $new = 'cli' }
+        '0' { Write-Host '  已取消。' -ForegroundColor DarkGray; return }
+        ''  { Write-Host '  已取消。' -ForegroundColor DarkGray; return }
+        default { Write-WarnMsg "无效选择：$pick"; return }
+    }
+    if ($new -eq $cur) {
+        Write-Host "  已是 $(Get-LaunchModeLabel $new)，无需改动。" -ForegroundColor DarkGray
+        return
+    }
+    Set-LaunchMode -Mode $new | Out-Null
+    Write-Host ''
+    Write-Host "  运行模式已切换为: $(Get-LaunchModeLabel $new)" -ForegroundColor Green
+    Write-Host "  记录位置: $LaunchConf" -ForegroundColor DarkGray
+    Write-Host '  下次选 [1] 启动即生效。' -ForegroundColor DarkGray
+}
+
 # 重置
 function Invoke-Reset {
     $reset = Join-Path $PSScriptRoot 'reset-windows.ps1'
@@ -219,8 +334,11 @@ if (-not (Test-Ready)) {
 & powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript -ReconcileOnly
 
 # 命令行动作直通
+# web / cli 为显式指定，优先于 config/launch.conf 里记录的当前模式；
+# 不带参数（进入交互菜单）时才按记录的模式分派。
 switch ($Action.ToLower()) {
     'web'    { Start-Web; exit 0 }
+    'cli'    { Start-Cli; exit 0 }
     'setup'  { Invoke-Setup -Force; exit 0 }
     'reset'  { Invoke-Reset; exit 0 }
     'status' { Show-Status; exit 0 }
@@ -231,17 +349,22 @@ switch ($Action.ToLower()) {
 # 交互菜单
 while ($true) {
     Show-Status
-    Write-Host '  [1] 启动 Web 界面' -ForegroundColor White
+    $mode = Get-LaunchMode
+    if ($mode -eq 'cli') { $startLabel = '启动（当前模式：CLI 命令行）' }
+    else { $startLabel = '启动（当前模式：Web 图形界面）' }
+    Write-Host "  [1] $startLabel" -ForegroundColor White
     Write-Host '  [2] 检查更新（程序与 dsh 版本）' -ForegroundColor White
     Write-Host '  [3] 重置（清配置数据，保留运行环境，无需下载）' -ForegroundColor White
-    Write-Host '  [4] 退出' -ForegroundColor Gray
+    Write-Host '  [4] 切换运行模式（Web 界面 / CLI 命令行）' -ForegroundColor White
+    Write-Host '  [5] 退出' -ForegroundColor Gray
     Write-Host ''
     $choice = Read-Host '  请选择'
     switch ($choice.Trim()) {
-        '1' { Start-Web }
+        '1' { Start-Harness }
         '2' { & powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript -CheckOnly }
         '3' { Invoke-Reset }
-        '4' { exit 0 }
+        '4' { Switch-LaunchMode }
+        '5' { exit 0 }
         default { Write-WarnMsg "无效选择：$choice" }
     }
 }

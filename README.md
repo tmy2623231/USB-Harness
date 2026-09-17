@@ -11,7 +11,7 @@
 [![Downloads](https://img.shields.io/github/downloads/tmy2623231/USB-Harness/total?color=green)](https://github.com/tmy2623231/USB-Harness/releases/latest)
 [![Stars](https://img.shields.io/github/stars/tmy2623231/USB-Harness?color=yellow)](https://github.com/tmy2623231/USB-Harness)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blueviolet)](launch.sh)
-[![dsh](https://img.shields.io/badge/dsh-0.1.1--rc.2-purple)](https://github.com/deepseek-ai/deepseek-harness)
+[![dsh](https://img.shields.io/badge/dsh-0.1.5--rc.2-purple)](https://github.com/deepseek-ai/deepseek-harness)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/tmy2623231/USB-Harness/pulls)
 
 </div>
@@ -106,7 +106,8 @@
 - ✅ **100% dsh 能力**：Web UI、实时对话、流式输出、模型加载、headless、工具/插件、MCP、权限模式
 - ✅ **免安装便携**：便携 Node.js + 预置依赖，宿主机无需 Node/npm/Python
 - ✅ **跨平台**：Windows（`launch.bat`）+ Linux/macOS（`launch.sh`），一套目录双端运行
-- ✅ **交互式启动器**：中文菜单（启动 / 重置 / 退出），首启自动安装
+- ✅ **交互式启动器**：中文菜单（启动 / 检查更新 / 重置 / 切换运行模式 / 退出），首启自动安装
+- ✅ **Web / CLI 双模式**：默认 Web 图形界面，可在控制台菜单一键切换为 **dsh 命令行交互模式（TUI）**；默认仍为 Web，不影响任何既有行为
 - ✅ **数据随盘**：`DSH_HOME` 重定向到 `data/dsh/`，密钥/配置/会话全部留在 U 盘
 - ✅ **零宿主机污染**：不写注册表、不改系统环境变量
 - ✅ **中国网络适配**：Node 下载优先 npmmirror 镜像、npm 用 `registry.npmmirror.com`，失败自动回退官方源
@@ -138,19 +139,40 @@
 启动菜单：
 
 ```
-[1] 启动 Web 界面
+[1] 启动（当前模式：Web 界面 / 命令行模式）
 [2] 检查更新（程序与 dsh 版本）
 [3] 重置（清配置数据，保留运行环境，无需下载）
-[4] 退出
+[4] 切换运行模式（Web 界面 ⇄ 命令行模式）
+[5] 退出
 ```
 
 默认监听 `http://0.0.0.0:3080`（本机 `http://127.0.0.1:3080`，局域网 `http://<本机IP>:3080`）。
+
+### 运行模式：Web 界面 / 命令行模式
+
+启动器菜单 `[4] 切换运行模式` 可在两种模式间切换，**默认 Web 界面**：
+
+| 模式 | 启动内容 | 适用场景 |
+|------|----------|----------|
+| **Web 界面**（默认） | 启动 dsh Web 服务并自动打开浏览器 | 图形化对话、多模态输入、局域网共享 |
+| **命令行模式** | 启动 dsh 交互式 CLI（TUI），直接在当前终端收发消息 | 无浏览器环境、SSH 远程、脚本化/批处理场景 |
+
+**模式持久化位置**：`config/launch.conf` 的 `mode` 字段（Windows 与 Linux/macOS 共用同一文件格式）。
+该文件**不存在、为空或值无法识别时一律按 Web 界面处理**，因此删除该文件即可恢复默认，不影响任何既有行为。
+
+```ini
+# config/launch.conf
+mode = web      # web = Web 界面（默认）；cli = 命令行模式
+```
+
+命令行模式底层调用的是 dsh 的 `--profile headless`（0.1.5 起 dsh 仅有 `web` / `acp` / `headless` / `sdk`
+四个 profile）。日志写入 `data/logs/dsh-cli.log`。切换后菜单 `[1]` 会显示当前模式，直接启动对应界面。
 
 ### 3. 配置模型（进入 Web UI 后）
 
 **设置 → 模型 → 添加自定义提供方**，填入：
 
-- **API 地址**：OpenAI 兼容网关地址
+- **API 地址**：OpenAI 兼容网关地址，如 `https://your-gateway.example.com/v1`、本地 Ollama `http://127.0.0.1:11434/v1`
 - **API 密钥**：网关提供的密钥
 - **模型目录**：点击「获取可用模型」自动拉取，或手动添加模型 ID
 
@@ -181,6 +203,7 @@ USB-Harness/
 │   └── COMMANDS.md            # 命令速查
 ├── brand-patch/               # 品牌补丁（去 DeepSeek 化 + 中文本地化，安装时自动应用）
 ├── config/
+│   ├── launch.conf            # 运行模式（web / cli），由启动器菜单 [4] 切换
 │   └── settings.example.yaml  # 模型配置参考模板
 ├── docs/
 │   ├── ARCHITECTURE.md        # 整合架构与关键决策
@@ -216,14 +239,14 @@ USB-Harness/
 ## 版本锁定
 
 **项目版本号 = 适配的 dsh 版本**（Release tag 与 HARNESS_VERSION 都是 dsh 版本号，
-例如 `0.1.1-rc.2` 表示本包适配 dsh `0.1.1-rc.2`）。若需要发布「不涉及上游变更」的
-包装热修复，在 dsh 版本后追加纯数字补丁号，如 `0.1.1-rc.2.1`。
+例如 `0.1.5-rc.2` 表示本包适配 dsh `0.1.5-rc.2`）。若需要发布「不涉及上游变更」的
+包装热修复，在 dsh 版本后追加纯数字补丁号，如 `0.1.5-rc.2.1`。
 v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 
 | 组件 | 版本 | 说明 |
 |------|------|------|
-| 本包（USB Harness） | `0.1.1-rc.2` | 版本号跟随适配的 dsh 版本（热修复可加 `.N` 后缀） |
-| `@deepseek-ai/dsh` | `0.1.1-rc.2` | 预发布候选版（rc），官方声明会有破坏性变更 |
+| 本包（USB Harness） | `0.1.5-rc.2` | 版本号跟随适配的 dsh 版本（热修复可加 `.N` 后缀） |
+| `@deepseek-ai/dsh` | `0.1.5-rc.2` | 预发布候选版（rc），官方声明会有破坏性变更 |
 | 便携 Node.js | `22.23.2` (LTS Jod) | 满足 dsh `^22.19.0 \|\| >=24.0.0`（23 不支持） |
 
 > **node 解析**：启动器 / 升级脚本用便携 node 的绝对路径直调 dsh 的 CLI 入口
@@ -231,26 +254,35 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 > 都不影响本包运行（历史事故：`node 不是内部或外部命令` / `Object.hasOwn is not a function`，
 > 见 `scripts/tests/test-node-resolution.*` 回归测试）。
 
-### dsh 0.1.1-rc.2 变更要点（相对 0.1.1-rc.1）
+> **peer 依赖补齐清单随版本重定**：dsh 的多个子包把彼此声明为 `peerDependencies`，主包 bundle
+> 未包含，而 `--legacy-peer-deps` 会跳过它们，导致启动报 `ERR_MODULE_NOT_FOUND`。
+> 补齐清单是**逐版本实测出来的**，不是固定值：`0.1.1-rc.2` 下为 25 个，`0.1.5-rc.2` 下为 **26 个**。
+> 重定方法（对安装树里全部 `@deepseek-ai/*` 的 import 说明符逐个做模块解析，凡解析不到的即为缺失项）
+> 见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#peer-依赖补齐清单的重定方法)。
+
+### dsh 0.1.5-rc.2 变更要点（相对 0.1.1-rc.2）
 
 | 类别 | 变更 | 对你的影响 |
 |------|------|-----------|
-| **新功能** | 统一图片请求管线：`read_image` 走规范化存储 + Files 回退；新增 `maxRequestFilesBytes`（默认 128 MiB）、`maxImagesPerRequest`（默认 600）、`maxInlineRequestImageBytes`（默认 20 MiB）等配额项 | 图片/多模态输入更稳，大图与多图不再轻易超限 |
-| **行为变更** | `read_image` 执行时校验当前路由模型；返回值新增缩放后尺寸与坐标比例 | 切换模型后重新提交图片请求即可，无需额外操作 |
-| **破坏性变更** | 配置项 `maxRequestImageBytes` **已移除**，拆分为 `maxRequestFilesBytes` + `maxInlineRequestImageBytes` | `settings.yaml` 里写过旧项的，需按新名改写（见下方对照） |
-| **破坏性变更** | 权限预设的 Settings 命名空间 `permission` → `permissionPresets`；事件名 `permission/preset` → `permissionPresets/preset` | 自定义 `cordis.patch.yml` 引用旧命名空间的，需同步改名 |
-| **废弃项** | 图片区域读取（image-region / region reads）**已移除** | 需裁剪图片时，改用文件系统路径上的其他工具 |
-| **问题修复** | Files 解析失败自动回退内联、Files 与流超时解耦、WebP 透明通道兼容等 | 图片上传偶发失败的情况明显减少 |
+| **新功能** | 新增 `agent-presets` 挂载点（`dsh.configTrees`）：会话预设从发布包内的 `config/` 目录迁到可挂载的 preset 目录 | 无感；本项目 `brand-patch` 已随之调整落点，预设功能不受影响 |
+| **新功能** | CLI 新增 `--from-default-profile <name>`：以某个已保存的默认 profile 为起点启动 | 便于把调好的会话配置固化成默认档，命令行模式同样受益 |
+| **行为变更** | 执行档位精简为 `web` / `acp` / `headless` / `sdk` 四种；裸跑 `dsh` 会直接报 `error: --profile <name> is required` | **必须显式给 profile**；本项目的「命令行模式」即 `--profile headless`，已封装在启动器里，无需手敲 |
+| **行为变更** | Web 侧新增 `rejectElectronProfile` 校验；`import.meta.main` + `export { runCli }` 使 CLI 可作为模块被调用 | 无感；属于上游内部结构调整 |
+| **安全（本项目已定向放开）** | 上游收紧：`--host 0.0.0.0` 被显式拒绝（理由：会把远程代码执行暴露到网络） | **本项目保留放行**——U 盘插一台机器、同局域网设备访问是本项目的核心场景。此为**有意的定制差异**，不是漏洞：请务必只在可信内网使用，切勿对公网开放（详见「安全须知」） |
+| **问题修复** | 上游 0.1.1-rc.2 → 0.1.5-rc.2 区间累计修复（含插件树加载、会话持久化、工具链稳定性等） | 直接受益；本项目 `brand-patch` 已整体重做到 0.1.5-rc.2 基线，不会回滚这些修复 |
 
-**失效配置项对照**
+**与上游的定制差异（本项目有意保留，非疏漏）**
 
-| 旧写法（`settings.yaml`） | 新写法 | 迁移动作 |
-|---------------------------|--------|----------|
-| `maxRequestImageBytes: 20971520` | `maxRequestFilesBytes: 134217728` + `maxInlineRequestImageBytes: 20971520` | 旧名不再生效，按新名改写；不写则用默认值 |
+| # | 差异点 | 上游行为 | 本项目行为 | 原因 |
+|---|--------|----------|-----------|------|
+| 1 | `--host 0.0.0.0` | 显式报错拒绝 | 放行，默认监听 `0.0.0.0:3080` | U 盘共享场景需同网段设备访问；已用 `token` 交换会话 cookie 的 browser-trust fence 兜底 |
+| 2 | 符号链接创建失败 | 直接报错 | 自动回退为真实目录复制 | FAT32/exFAT 不支持 symlink，回退后三种格式均可运行 |
+| 3 | 品牌标识 / 产品名 / 欢迎文案 | DeepSeek 品牌 | 「USB Harness」自绘标识 | 去品牌化，避免用户误认为官方发行版 |
+| 4 | 官方 `llm-deepseek` 适配器 | 默认启用 | 默认禁用，仅保留自定义 OpenAI 兼容网关 | 密钥与网关由使用者自行提供，不绑定官方通道 |
+| 5 | 默认模型 | 官方默认 | `provider: pi-ai` / `model: default` | 与上游解耦，避免默认落到官方通道 |
 
-> **适用边界**：上表中 Files API 相关配额（`maxRequestFilesBytes` 等）仅在使用 **DeepSeek 官方通道**时生效。
-> 本项目默认已禁用官方适配器（见「品牌改造」），走自定义 OpenAI 兼容网关时以目标网关自身的限制为准；
-> 命名空间与事件名变更则是通用的，与用哪个通道无关。
+> **适用边界**：上游文档中的 Files API 配额项（`maxRequestFilesBytes` 等）仅在使用 **DeepSeek 官方通道**时生效。
+> 本项目默认已禁用官方适配器（见「品牌改造」），走自定义 OpenAI 兼容网关时以目标网关自身的限制为准。
 
 > 完整逐条清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)，
 > 同步流程见 [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md)。
@@ -265,9 +297,13 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 - **维护者升级 dsh 版本**：
   1. 改 `scripts/setup-windows.ps1` 的 `$DshVersion` 与 `scripts/setup-unix.sh` 的 `DSH_VERSION` 为目标版本
   2. 按 [发布同步规范](docs/RELEASE_README_SYNC.md) 校验 `brand-patch` 基线是否与目标版本一致——**版本号与补丁基线必须同时改**，否则会「装旧版、打新版补丁」导致启动崩溃
-  3. 同步更新 `PeerFix` / `PEERS` 中 `dsh-*` 的版本串，然后 `launch.bat upgrade`
+  3. **重定 `PeerFix` / `PEERS` 清单**——补齐清单是逐版本实测的，不能照抄上一版。
+     用「对安装树里全部 `@deepseek-ai/*` 的 import 说明符逐个做模块解析，凡解析不到的即为缺失项」
+     的方法重定（详见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#peer-依赖补齐清单的重定方法)）。
+     注意：靠「跑一次 dsh 看缺哪个包」的方式**会严重漏报**——多数模块是懒加载的。
+  4. 跑完整冒烟测试（`bash .patch-tools/smoke-local.sh`）确认全绿，再 `launch.bat upgrade`
      （或 `scripts/upgrade-windows.ps1 -DshVersion <v>` / `bash scripts/upgrade-unix.sh <v>`）
-  4. 启动后确认无 `ERR_MODULE_NOT_FOUND`，并在 Web UI 中确认品牌改造仍生效
+  5. 启动后确认无 `ERR_MODULE_NOT_FOUND`，并在 Web UI 中确认品牌改造仍生效、`--host 0.0.0.0` 仍被放行
 
 > 升级只动 `.cache/` 运行环境，**`data/dsh/`（配置/密钥/会话）零改动**，失败自动回滚到升级前状态。
 > 普通用户无需手动升级：直接下载 [Releases](https://github.com/tmy2623231/USB-Harness/releases/latest) 最新完整包即可。

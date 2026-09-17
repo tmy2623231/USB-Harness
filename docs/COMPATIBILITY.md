@@ -34,31 +34,45 @@
 | Windows 10/11 x64 | ✅ 交付目标 | — |
 | macOS / Linux | 🔧 可扩展 | 需另行下载对应 Node 构建，脚本逻辑一致 |
 
-## 4. 已验证项（2026-08-21 实装 / 2026-08-30 升级 rc.2 复核）
+## 4. 已验证项（2026-08-21 实装 / 2026-08-30 升级 rc.2 复核 / 2026-09-17 升级 0.1.5-rc.2 复核）
 
 | 验证项 | 结果 | 方法 |
 |--------|------|------|
-| `@deepseek-ai/dsh` 包存在且可安装 | ✅ v0.1.1-rc.2 | `npm view` + 本地 `npm install` |
-| `brand-patch` 全部 17 个文件的基线版本 | ✅ 与 rc.2 一致 | 逐个 diff `patch` / rc.1 / rc.2 三方对比 |
-| dsh CLI 启动器参数（`--profile`/`--patch`/`--dump-config`/`web`/`plugin`） | ✅ | 读取 `lib/bin.js` 源码 |
+| `@deepseek-ai/dsh` 包存在且可安装 | ✅ v0.1.5-rc.2 | `npm view` + 本地 `npm install` |
+| `brand-patch` 全部 17 个文件的基线版本 | ✅ 与 0.1.5-rc.2 一致 | 逐个 diff `patch` / 旧版 / 新版三方对比（17 安全 / 0 需确认 / 0 阻断 / 0 异常） |
+| dsh CLI 启动器参数（`--profile`/`--patch`/`--dump-config`/`web`/`plugin`/`--from-default-profile`） | ✅ | 读取 `lib/bin.js` 源码 |
 | `DSH_HOME` 环境变量可重定向 | ✅ 官方支持 | 官方文档/第三方实测一致 |
 | 默认端口 3080、仅监听 loopback | ✅ | 官方 README |
 | `--no-open` 标志 | ✅ | 官方 README |
 | Node 22.x 最新 LTS 版本号 | ✅ v22.23.2 (Jod) | `nodejs.org/dist/index.json` |
 | **实测：E: U 盘全流程安装** | ✅ 535MB | `npm install`（430 包，6 分钟） |
-| **实测：`dsh --version`** | ✅ 0.1.1-rc.2 | 便携 Node 22.23.2 运行 |
+| **实测：`dsh --version`** | ✅ 0.1.5-rc.2 | 便携 Node 22.23.2 运行 |
 | **实测：`dsh web` 启动** | ✅ HTTP 200 | `--port 3080 --no-open`，真实服务响应 |
 | **实测：web 子命令参数** | ✅ | `--port`（含 0=自动选端口）/`--host`/`--no-open` 均确认 |
+| **实测：`@deepseek-ai/*` 模块解析** | ✅ 95 个说明符全部可解析，缺失 0 | 扫描安装树全部 `.js/.mjs/.cjs` 的 import 说明符逐个 `createRequire().resolve()` |
+| **实测：`dsh --profile headless`（命令行模式）** | ✅ 插件树加载成功 | 便携 Node 直调 `lib/bin.js` |
+| **实测：Web 首页全链路** | ✅ 200 | `token → 303 + Set-Cookie → cookie → 200`，`<title>USB Harness</title>`，4 个 JS/CSS 资源全部 200 |
+| **实测：冒烟测试** | ✅ 9/9 用例通过（100%） | `bash .patch-tools/smoke-local.sh`，退出码 0 |
 
-### 已知坑位（2026-08-21 实装记录）
+### 已知坑位（2026-08-21 实装记录 / 2026-09-17 按 0.1.5-rc.2 重定）
 
 1. **npm 大依赖树解析卡死**（20 分钟纯 CPU 空转、零网络）→ 需加 `--legacy-peer-deps`。
 2. **peer 依赖未被主包 bundle 携带**：多个 `dsh-*` 子包把彼此声明为 `peerDependencies`，
    主包 bundle 未包含 → `--legacy-peer-deps` 会跳过这些 peer，启动报
-   `ERR_MODULE_NOT_FOUND`。**修复**：显式补齐 25 个缺失 peer 包（见 `scripts/setup-windows.ps1`
-   注释）。**rc.2 下该问题依然存在**，补齐列表的版本串已与 `0.1.1-rc.2` 对齐，无需改动。
+   `ERR_MODULE_NOT_FOUND`。**修复**：显式补齐缺失的 peer 包（见 `scripts/setup-windows.ps1`
+   注释）。**该问题在 0.1.5-rc.2 下依然存在**，且补齐清单**必须逐版本重定**：
+   - `0.1.1-rc.2` 下为 **25** 个；`0.1.5-rc.2` 下为 **26** 个（多数旧条目已随主包打进依赖树，无需再列）。
+   - 重定方法：扫描安装树里全部 `.js/.mjs/.cjs` 的 `@deepseek-ai/*` import 说明符，
+     逐个做模块解析，**凡解析不到的即为缺失项**。实测 95 个说明符全部可解析、缺失 0。
+   - **反面教材**：用「跑一次 dsh，看报哪个包缺失就补哪个」的做法**会严重漏报**
+     （本次实测只报出 1 个，实际缺 26 个）——因为绝大多数模块是**懒加载**的，
+     单次启动根本不会触达；必须做静态说明符扫描。详见
+     [TROUBLESHOOTING.md](./TROUBLESHOOTING.md#peer-依赖补齐清单的重定方法)。
    > 注意：`brand-patch` 内的文件是针对具体 dsh 版本改写的，**升级版本号时必须同步重做补丁**，
-   > 否则会出现「装 rc.1、打 rc.2 补丁」的错配，启动时因缺少 `deadline` 等新版导出而崩溃。
+   > 否则会出现「装新版、打旧版补丁」的错配：轻则定制失效（如品牌回退、`0.0.0.0` 被重新拦截），
+   > 重则启动时因缺少新版导出而崩溃。**补丁必须按「新上游基线 + 重新施加定制意图」重建，
+   > 不能整文件沿用上一版的补丁产物**——17 个补丁文件里有 9 个曾是上一版的整文件快照，
+   > 直接沿用会把这些文件的上游修复全部回滚掉。
 3. **npm 缓存 EPERM**：强杀进程残留的缓存锁会触发 `EPERM` 打不开缓存文件 →
    `scripts/setup-windows.ps1` 已把 npm 缓存移入项目内 `.cache/npm-cache`（随盘，避开系统盘）。
 4. **PowerShell `$Host` 是只读自动变量**：早期 `start.ps1` 曾把监听地址参数命名为 `-Host`
@@ -72,6 +86,59 @@
 
 > 变更来源：`deepseek-ai/deepseek-harness` 的 tag 区间 compare（上游无 CHANGELOG、不发 GitHub Release）。
 > 同步流程见 [RELEASE_README_SYNC.md](./RELEASE_README_SYNC.md)。
+
+### 0.1.1-rc.2 → 0.1.5-rc.2（本项目 2026-09-17 跟进）
+
+> 区间跨越 `0.1.2` / `0.1.3` / `0.1.4` / `0.1.5` 多个预发布版本。
+> 主线为 **agent-presets 可挂载化** 与 **执行档位（profile）精简**。
+
+#### 新功能
+
+| 变更 | 证据 | 用户可见性 |
+|------|------|-----------|
+| 新增 `dsh.configTrees` 挂载机制：`agent-presets` 从发布包内 `config/` 目录迁出，改为挂载 `packages/preset/agent-presets/presets`；发布包的 `files` 收窄为 `["lib/*.js"]` | 包内 `package.json` 的 `files` 字段与挂载声明 | 无感；预设能力不变，仅落点变化 |
+| CLI 新增 `--from-default-profile <name>`：以已保存的默认 profile 为起点启动 | `lib/bin.js` | 可把调好的会话配置固化成默认档 |
+| CLI 入口支持模块化调用：`import.meta.main` + `export { runCli }` | `lib/bin.js` | 无感（上游内部结构调整） |
+
+#### 行为变更
+
+| 变更 | 证据 | 需要的动作 |
+|------|------|-----------|
+| 执行档位精简为 `web` / `acp` / `headless` / `sdk`；裸跑 `dsh` 报 `error: --profile <name> is required` | `dsh --help` 实测 | **必须显式给 profile**；本项目「命令行模式」= `--profile headless`，已封装进启动器 |
+| Web 侧新增 `rejectElectronProfile` 校验 | `lib/bin.js` | 无感 |
+| `--host 0.0.0.0` 被上游显式拒绝（安全理由） | `dsh-web-app/lib/startup.js` 的 `program.error(...)` | **本项目保留放行**（有意定制差异），见下表「冲突差异」 |
+
+#### 破坏性变更
+
+> 本区间内**上游未出现**新的配置项改名/删除类破坏性变更。
+> 真正影响本项目的是「执行档位」变化与「`--host 0.0.0.0` 拦截」——后者属安全策略收紧，
+> 本项目按 USB / 局域网场景需要**有意放开**，不视为需要跟随的迁移项。
+
+#### 冲突差异（本项目保留的定制，逐条说明）
+
+| # | 差异点 | 上游行为 | 本项目行为 | 保留原因 |
+|---|--------|----------|-----------|----------|
+| 1 | `--host 0.0.0.0` | 显式 `program.error` 拒绝 | 移除该拦截，默认监听 `0.0.0.0:3080` | U 盘插一台机器、手机/平板/同事浏览器经局域网访问是本项目的核心使用场景。dsh 自身已有 browser-trust fence（裸 URL 返回 401，需 `?token=` 换取会话 cookie 才放行），风险可控。**必须只在可信内网使用，禁止对公网开放** |
+| 2 | 符号链接创建失败 | 直接抛错 | 回退为真实目录复制（`cpSync`） | FAT32/exFAT 不支持 symlink，回退后三种文件系统均可运行 |
+| 3 | 品牌标识 / 产品名 / 欢迎文案 / 系统提示词 | DeepSeek 品牌 | 「USB Harness」自绘 SVG 标识与文案 | 去品牌化，避免用户误认为官方发行版 |
+| 4 | 官方 `llm-deepseek` 适配器 | 默认启用 | 默认禁用，仅保留自定义 OpenAI 兼容网关 | 密钥与网关由使用者自行提供，不绑定官方通道 |
+| 5 | 默认模型 | 官方默认 | `provider: pi-ai` / `model: default` | 与上游解耦，避免默认落到官方通道 |
+| 6 | Web 首页 `${title}` | DeepSeek 相关标题 | `USB Harness`；追加 `crypto.randomUUID` polyfill 与静态资源绝对路径 | 兼容旧浏览器与 U 盘本地打开场景 |
+| 7 | 权限模式文案 | 英文 | 中文化（只读 / 工作区可写 / 完全访问），并把 `t` 贯穿到 `displayPermissionPreset` | 面向中文终端用户 |
+
+#### 问题修复（上游区间累计，本项目直接受益）
+
+| 修复 | 说明 |
+|------|------|
+| 插件树加载稳定性 | 修复 `dsh: plugin tree failed to load` 类问题 |
+| 会话持久化与查询 | 稳定性与一致性改进 |
+| 工具链稳定性（bash/fs/web 等） | 各项缺陷修复 |
+
+> **重要**：以上上游修复要通过 `brand-patch` **重建**才能生效。本项目的 17 个补丁文件已
+> 全部按「0.1.5-rc.2 基线 + 重新施加定制意图」重建，校验结果 17 安全 / 0 需确认 / 0 阻断 / 0 异常，
+> 不存在「补丁整文件沿用旧版导致上游修复被回滚」的情况。
+
+---
 
 ### 0.1.1-rc.1 → 0.1.1-rc.2（2026-08-21，本项目 2026-08-30 跟进）
 

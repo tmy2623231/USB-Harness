@@ -70,7 +70,7 @@ USB-Harness/
 
 **设置 → 模型** → 添加「自定义 OpenAI 兼容网关」，填写：
 
-- **baseURL**：如 `https://bi.tianmaoyi.cn:4443/v1`（阿里云百炼）、`http://127.0.0.1:11434/v1`（本地 Ollama）
+- **baseURL**：如 `https://your-gateway.example.com/v1`（自建或云端 OpenAI 兼容网关）、`http://127.0.0.1:11434/v1`（本地 Ollama）
 - **API Key**：网关提供的密钥
 - **模型列表**：网关支持的模型 id（如 `qwen3.8-max`）
 
@@ -133,3 +133,11 @@ USB-Harness/
   node 的绝对路径直调 dsh CLI 入口（`lib/bin.js`），不再经过垫片，与系统 node 完全无关。
   排查手段：确认包根存在 `.cache/app/node_modules/@deepseek-ai/dsh/lib/bin.js`（缺失 =
   安装不完整，重跑 setup）；回归测试见 `scripts/tests/test-node-resolution.ps1`。
+- `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/dsh-xxx'`：dsh 的 peer 依赖缺陷，
+  补齐清单须逐版本实测重定（0.1.1-rc.2 为 25 个，0.1.5-rc.2 为 26 个），
+  方法见 `docs/TROUBLESHOOTING.md` 的「peer 依赖补齐清单的重定方法」。
+- 裸跑 `dsh` 报 `error: --profile <name> is required`：0.1.5 起 dsh 无默认执行档位，
+  须显式给 `web` / `acp` / `headless` / `sdk`。本项目的「命令行模式」= `--profile headless`，
+  用启动器菜单 `[4]` 切换，无需手敲。
+- 打开 Web 只显示 `401`：dsh 的 browser-trust fence 正常行为，需带启动时打印的 `?token=xxx`
+  访问（会 303 种下会话 cookie，之后为 200）。

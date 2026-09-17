@@ -37,6 +37,8 @@ function apply(ctx) {
 	const program = webCommand();
 	program.action(() => {
 		const options = program.opts();
+		// USB Harness: 放行 0.0.0.0 —— 本项目按 U 盘 / 局域网 
+		// 共享场景设计，需允许同网段设备访问（上游默认禁止）。
 		if (options.port !== void 0 && !/^\d+$/.test(options.port)) program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`);
 		ctx.provide(WEB_STARTUP_SERVICE, {
 			openBrowser: options.open,

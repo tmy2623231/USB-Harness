@@ -2,7 +2,7 @@
 
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
-> 内容提交：`d5239f5`（main 与 Release 的文件内容与构建产物锚定于此提交）
+> 内容提交：`0876488fa64bd4f266390bcaf65695a6d5739f78`（main 与 Release 的文件内容与构建产物锚定于此提交）
 > 结论：**六项任务全部完成；本地冒烟 9/9 通过（100%），GitHub Actions 冒烟 Run #22 全绿**
 
 ---
@@ -281,7 +281,7 @@ if ($r.StatusCode -eq 200) { $ok = $true; break }
 2. `git switch Release` → `git merge --ff-only main`（fast-forward）
 3. `git switch main` → `git merge --ff-only Release`（回合并，两边都指向同一提交）
 4. `git push origin main`、`git push origin Release`
-5. 报告内容最后一次提交（`d5239f5`）后，追加一个**空提交**作为分支尖端：
+5. 报告内容最后一次提交（`0876488fa64bd4f266390bcaf65695a6d5739f78`）后，追加一个**空提交**作为分支尖端：
 
    ```
    git commit --allow-empty -m "chore: 分支尖端对齐（无内容改动）"
@@ -303,7 +303,7 @@ if ($r.StatusCode -eq 200) { $ok = $true; break }
 >
 > 本报告自身也是被提交的文件之一，因此「更新报告 → 产生新提交 → SHA/提交数/产物哈希变化 →
 > 报告又过期」是一个自我指涉的循环。为终结该循环，采用**追加式收口**：
-> 报告内容最后一次提交（`d5239f5`，下文称 *内容提交*），该提交的 SHA、tree、提交数、
+> 报告内容最后一次提交（`0876488fa64bd4f266390bcaf65695a6d5739f78`，下文称 *内容提交*），该提交的 SHA、tree、提交数、
 > 产物哈希即为**永久有效**的一组证据；随后按 5.1 第三轮第 5 步追加一个**不含任何内容改动**
 > 的空提交作为分支尖端，使两份分支的尖端提交收敛为同一 SHA 且不再需要改动任何文件。
 > 空提交不改变文件内容，故下列证据在分支尖端移动后依然成立。
@@ -311,10 +311,10 @@ if ($r.StatusCode -eq 200) { $ok = $true; break }
 **证据 1 — 分支 SHA 完全一致**
 
 ```
-main            : d5239f51a8cf8f5e24777c0153b54ab488477736
-Release         : d5239f51a8cf8f5e24777c0153b54ab488477736
-origin/main     : d5239f51a8cf8f5e24777c0153b54ab488477736
-origin/Release  : d5239f51a8cf8f5e24777c0153b54ab488477736
+main            : 0876488fa64bd4f266390bcaf65695a6d5739f78
+Release         : 0876488fa64bd4f266390bcaf65695a6d5739f78
+origin/main     : 0876488fa64bd4f266390bcaf65695a6d5739f78
+origin/Release  : 0876488fa64bd4f266390bcaf65695a6d5739f78
 全部一致: 是
 ```
 
@@ -330,7 +330,7 @@ $ git diff origin/main origin/Release
 **证据 3 — 提交历史一致**
 
 ```
-内容提交处两分支历史提交数均为 60
+内容提交处两分支历史提交数均为 61
 main..Release 独有提交数: 0
 Release..main 独有提交数: 0
 ```
@@ -338,8 +338,8 @@ Release..main 独有提交数: 0
 **证据 4 — 文件树对象哈希一致**
 
 ```
-main    tree : 5b7cf75ad60160aabda1c8f513fab66e7877c52f
-Release tree : 5b7cf75ad60160aabda1c8f513fab66e7877c52f
+main    tree : 5e82b02ac5fa60fbec1d16f4a140888c3111ffd6
+Release tree : 5e82b02ac5fa60fbec1d16f4a140888c3111ffd6
 ```
 
 **证据 5 — 逐文件内容校验（全量对比）**
@@ -364,7 +364,7 @@ $ git archive main          | tar -x -C /tmp/f1
 $ git archive origin/Release| tar -x -C /tmp/f2
 产物文件数                   : 54 : 54（一致）
 解包目录树 diff -r           : 无输出（差异行数 0）
-解包后内容流 SHA256          : 8bdfdabe9be0fb631c9900a9607d4687e08f025db854965ad030a8cb8c607822（两分支相同）
+解包后内容流 SHA256          : 773e637b995ed5947c894bdfb15e21d0d9c68217496d56b3eee48a3a04581c90（两分支相同）
 ```
 
 上述 SHA256 的算法为：解包后按 `find | sort` 排序全部文件，逐个 `sha256sum`，

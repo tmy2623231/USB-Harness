@@ -3,7 +3,7 @@
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
 > 版本锚点：`git tag 0.1.5-rc.2`（main 与 Release 指向同一提交）
-> 结论：**六项任务全部完成；本地冒烟 9/9 通过（100%），GitHub Actions 冒烟 Run #22 全绿**
+> 结论：**六项任务全部完成；本地冒烟 9/9（100%），CI 冒烟 Run #27 全绿，发版构建 Run #9 成功**
 
 ---
 
@@ -183,12 +183,13 @@
 |------|-----|------|--------|
 | `0a56ede` | #20 | 失败 | 安装完整性断言 |
 | `0aaeab7` | #21 | 失败 | 启动 dsh web 并探测 HTTP 200 |
-| **`bd7be89`** | **#22** | **成功** | **—（全部步骤通过）** |
+| `bd7be89` | #22 | 成功 | —（全部步骤通过） |
+| **`f9c42fc`** | **#27** | **成功（最终）** | **—（全部步骤通过，2m 04s）** |
 
-Run #22 全部步骤：
+Run #27（最终提交，含本文档全部改动）两个 job 均通过：
 
 ```
-JOB smoke -> success
+JOB smoke                          -> success   (1m 59s)
    OK  检出代码 / 读取锁定版本 / 下载并解压便携 Node.js
    OK  从安装脚本解析 peer 列表并安装
    OK  安装完整性断言
@@ -197,8 +198,22 @@ JOB smoke -> success
    OK  启动 dsh web 并探测 HTTP 200
    OK  检查更新脚本冒烟（-CheckOnly 退出码 ∈ {0,1,2}）
    OK  回归测试：dsh 不依赖 PATH 找 node（Windows）
-JOB regression-node-resolution-unix -> success
+JOB regression-node-resolution-unix -> success   (12s)
 ```
+
+> 关于页面上出现的 "10 errors" 标注：那是**负对照用例的预期输出**，不是失败。
+> 这些用例刻意走错误路径并断言报错内容，因此运行日志里必然打印错误文本；
+> 作业结论为 success 恰恰证明断言与预期一致。
+
+### 4.3 发版构建（`.github/workflows/release.yml`）
+
+| tag | Run | 结果 | 时长 |
+|-----|-----|------|------|
+| `0.1.5-rc.2` | #9 | **成功** | 2m 27s |
+
+tag 由 `git tag 0.1.5-rc.2 && git push origin 0.1.5-rc.2` 推送，
+CI 校验 tag 与 `scripts/setup-windows.ps1` 的 `$DshVersion`、
+`scripts/setup-unix.sh` 的 `DSH_VERSION` 一致（均为 `0.1.5-rc.2`）后完成打包发布。
 
 #### CI 失败的两轮根因（均已修复）
 
@@ -455,9 +470,10 @@ $ diff -r /tmp/f1 /tmp/f2
 
 ## 八、遗留与建议
 
-1. **发版**：`git tag 0.1.5-rc.2` 已推送，Release 构建已触发
-   （CI 会校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`）。
-2. **CI 验证**：已由 GitHub Actions 完成——Run #22 的
+1. **发版**：`git tag 0.1.5-rc.2` 已推送，**Release 构建 Run #9 成功**（详见 4.3）。
+   CI 会校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`，本次 tag 与两个 setup
+   脚本内的版本号完全一致。
+2. **CI 验证**：已由 GitHub Actions 完成——最终提交 `f9c42fc` 上
    `smoke` 与 `regression-node-resolution-unix` 两个 job **全部步骤通过**（详见 4.2）。
 3. **`--host 0.0.0.0` 的安全提示**：已在 README「安全须知」与变更要点中明确
    「仅限可信内网，禁止对公网开放」。若后续对安全要求提高，可考虑改为默认

@@ -72,7 +72,7 @@ USB-Harness/
 
 - **baseURL**：如 `https://your-gateway.example.com/v1`（自建或云端 OpenAI 兼容网关）、`http://127.0.0.1:11434/v1`（本地 Ollama）
 - **API Key**：网关提供的密钥
-- **模型列表**：网关支持的模型 id（如 `qwen3.8-max`）
+- **模型列表**：网关支持的模型 id（如 `your-model-id`）
 
 保存后即生效；在对话页右上角模型选择器里选定模型即可开始使用。
 

@@ -649,9 +649,17 @@ $ diff -r /tmp/f1 /tmp/f2
 | 1 | `README.md` L175 | `如阿里云百炼 https://bi.tianmaoyi.cn:4443/v1`（**个人网关域名**） | `如 https://your-gateway.example.com/v1` |
 | 2 | `config/settings.example.yaml` | 个人模型名 `qwen3.8-max` / `deepseek-v4-flash` / `gemma4`；`自建 Bifrost` | 占位符 `your-model-id-1` / `your-model-id-2` / `your-local-model-id` |
 | 3 | `scripts/COMMANDS.md` L73 | `https://bi.tianmaoyi.cn:4443/v1`（**个人网关域名**） | `https://your-gateway.example.com/v1` |
+| 4 | `scripts/COMMANDS.md` L75 | 个人模型名 `qwen3.8-max` | `your-model-id`（**2026-09-18 复查补漏**） |
 
 > 补充说明：远程提交 `3dde9d6` 已先行删除了 README 中同一处地址（但未给出替代示例），
 > 本次在其基础上补上通用示例并清理了其余两处遗漏。
+
+> **第 4 项为 2026-09-18 复查补漏**。此前三处清理后曾判定「遗漏项为 0」，
+> 但复查时用更宽的模式（枚举具体个人模型名而非仅匹配域名）重新扫描，
+> 又发现 `COMMANDS.md` 仍留有一个个人模型名。
+> **教训：清理的完备性取决于扫描模式，不能只凭一轮扫描就下结论。**
+> 判定「0 遗漏」前应换用**不同粒度的模式**至少复扫一次
+> （域名 / 完整模型名 / 模型名片段 / 账号片段）。
 
 ### 6.2 扫描确认（逐类复核）
 
@@ -660,10 +668,20 @@ $ diff -r /tmp/f1 /tmp/f2
 | API Key 类硬编码 | `sk-[a-z0-9]{16,}` / `api_key=...` | **0 处** |
 | 凭据字面量 | `password/secret/credential = <值>` | **0 处**（仅 3 处上游 UI 代码里的标识符 `derivedCredential` 等，非凭据） |
 | 个人域名 | `tianmaoyi` / `bi.tianmaoyi.cn` | **0 处** |
+| **个人模型名（完整）** | `qwen3.8-max` / `deepseek-v4-flash` / `gemma4` | **0 处**（`deepseek-v4-flash` 在 `brand-patch/` 中的命中为**上游内置模型注册表**，非个人配置——详见下） |
 | 内网 / 私有 IP | `10.x` / `192.168.x` / `172.16-31.x` | **0 处** |
 | 个人标识 | `maoyi`（作为账号）/ `tmy26` | **0 处** |
 | 非白名单外链端点 | 排除 github/npmjs/npmmirror/nodejs.org/shields.io/example.com/openai.com/deepseek 等 | **0 处** |
 | 仓库自有 owner `tmy2623231` | 用于 shields 徽章与 Releases 链接 | 属**必要公开信息**（仓库地址本身），非隐私，保留 |
+
+> **关于 `brand-patch/` 下的 `deepseek-v4-flash`（判定为「非隐私」的依据）**：
+> 这两个文件（`dsh-client-connection/lib/client.js`、`dsh-llm-deepseek/lib/index.js`）
+> 中的模型名来自**上游 dsh 自带的模型注册表**，是 dsh 官方支持的模型清单，
+> 任何人装上游 dsh 都会看到，**与我们个人的配置无关**。
+> 佐证：这两个文件在本次升级中**只被改动 2–3 行**（均为品牌文案替换），
+> 模型注册表部分**逐字未动**（`git log` 显示其内容继承自初始导入提交 `7583832`）。
+> 判据：**「出现在上游原样内容里」≠「个人配置泄漏」**；
+> 只有我们**自己写进去**的模型名才需要清理。
 
 ### 6.3 敏感路径防护确认
 

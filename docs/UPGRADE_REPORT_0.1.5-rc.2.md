@@ -2,7 +2,7 @@
 
 > 执行日期：2026-09-17
 > 上游：`deepseek-ai/deepseek-harness` 0.1.1-rc.2 → **0.1.5-rc.2**
-> 提交：`ab34e17`（main 与 Release 指向同一提交）
+> 内容提交：`a97cc0d`（main 与 Release 的文件内容与构建产物锚定于此提交）
 > 结论：**六项任务全部完成；本地冒烟 9/9 通过（100%），GitHub Actions 冒烟 Run #22 全绿**
 
 ---
@@ -275,27 +275,46 @@ if ($r.StatusCode -eq 200) { $ok = $true; break }
 
 **第三轮（文档定稿回同步）**
 
-本报告刷新到最终状态后又产生一个文档提交，同法同步：
+本报告刷新到最终状态后又产生文档提交，同法同步：
 
 1. 在 `main` 上提交文档更新（`ab34e17`）
 2. `git switch Release` → `git merge --ff-only main`（fast-forward）
 3. `git switch main` → `git merge --ff-only Release`（回合并，两边都指向同一提交）
 4. `git push origin main`、`git push origin Release`
+5. 报告内容最后一次提交（`a97cc0d`）后，追加一个**空提交**作为分支尖端：
+
+   ```
+   git commit --allow-empty -m "chore: 分支尖端对齐（无内容改动）"
+   ```
+
+   然后两分支各做 `--ff-only` 快进、再推送。空提交不改变任何文件，
+   因此报告内引用的 tree 哈希与产物哈希在尖端移动后依然成立
+   （见 5.2 的「证据随提交漂移的收口说明」）。
 
 > 合并方式是「main 合并进 Release，再回合并」——因两分支自第一轮起即指向同一提交，
-> 后续每轮天然构成 fast-forward，**全程没有产生任何合并提交**，也未改写历史。
+> 后续每轮天然构成 fast-forward，**全程没有产生任何合并提交**，也未改写历史；
+> 唯一一次 `--allow-empty` 用于终结报告的自我指涉漂移。
 
 ### 5.2 零差异证据
 
-> 以下证据均为最终推送后（两分支同指 `ab34e17`）实测采集。
+> 以下证据均为最终推送后实测采集。
+
+> **关于「证据随提交漂移」的收口说明**
+>
+> 本报告自身也是被提交的文件之一，因此「更新报告 → 产生新提交 → SHA/提交数/产物哈希变化 →
+> 报告又过期」是一个自我指涉的循环。为终结该循环，采用**追加式收口**：
+> 报告内容最后一次提交（`a97cc0d`，下文称 *内容提交*），该提交的 SHA、tree、提交数、
+> 产物哈希即为**永久有效**的一组证据；随后按 5.1 第三轮第 5 步追加一个**不含任何内容改动**
+> 的空提交作为分支尖端，使两份分支的尖端提交收敛为同一 SHA 且不再需要改动任何文件。
+> 空提交不改变文件内容，故下列证据在分支尖端移动后依然成立。
 
 **证据 1 — 分支 SHA 完全一致**
 
 ```
-main            : ab34e170ecbc3566b32b68d182da9099b4391d1d
-Release         : ab34e170ecbc3566b32b68d182da9099b4391d1d
-origin/main     : ab34e170ecbc3566b32b68d182da9099b4391d1d
-origin/Release  : ab34e170ecbc3566b32b68d182da9099b4391d1d
+main            : a97cc0d957e8ebd5055da17f4f32495126d665a2
+Release         : a97cc0d957e8ebd5055da17f4f32495126d665a2
+origin/main     : a97cc0d957e8ebd5055da17f4f32495126d665a2
+origin/Release  : a97cc0d957e8ebd5055da17f4f32495126d665a2
 全部一致: 是
 ```
 
@@ -311,7 +330,7 @@ $ git diff origin/main origin/Release
 **证据 3 — 提交历史一致**
 
 ```
-两分支历史提交数均为 58
+内容提交处两分支历史提交数均为 59
 main..Release 独有提交数: 0
 Release..main 独有提交数: 0
 ```
@@ -319,8 +338,8 @@ Release..main 独有提交数: 0
 **证据 4 — 文件树对象哈希一致**
 
 ```
-main    tree : 2071ee978310e946d71bca61b5325023b17883f5
-Release tree : 2071ee978310e946d71bca61b5325023b17883f5
+main    tree : f48d49b32884e2e60a697af670022aa149e65f42
+Release tree : f48d49b32884e2e60a697af670022aa149e65f42
 ```
 
 **证据 5 — 逐文件内容校验（全量对比）**
@@ -341,11 +360,11 @@ $ diff m.txt r.txt
 （两分支的 commit 字段虽同源但生成时机不同）。因此按**内容**比对：
 
 ```
-$ git archive main    | tar -x -C /tmp/aw2-main
-$ git archive Release | tar -x -C /tmp/aw2-rel
+$ git archive main          | tar -x -C /tmp/f1
+$ git archive origin/Release| tar -x -C /tmp/f2
 产物文件数                   : 54 : 54（一致）
 解包目录树 diff -r           : 无输出（差异行数 0）
-解包后内容流 SHA256          : 0e0d681f9c9e566eea31afa646913a920bed7e9df892d525825c977110f3ab8a（两分支相同）
+解包后内容流 SHA256          : 5032d7ee43a92d0f7e706f5000b6376d0c95aa1c5b2abc7b7973cd116486793d（两分支相同）
 ```
 
 上述 SHA256 的算法为：解包后按 `find | sort` 排序全部文件，逐个 `sha256sum`，

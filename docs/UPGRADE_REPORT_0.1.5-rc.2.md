@@ -398,7 +398,9 @@ failed to apply loader entry 204619: (…): t is not defined
 | `4a29e09` | #29 | 成功 | —（全部步骤通过，1m 49s；含新增启动器断言） |
 | `06758e2` | #30 | 成功 | —（全部步骤通过） |
 | `fa9dcbf` | #31 | 成功 | —（0.1.5-rc.2.1 发版条目；含新增启动器断言） |
-| **（本次 `0.1.5-rc.2.2` 提交）** | **待触发** | **待验** | **含新增「补丁浏览器端模块可求值断言」步骤** |
+| **`d01d378`** | **#32** | **成功（最终）** | **—（全部步骤通过；含新增「补丁浏览器端模块可求值断言」步骤）** |
+
+运行 #32 的完整编号链：**冒烟 #32 / 发版构建 #11**，均针对 `d01d378`。
 
 Run #31（`0.1.5-rc.2.1` 发版提交）两个 job 均通过：
 
@@ -430,13 +432,19 @@ JOB regression-node-resolution-unix -> success
 
 ### 4.3 发版构建（`.github/workflows/release.yml`）
 
-| tag | Run | 结果 | 时长 |
+| tag | Run | 结果 | 产物 |
 |-----|-----|------|------|
-| `0.1.5-rc.2` | #9 | **成功** | 2m 27s |
+| `0.1.5-rc.2` | #9 | **成功** | `USB-Harness-with-runtime.zip` |
+| `0.1.5-rc.2.1` | #10 | **成功** | 139.9 MB |
+| **`0.1.5-rc.2.2`** | **#11** | **成功（最终）** | **139.9 MB**，`sha256:6f4a44ce…e3819` |
 
-tag 由 `git tag 0.1.5-rc.2 && git push origin 0.1.5-rc.2` 推送，
+tag 由 `git tag <版本> && git push origin <版本>` 推送，
 CI 校验 tag 与 `scripts/setup-windows.ps1` 的 `$DshVersion`、
 `scripts/setup-unix.sh` 的 `DSH_VERSION` 一致（均为 `0.1.5-rc.2`）后完成打包发布。
+
+> **注意**：后两个 tag 为**包装补丁号**（`.1` / `.2`），CI 的硬校验比对的是
+> **基础版本** `0.1.5-rc.2`，因此补丁号递增不需要改动 `$DshVersion`。
+> 这一点在 `docs/RELEASE_README_SYNC.md` 中有说明。
 
 #### CI 失败的两轮根因（均已修复）
 
@@ -542,16 +550,22 @@ if ($r.StatusCode -eq 200) { $ok = $true; break }
 **证据 1 — 两分支指向同一提交（SHA 相等，非固定值）**
 
 ```bash
-$ git rev-parse main Release origin/main origin/Release
-# 四条输出必须完全相同
-# 实测（推送后）：四条输出一致 —— 是
+$ git ls-remote origin refs/heads/main refs/heads/Release
+# 两条输出必须完全相同（这是远程的权威读数）
+# 实测（0.1.5-rc.2.2 推送后）：两条输出一致 —— 是
 ```
+
+> **为什么要用 `ls-remote` 而不是 `git rev-parse origin/main origin/Release`**：
+> 本机 `.git/packed-refs` 里的 `refs/remotes/origin/*` 会滞后（本例中
+> `origin/main` 长期停在旧值、`origin/Release` 甚至不存在），
+> 而 `git fetch` 在这个环境里**未必能把引用真正落盘**。
+> `git ls-remote` 直接向远端问询，不依赖本地引用缓存，因此是这个环境下唯一可信的读数。
 
 **证据 2 — `git diff` 双向为空**
 
 ```bash
-$ git diff main Release          # -> 输出为空
-$ git diff origin/main origin/Release   # -> 输出为空
+$ git diff main Release                       # -> 输出为空
+$ git diff main "$(git ls-remote origin refs/heads/Release | cut -f1)"   # -> 输出为空
 # 实测：两者输出行数均为 0
 ```
 
@@ -568,7 +582,7 @@ $ git rev-list --count Release..main   # -> 0
 ```bash
 $ git rev-parse 'main^{tree}' 'Release^{tree}'
 # 两条输出必须完全相同
-# 实测：一致 —— 是
+# 实测：一致 —— 是（三方：main / 本地 Release / 远程 Release 的 tree 同为 8b50f142）
 ```
 
 **证据 5 — 逐文件内容校验（全量对比）**
@@ -578,7 +592,7 @@ $ git ls-tree -r main    | sort > m.txt
 $ git ls-tree -r Release | sort > r.txt
 $ diff m.txt r.txt
 # -> 输出为空
-# 实测：差异行数 0；两分支文件数相等（均为 53）
+# 实测：差异行数 0；两分支文件数相等（均为 54）
 ```
 
 `ls-tree -r` 的输出含每个文件的 blob 对象哈希，因此该比对等价于**逐文件内容全量比对**。
@@ -590,11 +604,12 @@ $ diff m.txt r.txt
 （两分支的 commit 字段虽同源但生成时机不同）。因此按**内容**比对：
 
 ```bash
-$ git archive main           | tar -x -C /tmp/f1
-$ git archive origin/Release | tar -x -C /tmp/f2
+$ R=$(git ls-remote origin refs/heads/Release | cut -f1)   # 取远程权威 SHA
+$ git archive main | tar -x -C /tmp/f1
+$ git archive "$R" | tar -x -C /tmp/f2
 $ diff -r /tmp/f1 /tmp/f2
 # -> 输出为空
-# 实测：差异行数 0；两分支产物文件数相等（均为 53）
+# 实测：差异行数 0；两分支产物文件数相等（均为 54）
 ```
 
 > 若需要产物内容流的单一指纹，可用（两分支输出必须相同）：
@@ -679,6 +694,7 @@ $ diff -r /tmp/f1 /tmp/f2
 | 补丁重建工具 | `.patch-tools/rebuild-patch.py` |
 | peer 重定工具 | `.patch-tools/refscan-registry.py` |
 | 冒烟测试脚本 | `.patch-tools/smoke-local.sh` |
+| **浏览器端补丁求值工具** | **`.patch-tools/eval-client-module.mjs`** |
 | 工具说明 | `.patch-tools/README.md` |
 | CI 冒烟工作流 | `.github/workflows/smoke-test.yml` |
 | CI 发布工作流 | `.github/workflows/release.yml` |
@@ -689,15 +705,21 @@ $ diff -r /tmp/f1 /tmp/f2
 > 权威实现为 `refscan-registry.py`（遍历 **npm registry 依赖闭包**），当前结果为 **71 项待补**。
 > **旧版 `refscan.mjs` 已从仓库删除**，避免后续误用。
 
+> `eval-client-module.mjs` 是**新增**的求值工具（见 3.7-E）。它与此前的检查手段
+> 有本质区别：补丁基线校验比的是**文本差异**，而它是在 vm 沙箱里**真实执行**
+> 浏览器端 bundle 的 `apply()`，因此能检出「文本正确但运行时报错」这一整类缺陷。
+
 ---
 
 ## 八、遗留与建议
 
-1. **发版**：`git tag 0.1.5-rc.2` 已推送，**Release 构建 Run #9 成功**（详见 4.3）。
-   CI 会校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`，本次 tag 与两个 setup
-   脚本内的版本号完全一致。
-2. **CI 验证**：已由 GitHub Actions 完成——最终提交 `f9c42fc` 上
-   `smoke` 与 `regression-node-resolution-unix` 两个 job **全部步骤通过**（详见 4.2）。
+1. **发版**：三个 tag 均已推送并完成 Release 构建（详见 4.3）：
+   `0.1.5-rc.2`（Run #9）、`0.1.5-rc.2.1`（Run #10）、**`0.1.5-rc.2.2`（Run #11，最终）**。
+   CI 会校验 tag 是否为 `$DshVersion` 或 `$DshVersion.<数字>`，
+   因此补丁号递增无需改 `$DshVersion`。
+2. **CI 验证**：已由 GitHub Actions 完成——最终提交 `d01d378` 上冒烟 **Run #32 成功**，
+   `smoke`（12 步，含两个新增断言）与 `regression-node-resolution-unix` 两个 job
+   **全部步骤通过**（详见 4.2）。
 3. **`--host 0.0.0.0` 的安全提示**：已在 README「安全须知」与变更要点中明确
    「仅限可信内网，禁止对公网开放」。若后续对安全要求提高，可考虑改为默认
    `127.0.0.1`、由用户在配置中显式开启局域网访问。
@@ -707,3 +729,19 @@ $ diff -r /tmp/f1 /tmp/f2
    在文中固化具体 SHA/哈希会导致「更新报告即令证据失效」的循环
    （本次执行中空转了 5 轮）。第五节已改为**不变量式证据**（相等性、差集为空、
    命令输出为空），并附可独立复现的命令，该类结论不随后续提交失效。
+
+### 8.1 本轮两次用户报障暴露的检查盲区（核心教训）
+
+两次报障（CLI 必失败、Web 插件加载失败）有一个**共同结构**：
+**已有的检查都绕过了真实调用路径**。
+
+| 报障 | 缺陷所在 | 原有检查为何漏掉 |
+|------|----------|------------------|
+| CLI 必失败 | **启动器**的调用路径 | 原用例直接调 `dsh --profile headless`，测的是「dsh 能用」而非「启动器能用」 |
+| Web 插件失败 | **浏览器运行时** | 全部用例都在 node 侧；补丁基线只比文本，不执行代码 |
+
+由此形成的两条硬规则（已写入 `CHANGELOG` 与 skill）：
+
+1. **测集成，不测组件**——凡「A 调用 B」的功能，断言必须落在 A 的调用路径上。
+2. **新增断言必须做负对照**——把缺陷临时还原，确认断言确实 FAIL；
+   否则无法区分「断言通过」与「断言根本没在检查」。

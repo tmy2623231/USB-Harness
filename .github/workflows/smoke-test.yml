@@ -50,15 +50,20 @@ jobs:
           $npm = ".cache/runtimes/windows-x64/node/npm.cmd"
           $ps1 = Get-Content scripts/setup-windows.ps1 -Raw
 
+          $dshVer = "${{ steps.ver.outputs.dsh }}"
           $m = [regex]::Match($ps1, '\$PeerFix\s*=\s*@\((.*?)\n\s*\)',
                 [System.Text.RegularExpressions.RegexOptions]::Singleline)
           if (-not $m.Success) { throw "无法解析 PeerFix 列表" }
-          $peers = @([regex]::Matches($m.Groups[1].Value, "'([^']+)'") |
-                     ForEach-Object { $_.Groups[1].Value } |
+          # $PeerFix 里 dsh 子包用双引号（要插值 $peerVer）、第三方包用单引号，
+          # 两种都要收；只匹配单引号会漏掉全部子包（历史缺陷，曾致 71 项被静默丢弃）。
+          $peers = @([regex]::Matches($m.Groups[1].Value, """([^""]+?)@\`$peerVer""|'([^']+)'") |
+                     ForEach-Object {
+                       if ($_.Groups[1].Success) { "$($_.Groups[1].Value)@$dshVer" }
+                       else { $_.Groups[2].Value }
+                     } |
                      Where-Object { $_ -match '[@^]' })
           if ($peers.Count -lt 6) { throw "peer 数量异常: $($peers.Count)" }
 
-          $dshVer = "${{ steps.ver.outputs.dsh }}"
           $mismatch = $peers | Where-Object { $_ -match '^@deepseek-ai/dsh-.*@\^(.+)$' -and $Matches[1] -ne $dshVer }
           if ($mismatch) { throw "peer 版本与 dsh@$dshVer 不一致: $($mismatch -join ', ')" }
           Write-Host "peer 数量: $($peers.Count)，版本一致性 ✓"
@@ -81,10 +86,32 @@ jobs:
           if (-not (Select-String -Path "$nm/@deepseek-ai/dsh-client-ui-brand-official/lib/client.js" -Pattern 'USB Harness' -Quiet)) {
             throw "品牌补丁未生效"
           }
-          foreach ($p in 'dsh-timeout','dsh-atomic-write','dsh-shell','dsh-spill','dsh-web-frontend') {
-            if (-not (Test-Path "$nm/@deepseek-ai/$p")) { throw "缺包: $p" }
+
+          # 断言对象直接取自 setup 脚本的 $PeerFix —— 单一数据源。
+          # 早先这里是硬编码的 5 个包名，peer 清单重定后 3 个包已不在清单里，
+          # 于是 CI 断言与实际安装行为脱节、把自己"证伪"成失败。改为派生后，
+          # 这类「清单改了但断言没改」的失效模式在结构上不可能再出现。
+          $ps1 = Get-Content scripts/setup-windows.ps1 -Raw
+          $m = [regex]::Match($ps1, '\$PeerFix\s*=\s*@\((.*?)\n\s*\)',
+                [System.Text.RegularExpressions.RegexOptions]::Singleline)
+          if (-not $m.Success) { throw "无法解析 PeerFix 列表" }
+          $peers = @([regex]::Matches($m.Groups[1].Value, '"(@[^"]+?)@\$peerVer"') |
+                     ForEach-Object { $_.Groups[1].Value })
+          if ($peers.Count -lt 6) { throw "peer 数量异常: $($peers.Count)" }
+
+          $missing = @()
+          foreach ($p in $peers) {
+            $sub = $p.Substring($p.LastIndexOf('/') + 1)
+            if (-not (Test-Path "$nm/@deepseek-ai/$sub")) { $missing += $p }
           }
-          Write-Host "安装完整性 ✓（dsh.cmd / react 18 / 品牌补丁 / 关键子包）"
+          # 另抽查两个非 dsh 命名空间的补位包
+          foreach ($p in 'react', 'react-dom') {
+            if (-not (Test-Path "$nm/$p")) { $missing += $p }
+          }
+          if ($missing.Count -gt 0) {
+            throw "缺包 $($missing.Count) 个: $($missing -join ', ')"
+          }
+          Write-Host "安装完整性 ✓（dsh.cmd / react 18 / 品牌补丁 / $($peers.Count) 个 peer 子包全部落地）"
 
       - name: 补丁基线断言
         shell: pwsh

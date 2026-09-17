@@ -5,6 +5,15 @@
 
 完整升级流程见 [docs/RELEASE_README_SYNC.md](../docs/RELEASE_README_SYNC.md)。
 
+## 工具一览
+
+| 工具 | 作用 | 状态 |
+|------|------|------|
+| `rebuild-patch.py` | 品牌补丁重建（旧快照 → 新基线 + 定制意图） | **在用** |
+| `refscan-registry.py` | 遍历注册表依赖闭包，重定 peer 补齐清单 | **在用（权威方法）** |
+| `smoke-local.sh` | 本地端到端冒烟测试（9 用例） | **在用** |
+| `refscan.mjs` | 扫描已安装树找缺失 import | **已废弃**——循环论证，见下文 |
+
 ---
 
 ## rebuild-patch.py — 品牌补丁重建
@@ -62,42 +71,74 @@ python .patch-tools/rebuild-patch.py \
 
 ---
 
-## refscan.mjs — 重定 peer 依赖补齐清单
+## refscan-registry.py — 重定 peer 依赖补齐清单（**权威方法**）
 
 确定 `scripts/setup-windows.ps1` 的 `$PeerFix` 与 `scripts/setup-unix.sh` 的 `PEERS`
 里应该写哪些包。
 
 ### 为什么清单必须逐版本重定
 
-dsh 的多个子包把彼此声明为 `peerDependencies`，而主包 bundle 未包含它们；
+dsh 的多个子包把彼此声明为 `peerDependencies`，而主包 `dependencies` 未包含它们；
 `--legacy-peer-deps` 会跳过这些 peer → 启动报 `ERR_MODULE_NOT_FOUND`。
-**缺失集合随版本变化**：`0.1.1-rc.2` 下为 25 个，`0.1.5-rc.2` 下为 26 个。
+**缺失集合随版本变化**：`0.1.1-rc.2` 下为 25 个，`0.1.5-rc.2` 下为 71 个。
 
-### 为什么不能靠「跑一次看缺哪个」
+### 方法：遍历 npm 注册表依赖闭包
 
-绝大多数 `@deepseek-ai/*` 子模块是**懒加载**的，只有走到对应功能才会 `import`。
+要补的集合 = **整个依赖闭包中所有 `peerDependencies` 的并集**
+减去「已在主包 `dependencies` 里、会被 npm 自动装上的」。
 
-> 实测：单次启动只报出 **1 个**缺失包，静态说明符扫描报出 **26 个**。
-> 漏报的 25 个会在用户用到对应功能时才炸。
-
-### 用法
+该集合**只由注册表元数据决定，与安装树无关**，因此不受「装没装上」干扰。
 
 ```bash
-node .patch-tools/refscan.mjs "<包根>/.cache/app/node_modules" 0.1.5-rc.2
+python .patch-tools/refscan-registry.py --dsh-version 0.1.5-rc.2            # 完整推导结果
+python .patch-tools/refscan-registry.py --dsh-version 0.1.5-rc.2 --emit-ps1 # → $PeerFix 片段
+python .patch-tools/refscan-registry.py --dsh-version 0.1.5-rc.2 --emit-sh  # → PEERS 片段
+python .patch-tools/refscan-registry.py --dsh-version 0.1.5-rc.2 --json     # 供其它工具消费
 ```
-
-> **路径必须用 Windows 形式**（`D:/...`）。`node.exe` 是原生 Windows 程序，
-> 传 Git Bash 的 POSIX 形式（`/d/...`）会静默失败（只打印一行 node 版本号，无报错正文）。
 
 输出示例：
 
 ```
-扫描文件 730 个
-@deepseek-ai/* 说明符 95 个；缺失 0 个
-=> 清单完整，无需补齐
+扫描子包 215 个；发现 peer 依赖 89 个
+主包 dependencies 自动覆盖 18 个；必须显式补齐 71 个（其中跟随 dsh 版本 70 个、独立版本 1 个）
 ```
 
-退出码 `0` = 清单完整；`1` = 存在缺失项（末尾会打印可直接粘贴的数组片段）。
+加 `--who` 可看到每个 peer 被哪些子包引用（诊断用）。
+
+### 版本号分组：按「版本范围」判，不是按包名前缀
+
+`--emit-*` 会把清单自动分成两组：
+
+| 组 | 判据 | 输出形态 |
+|----|------|----------|
+| 跟随 dsh 版本 | peer 声明的版本范围落在本次 dsh 版本族 | `"@deepseek-ai/dsh-xxx@$peerVer"` |
+| 独立版本 | 版本范围不在 dsh 版本族 | `'@deepseek-ai/cordis-plugin-group@^1.0.2'` |
+
+> **坑位：不能只看 `@deepseek-ai/` 前缀。**
+> `@deepseek-ai/cordis-plugin-group` 的版本是 `1.0.1` / `1.0.2`，与 dsh 的
+> `0.1.5-rc.2` 无关。按前缀当成 dsh 家族去写 `@0.1.5-rc.2`，npm 直接
+> `ETARGET: No matching version found`，**整个 peer 补齐步骤失败**。
+> 判据函数 `is_dsh_family()` 用的是版本范围，不是包名。
+
+### ⚠️ refscan.mjs 已废弃 — 它是循环论证，不可信
+
+旧工具 `refscan.mjs` 扫描的是**已安装的 `node_modules` 树**，找「被 import 但解析不到」
+的包。这个逻辑是自证的：
+
+```
+没被装上的包  →  不在安装树里  →  扫不到  →  报告「缺失 0 个」
+```
+
+> **实测事故**：`refscan.mjs` 报告「缺失 0 个」，而 CI 的安装完整性断言在
+> `dsh-timeout` / `dsh-atomic-write` / `dsh-web-frontend` 上判定缺包失败。
+> 这三个包确实需要，只是从未被装上，因此从未出现在被扫描的树里。
+> **用安装结果验证安装完整性，必然漏报。**
+
+文件保留仅供参考对照，**不要再用于重定清单**。
+
+> 注：`refscan.mjs` 时代还存在第二个坑——「跑一次看报错」只能报出 1 个缺失包
+> （子模块懒加载），因此当时把静态扫描当作改进。但静态扫描只是把「漏报」从
+> 懒加载变成了循环论证，仍未解决根本问题。
 
 ---
 

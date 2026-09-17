@@ -102,29 +102,57 @@ else
 
   # 已知坑位：多个 dsh 子包把彼此声明为 peerDependencies，主包 bundle 未包含，
   # --legacy-peer-deps 会跳过它们，导致启动报 ERR_MODULE_NOT_FOUND。显式补齐。
-  # 列表按 0.1.5-rc.2 实测结果重定：对安装树里全部 @deepseek-ai/* 的 import 说明符
-  # 逐个做模块解析，凡解析不到的即为缺失项（详见 docs/TROUBLESHOOTING.md）。
-  # 重定后多数旧条目已随主包打进依赖树，无需再列；缺失项由 19 个变为 26 个。
-  echo "[2.5] 补齐 dsh 缺失的 peer 依赖包（已知 26 个）..."
+  #
+  # 清单来源（权威方法，勿手工推算）：
+  #   python3 .patch-tools/refscan-registry.py --dsh-version <ver> --emit-sh
+  # 该方法遍历 npm 注册表依赖闭包，取全体 peerDependencies 的并集，
+  # 再减去主包 dependencies 已自动覆盖的部分。
+  # 切勿改用「扫描已安装树找解析不到的 import」的老办法——那是循环论证：
+  # 没装上的包本就不在安装树里，扫不到就会误报「缺失 0 个」。
+  echo "[2.5] 补齐 dsh 缺失的 peer 依赖包（已知 71 个）..."
   PEERS=(
-    # --- 仅以 peerDependencies 声明、主包未纳入依赖树的子包（必须补） ---
-    "@deepseek-ai/dsh-anonymous-user-id@$DSH_VERSION" "@deepseek-ai/dsh-attachment@$DSH_VERSION"
-    "@deepseek-ai/dsh-bash-local@$DSH_VERSION" "@deepseek-ai/dsh-client-store@$DSH_VERSION"
-    "@deepseek-ai/dsh-client-ui-dockkit@$DSH_VERSION" "@deepseek-ai/dsh-client-ui-primitives@$DSH_VERSION"
-    "@deepseek-ai/dsh-client-ui-slots@$DSH_VERSION" "@deepseek-ai/dsh-code-runtime@$DSH_VERSION"
-    "@deepseek-ai/dsh-compaction@$DSH_VERSION" "@deepseek-ai/dsh-fs@$DSH_VERSION"
-    "@deepseek-ai/dsh-hook-protocol@$DSH_VERSION" "@deepseek-ai/dsh-jobs@$DSH_VERSION"
-    "@deepseek-ai/dsh-output-retention@$DSH_VERSION" "@deepseek-ai/dsh-sandbox@$DSH_VERSION"
-    "@deepseek-ai/dsh-sdk-protocol@$DSH_VERSION" "@deepseek-ai/dsh-session-persistence@$DSH_VERSION"
+    # --- 仅以 peerDependencies 声明、主包未纳入依赖树的子包（版本跟随 dsh） ---
+    "@deepseek-ai/dsh-agent@$DSH_VERSION" "@deepseek-ai/dsh-agent-default-model@$DSH_VERSION"
+    "@deepseek-ai/dsh-agent-presets@$DSH_VERSION" "@deepseek-ai/dsh-anonymous-user-id@$DSH_VERSION"
+    "@deepseek-ai/dsh-api-gateway@$DSH_VERSION" "@deepseek-ai/dsh-atomic-write@$DSH_VERSION"
+    "@deepseek-ai/dsh-attachment@$DSH_VERSION" "@deepseek-ai/dsh-authorization@$DSH_VERSION"
+    "@deepseek-ai/dsh-bash-local@$DSH_VERSION" "@deepseek-ai/dsh-brand@$DSH_VERSION"
+    "@deepseek-ai/dsh-client-connection@$DSH_VERSION" "@deepseek-ai/dsh-client-file-upload@$DSH_VERSION"
+    "@deepseek-ai/dsh-client-ui-directory-picker-browse@$DSH_VERSION" "@deepseek-ai/dsh-client-ui-directory-picker-native@$DSH_VERSION"
+    "@deepseek-ai/dsh-code-runtime@$DSH_VERSION" "@deepseek-ai/dsh-command-feedback@$DSH_VERSION"
+    "@deepseek-ai/dsh-commands@$DSH_VERSION" "@deepseek-ai/dsh-compaction@$DSH_VERSION"
+    "@deepseek-ai/dsh-cordis-host-runner@$DSH_VERSION" "@deepseek-ai/dsh-credentials@$DSH_VERSION"
+    "@deepseek-ai/dsh-deepseek-llm-api-extensions@$DSH_VERSION" "@deepseek-ai/dsh-file-reference@$DSH_VERSION"
+    "@deepseek-ai/dsh-fs@$DSH_VERSION" "@deepseek-ai/dsh-hook-protocol@$DSH_VERSION"
+    "@deepseek-ai/dsh-host-directory-picker@$DSH_VERSION" "@deepseek-ai/dsh-host-directory-picker-browse@$DSH_VERSION"
+    "@deepseek-ai/dsh-host-directory-picker-native@$DSH_VERSION" "@deepseek-ai/dsh-host-webserver@$DSH_VERSION"
+    "@deepseek-ai/dsh-invariants@$DSH_VERSION" "@deepseek-ai/dsh-jobs@$DSH_VERSION"
+    "@deepseek-ai/dsh-llm@$DSH_VERSION" "@deepseek-ai/dsh-llm-deepseek@$DSH_VERSION"
+    "@deepseek-ai/dsh-llm-retry@$DSH_VERSION" "@deepseek-ai/dsh-message-feedback@$DSH_VERSION"
+    "@deepseek-ai/dsh-native-command@$DSH_VERSION" "@deepseek-ai/dsh-output-retention@$DSH_VERSION"
+    "@deepseek-ai/dsh-permission-presets@$DSH_VERSION" "@deepseek-ai/dsh-sandbox@$DSH_VERSION"
+    "@deepseek-ai/dsh-sandbox-policy@$DSH_VERSION" "@deepseek-ai/dsh-scope@$DSH_VERSION"
+    "@deepseek-ai/dsh-sdk-protocol@$DSH_VERSION" "@deepseek-ai/dsh-session@$DSH_VERSION"
+    "@deepseek-ai/dsh-session-persistence@$DSH_VERSION" "@deepseek-ai/dsh-session-projection-cache@$DSH_VERSION"
     "@deepseek-ai/dsh-session-query@$DSH_VERSION" "@deepseek-ai/dsh-session-telemetry@$DSH_VERSION"
-    "@deepseek-ai/dsh-session-title-llm@$DSH_VERSION" "@deepseek-ai/dsh-settings@$DSH_VERSION"
-    "@deepseek-ai/dsh-shell@$DSH_VERSION" "@deepseek-ai/dsh-spill@$DSH_VERSION"
-    "@deepseek-ai/dsh-subagent-in-process-driver@$DSH_VERSION" "@deepseek-ai/dsh-util-time@$DSH_VERSION"
-    "@deepseek-ai/dsh-util-workspace-path@$DSH_VERSION" "@deepseek-ai/dsh-workflow@$DSH_VERSION"
+    "@deepseek-ai/dsh-session-title@$DSH_VERSION" "@deepseek-ai/dsh-session-title-llm@$DSH_VERSION"
+    "@deepseek-ai/dsh-settings@$DSH_VERSION" "@deepseek-ai/dsh-shell@$DSH_VERSION"
+    "@deepseek-ai/dsh-shell-env@$DSH_VERSION" "@deepseek-ai/dsh-spill@$DSH_VERSION"
+    "@deepseek-ai/dsh-storage@$DSH_VERSION" "@deepseek-ai/dsh-storage-domain@$DSH_VERSION"
+    "@deepseek-ai/dsh-subagent@$DSH_VERSION" "@deepseek-ai/dsh-subagent-in-process-driver@$DSH_VERSION"
+    "@deepseek-ai/dsh-subprocess@$DSH_VERSION" "@deepseek-ai/dsh-system-prompt@$DSH_VERSION"
+    "@deepseek-ai/dsh-timeout@$DSH_VERSION" "@deepseek-ai/dsh-tools@$DSH_VERSION"
+    "@deepseek-ai/dsh-typert-protocol@$DSH_VERSION" "@deepseek-ai/dsh-typert-registry@$DSH_VERSION"
+    "@deepseek-ai/dsh-user-approval@$DSH_VERSION" "@deepseek-ai/dsh-user-questions@$DSH_VERSION"
+    "@deepseek-ai/dsh-util-time@$DSH_VERSION" "@deepseek-ai/dsh-util-values@$DSH_VERSION"
+    "@deepseek-ai/dsh-util-workspace-path@$DSH_VERSION" "@deepseek-ai/dsh-web@$DSH_VERSION"
+    "@deepseek-ai/dsh-workflow@$DSH_VERSION" "@deepseek-ai/dsh-workspace@$DSH_VERSION"
     # --- 主包依赖树里已存在，但版本号独立于 dsh 的第三方包 ---
-    '@deepseek-ai/cordis-plugin-group@^1.0.1' '@cfworker/json-schema@^4.1.1'
+    # 注意 cordis-plugin-group 版本是 1.0.x，与 dsh 版本无关；写成 @$DSH_VERSION 会 ETARGET
+    '@deepseek-ai/cordis-plugin-group@^1.0.2' '@cfworker/json-schema@^4.1.1'
     # react 必须锁 18.x：dsh-web-frontend 依赖 react@^18.2.0，用 latest 会拉到 19.x（跨大版本不兼容）
-    'react@^18.3.1' 'react-dom@^18.3.1' 'bufferutil@^4.0.1' 'utf-8-validate@^5.0.2'
+    'react@^18.3.1' 'react-dom@^18.3.1'
+    'bufferutil@^4.0.1' 'utf-8-validate@^5.0.2'
     '@types/react@^18.3.12'
   )
   if ! "$NODE_NPM" install --prefix "$APP_PREFIX" "${PEERS[@]}" --no-audit --no-fund --legacy-peer-deps --cache "$NPM_CACHE" --registry=https://registry.npmmirror.com; then

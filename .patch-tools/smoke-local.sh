@@ -23,12 +23,20 @@ cd "$ROOT"
 # Git Bash 的 POSIX 形式（/d/...）会被 node 当成非法路径，表现为
 # 秒退且只打印 "Node.js v22.23.2"（无报错正文），极易误判为"卡死/崩溃"。
 ROOT_W="$(pwd -W 2>/dev/null || pwd)"
-NODE="$ROOT_W/.tmp-upstream/node/node.exe"
-CLI="$ROOT_W/.tmp-upstream/app2/node_modules/@deepseek-ai/dsh/lib/bin.js"
-REFSCAN="$ROOT_W/.tmp-upstream/refscan.mjs"
-APP2="$ROOT_W/.tmp-upstream/app2"
-DSH_HOME_TEST="$ROOT_W/.tmp-upstream/dsh-smoke"
-LOG="$ROOT/.tmp-upstream/smoke.log"
+
+# 默认指向**真实 U 盘布局**（.cache/…），与 setup 脚本装出来的东西一致。
+# 需要指向别处时用环境变量覆盖：
+#   SMOKE_APP_DIR=... SMOKE_NODE_DIR=... bash .patch-tools/smoke-local.sh
+NODE_DIR="${SMOKE_NODE_DIR:-$ROOT_W/.cache/runtimes/windows-x64/node}"
+APP_DIR="${SMOKE_APP_DIR:-$ROOT_W/.cache/app}"
+WORK_DIR="${SMOKE_WORK_DIR:-$ROOT_W/.cache/smoke}"
+
+NODE="$NODE_DIR/node.exe"
+CLI="$APP_DIR/node_modules/@deepseek-ai/dsh/lib/bin.js"
+DSH_HOME_TEST="$WORK_DIR/dsh-smoke"
+LOG="$WORK_DIR/smoke.log"
+
+mkdir -p "$WORK_DIR"
 
 # 超时预算（秒）
 T_VERSION=60
@@ -125,21 +133,43 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 用例 3：模块解析（全部 @deepseek-ai/* 引用可解析）
+# 用例 3：$PeerFix 清单与实际安装一致性（前向校验）
 # ---------------------------------------------------------------------------
+# 【为什么是这个检查】此前这里做的是"扫描已安装树找解析不到的 import"，
+# 那是循环论证：没装上的包本就不在安装树里，扫不到 → 误报"缺失 0 个"。
+# 结果 CI 在 3 个真缺失的包上失败，本地却全绿。现在改为**前向**校验：
+# 以 setup 脚本的 $PeerFix 为唯一数据源，逐个断言其声明的包确实落地。
+# 这样"清单写了但没装上"会在本地就炸，而不是等到 CI。
 hr
-say "用例 3/6  安装树模块解析（超时 ${T_ASSET}s）"
-ref_out="$(run_to $T_ASSET "$NODE" "$REFSCAN" "$APP2" 2>&1)"
-rc=$?
-if [ $rc -eq 124 ]; then
-  record "模块解析" TIMEOUT ">${T_ASSET}s"
+say "用例 3/6  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
+if [ "$QUICK" = "1" ]; then
+  record "peer 清单一致性" SKIP "--quick 跳过"
 else
-  miss_line="$(printf '%s' "$ref_out" | grep "解析失败:" | head -1)"
-  printf '%s\n' "$ref_out" >> "$LOG"
-  if printf '%s' "$miss_line" | grep -q "解析失败: 0"; then
-    record "模块解析" PASS "$miss_line"
+  PEER_MISSING=0
+  PEER_TOTAL=0
+  PEER_LIST=""
+  # 从 setup 脚本抽包名：双引号段（插值 $peerVer 的 dsh 子包）+ 单引号段（第三方）
+  while IFS= read -r pkg; do
+    [ -z "$pkg" ] && continue
+    PEER_TOTAL=$((PEER_TOTAL+1))
+    sub="${pkg##*/}"
+    if [ -d "$APP_DIR/node_modules/@deepseek-ai/$sub" ] || [ -d "$APP_DIR/node_modules/$pkg" ]; then
+      :
+    else
+      PEER_MISSING=$((PEER_MISSING+1))
+      PEER_LIST="$PEER_LIST $pkg"
+    fi
+  done < <(sed -n '/\$PeerFix = @(/,/^    )/p' scripts/setup-windows.ps1 2>/dev/null \
+           | grep -oE '"[^"]+@\$peerVer"|'"'"'[^'"'"']+'"'"'' \
+           | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" \
+           | sed -e 's/@\$peerVer//' -e 's/@\^[0-9].*$//' -e 's/@[0-9].*$//' \
+           | grep -v '^$' | sort -u)
+  if [ "$PEER_TOTAL" -lt 6 ]; then
+    record "peer 清单一致性" FAIL "从 setup 脚本只解析到 ${PEER_TOTAL} 项，疑似解析失败"
+  elif [ "$PEER_MISSING" -eq 0 ]; then
+    record "peer 清单一致性" PASS "${PEER_TOTAL} 项全部落地"
   else
-    record "模块解析" FAIL "$miss_line"
+    record "peer 清单一致性" FAIL "缺 ${PEER_MISSING}/${PEER_TOTAL}:${PEER_LIST}"
   fi
 fi
 
@@ -198,22 +228,22 @@ else
   # 【关键】$ROOT 是 POSIX 形式（/d/...），仅可用于 bash 文件操作；
   # 传给 Windows 的 curl.exe（-o / -c / -b）必须用 $ROOT_W（D:/...），
   # 否则 curl 静默写不出去（返回 000、文件不存在），表现为"首页抓不到"。
-  WEBLOG="$ROOT/.tmp-upstream/smoke-web.log"
-  WEBLOG_W="$ROOT_W/.tmp-upstream/smoke-web.log"
-  JAR_W="$ROOT_W/.tmp-upstream/smoke-cookies.txt"
-  INDEX_W="$ROOT_W/.tmp-upstream/smoke-index.html"
-  INDEX="$ROOT/.tmp-upstream/smoke-index.html"
+  WEBLOG="$WORK_DIR/smoke-web.log"
+  WEBLOG_W="$WORK_DIR/smoke-web.log"
+  JAR_W="$WORK_DIR/smoke-cookies.txt"
+  INDEX_W="$WORK_DIR/smoke-index.html"
+  INDEX="$WORK_DIR/smoke-index.html"
   rm -f "$WEBLOG" "$JAR_W" "$INDEX"
   # 用独立脚本 + timeout 包裹整个服务进程，杜绝孤儿进程
-  cat > "$ROOT/.tmp-upstream/_web-probe.sh" <<WEBEOF
+  cat > "$WORK_DIR/_web-probe.sh" <<WEBEOF
 #!/usr/bin/env bash
 export PATH="/usr/bin:/bin:\$PATH"
 export DSH_HOME="$DSH_HOME_TEST"
 unset CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR CODEBUDDY_TOOL_CALL_ID CODEBUDDY_SAFE_DELETE_BULK_GUARD
 exec "$NODE" "$CLI" web --port $PORT --host 0.0.0.0 --no-open
 WEBEOF
-  chmod +x "$ROOT/.tmp-upstream/_web-probe.sh"
-  timeout "${T_WEB_BOOT}" bash "$ROOT/.tmp-upstream/_web-probe.sh" > "$WEBLOG" 2>&1 &
+  chmod +x "$WORK_DIR/_web-probe.sh"
+  timeout "${T_WEB_BOOT}" bash "$WORK_DIR/_web-probe.sh" > "$WEBLOG" 2>&1 &
   WPID=$!
 
   # dsh web 有 browser-trust fence：

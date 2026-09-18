@@ -98,7 +98,7 @@ function Set-LaunchMode {
 
 function Get-LaunchModeLabel {
     param([string]$Mode)
-    if ($Mode -eq 'cli') { return 'CLI（单次任务）' }
+    if ($Mode -eq 'cli') { return 'CLI（单次任务 task）' }
     return 'Web（图形界面）'
 }
 
@@ -237,14 +237,23 @@ function Start-Web {
 # 【重要变更 — dsh 0.1.5 起】
 # 0.1.5 取消了「无默认执行档位」的行为：裸跑 `dsh` 会直接报
 #   error: --profile <name> is required
-# 且上游**不再提供交互式 TUI 档位**，可用的只有 web / headless / acp / sdk。
+# 且上游**不再提供开箱即用的交互式终端对话档位**，可用的只有 web / headless / acp / sdk。
 # 因此原先「不带子命令进入交互式 TUI」的设计前提已不存在，改为使用 headless：
-#   dsh --profile headless "<任务>"  ->  跑一个全新会话，打印最终答案后退出
+#   dsh --profile headless "<task>"  ->  跑一个全新会话，打印最终答案后退出
+#
+# 【文案对齐 — 与上游 dsh 用词一致】
+# 上游 `dsh --profile headless --help` 原文：
+#   Usage: dsh --profile headless [options] [task...]
+#   Arguments: task   the task text; multiple words are joined by spaces
+#   Answer one task, stream reasoning to stderr, print the final assistant message, and exit.
+# 因此本启动器统一用「任务 / task」表述，并显式给出等价的原生命令，方便用户脱离
+# 菜单直接调用 dsh（也是本模式最可靠的验证方式）。
 #
 # 与 Start-Web 共用同一份环境变量（DSH_HOME / PATH），模型配置与会话数据完全一致。
 function Start-Cli {
-    Write-Step '启动 dsh 单次任务（headless）模式'
-    Write-Host '  说明: 输入一个任务，dsh 跑完一次会话后打印答案并退出' -ForegroundColor DarkGray
+    Write-Step '启动 dsh 单次任务模式（task / headless profile）'
+    Write-Host '  说明: 输入一个任务（task），dsh 跑完一次会话后打印最终答案并退出' -ForegroundColor DarkGray
+    Write-Host '  等价命令: dsh --profile headless "<task>"' -ForegroundColor DarkGray
     Write-Host '  提示: 本模式不监听端口，浏览器访问不可用' -ForegroundColor DarkGray
     Write-Host '  想持续对话/图形界面: 返回菜单后用 [4] 切换运行模式' -ForegroundColor DarkGray
     Write-Host ''
@@ -254,8 +263,8 @@ function Start-Cli {
     $CliLog = Join-Path $LogDir 'dsh-cli.log'
     $CliErr = Join-Path $LogDir 'dsh-cli.err.log'
 
-    Write-Host '请输入任务内容（直接回车取消）:' -ForegroundColor Cyan
-    $task = Read-Host '任务'
+    Write-Host '请输入任务内容 / task（直接回车取消）:' -ForegroundColor Cyan
+    $task = Read-Host 'task'
     if (-not $task -or -not $task.Trim()) {
         Write-Host '  已取消，未执行任何任务。' -ForegroundColor DarkGray
         Start-Sleep -Milliseconds 800
@@ -263,7 +272,7 @@ function Start-Cli {
     }
 
     Write-Host ''
-    Write-Host "  [执行] $task" -ForegroundColor DarkGray
+    Write-Host "  [task] $task" -ForegroundColor DarkGray
     Write-Host ''
     Remove-Item $CliErr -Force -ErrorAction SilentlyContinue
     Invoke-Dsh --profile headless $task 2>>$CliErr | Tee-Object -FilePath $CliLog -Append
@@ -296,7 +305,7 @@ function Switch-LaunchMode {
     Write-Host "  当前: $(Get-LaunchModeLabel $cur)"
     Write-Host ''
     Write-Host '  [1] Web 界面（图形化，浏览器访问，默认）' -ForegroundColor White
-    Write-Host '  [2] CLI 单次任务（输入任务，跑完打印答案后退出）' -ForegroundColor White
+    Write-Host '  [2] CLI 单次任务（输入一个 task，跑完打印答案后退出）' -ForegroundColor White
     Write-Host '  [0] 取消' -ForegroundColor Gray
     Write-Host ''
     $pick = (Read-Host '  请选择').Trim()
@@ -369,7 +378,7 @@ switch ($Action.ToLower()) {
 while ($true) {
     Show-Status
     $mode = Get-LaunchMode
-    if ($mode -eq 'cli') { $startLabel = '启动（当前模式：CLI 单次任务）' }
+    if ($mode -eq 'cli') { $startLabel = '启动（当前模式：CLI 单次任务 task）' }
     else { $startLabel = '启动（当前模式：Web 图形界面）' }
     Write-Host "  [1] $startLabel" -ForegroundColor White
     Write-Host '  [2] 检查更新（程序与 dsh 版本）' -ForegroundColor White

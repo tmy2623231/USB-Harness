@@ -13,6 +13,70 @@
 
 ---
 
+## [0.1.5-rc.2.3] — 2026-08-31
+
+> **包装热修复**：不涉及上游 dsh 变更。修复 `launch.sh`（Linux/macOS）
+> **CLI 模式从未跟进 0.1.5 改造**的平台分支漂移缺陷，并把两个启动器的文案
+> 与上游 dsh 术语对齐。
+
+### 修复（`launch.sh` CLI 模式在 0.1.5 上必失败 —— 严重）
+
+- **现象**：Linux/macOS 下选 `[1] 启动`（CLI 模式）直接报
+  `error: --profile <name> is required`；而同一功能在 Windows 下正常。
+- **根因**：`0.1.5-rc.2.1` 只改了 `scripts/launch-windows.ps1`，`launch.sh`
+  **被漏掉**。它仍在调用裸 `dsh`——这是 0.1.5 之前的旧设计前提
+  「不带子命令进入交互式 TUI」。该档位在 0.1.5 已不存在（上游档位只剩
+  `web` / `acp` / `headless` / `sdk`），裸跑必然报错。
+- **修复**：`start_cli()` 改为提示输入 task → 调用
+  `dsh --profile headless "<task>"`，与 Windows 版语义完全一致。
+- **教训**：这是典型的**平台分支漂移**——同一功能有两份实现，改动只落在一份上。
+  原有冒烟用例 6 只检查 Windows 启动器的传参，因此全程绿灯。
+  已补**用例 9**：对两个启动器做同一组语义断言，强制保持同步。
+
+### 变更（CLI 模式文案与上游 dsh 对齐）
+
+上游 `dsh --profile headless --help` 原文：
+
+```
+Usage: dsh --profile headless [options] [task...]
+Arguments:
+  task        the task text; multiple words are joined by spaces
+Answer one task, stream reasoning to stderr, print the final assistant message, and exit.
+```
+
+据此把两个启动器的界面文案统一为**「任务 / task」**表述：
+
+| 位置 | 原文案 | 新文案 |
+|------|--------|--------|
+| 模式标签（状态面板 / 主菜单） | `CLI（单次任务）` | `CLI（单次任务 task）` |
+| 模式切换菜单 | `[2] CLI 单次任务（输入任务，跑完打印答案后退出）` | `[2] CLI 单次任务（输入一个 task，跑完打印答案后退出）` |
+| 输入提示 | `任务:` | `task:`（并附「请输入任务内容 / task」） |
+| 回显前缀 | `[执行] <task>` | `[task] <task>` |
+| 功能说明 | （无） | 新增「等价命令: `dsh --profile headless "<task>"`」一行 |
+
+`config/launch.conf` 的 `mode = cli` 取值**保持不变**（向后兼容，老配置无需改动）。
+
+### 新增（冒烟用例 9：启动器一致性）
+
+对 `scripts/launch-windows.ps1` 与 `launch.sh` 断言同一组语义：
+①真实调用行带 `--profile headless`；②无残留的失效 TUI 文案；③采用上游 `task` 术语。
+
+> **这个用例本身踩过一次坑（记录在案）**：初版断言写成
+> `grep -qE -- '--profile[[:space:]]+headless'`，**阴性对照没抓到故意植入的 bug**——
+> 因为函数体里那行给人看的提示 `echo "  等价命令: dsh --profile headless \"<task>\""`
+> 本身就含 `--profile headless`，把断言喂饱了。这是**自我满足断言**：命中的是自己写的
+> 文档字符串，不是被验的调用路径。已改为**先剥掉注释与 `echo`/`Write-Host` 行，
+> 再在剩余可执行行里匹配**。修复后阴性对照（两个启动器分别植入 bug）均正确报 FAIL。
+
+### 新增（README：启动速度说明）
+
+补充实测数据与优化建议：便携 node 冷启动 ≈0.75 s、模块解析 ≈1.3 s、
+**`dsh web` 冷启动到可响应 ≈8.3 s**、握手 ≈4 ms、带 cookie 取首页 ≈7 ms（28.5 KB）；
+浏览器侧 41 个 UI 包共约 9.8 MB 是「感觉慢」的主因。
+优化建议按性价比排序：包放本机硬盘、杀软白名单、Web 服务常驻、用 `127.0.0.1` 而非局域网 IP。
+
+---
+
 ## [0.1.5-rc.2.2] — 2026-09-17
 
 > **包装热修复**：不涉及上游 dsh 变更。修复 `0.1.5-rc.2.1` 产物中

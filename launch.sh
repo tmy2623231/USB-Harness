@@ -83,7 +83,7 @@ EOF
 }
 
 mode_label() {
-  if [ "$1" = "cli" ]; then printf 'CLI（命令行）'; else printf 'Web（图形界面）'; fi
+  if [ "$1" = "cli" ]; then printf 'CLI（单次任务 task）'; else printf 'Web（图形界面）'; fi
 }
 
 echo ""
@@ -168,26 +168,48 @@ start_web() {
   fi
 }
 
-# 启动 dsh 命令行（TUI）模式
-# 与 start_web 共用同一份环境变量（DSH_HOME / PATH），模型配置、会话数据完全一致，
-# 只是交互界面从浏览器换成终端。dsh 不带子命令时进入交互式 TUI。
+# 启动 dsh 单次任务模式（headless profile）
+#
+# 【重要变更 — dsh 0.1.5 起】
+# 0.1.5 取消了「无默认执行档位」的行为：裸跑 `dsh` 会直接报
+#   error: --profile <name> is required
+# 且上游**不再提供开箱即用的交互式终端对话档位**，可用的只有 web / headless / acp / sdk。
+# 因此原先「不带子命令进入交互式 TUI」的设计前提已不存在，改为使用 headless：
+#   dsh --profile headless "<task>"  ->  跑一个全新会话，打印最终答案后退出
+#
+# 【文案对齐 — 与上游 dsh 用词一致】
+# 上游 `dsh --profile headless --help` 原文：
+#   Usage: dsh --profile headless [options] [task...]
+#   Arguments: task   the task text; multiple words are joined by spaces
+#   Answer one task, stream reasoning to stderr, print the final assistant message, and exit.
+#
+# 与 start_web 共用同一份环境变量（DSH_HOME / PATH），模型配置、会话数据完全一致。
 start_cli() {
   export DSH_HOME="$DSH_HOME_DIR"
   export PATH="$NODE_DIR/bin:$ROOT/.cache/app/node_modules/.bin:$PATH"
   echo ""
-  echo "  提示: 本模式在终端内交互，不监听端口，浏览器访问不可用"
-  echo "  可用命令: /help 查看帮助，Ctrl+C 或输入 /exit 退出"
+  echo "  说明: 输入一个任务（task），dsh 跑完一次会话后打印最终答案并退出"
+  echo "  等价命令: dsh --profile headless \"<task>\""
+  echo "  提示: 本模式不监听端口，浏览器访问不可用"
   echo "  想切回 Web 界面: 返回菜单后用 [4] 切换运行模式"
   echo ""
+  read -r -p "  请输入任务内容 / task（直接回车取消）: " task
+  if [ -z "${task// }" ]; then
+    echo "  已取消，未执行任何任务。"
+    return
+  fi
+  echo ""
+  echo "  [task] $task"
+  echo ""
   if [ -f "$DSH_CLI" ]; then
-    "$NODE_BIN" "$DSH_CLI" 2>&1 | tee -a "$CLI_LOG_FILE"
+    "$NODE_BIN" "$DSH_CLI" --profile headless "$task" 2>&1 | tee -a "$CLI_LOG_FILE"
     rc=${PIPESTATUS[0]}
   else
-    "$DSH_BIN" 2>&1 | tee -a "$CLI_LOG_FILE"
+    "$DSH_BIN" --profile headless "$task" 2>&1 | tee -a "$CLI_LOG_FILE"
     rc=${PIPESTATUS[0]}
   fi
   echo ""
-  echo "dsh CLI 已退出（代码 $rc）。按回车键返回菜单 ..."
+  echo "dsh 已退出（代码 $rc）。按回车键返回菜单 ..."
   read -r _
 }
 
@@ -201,7 +223,7 @@ switch_launch_mode() {
   echo "  当前: $(mode_label "$cur")"
   echo ""
   echo "  [1] Web 界面（图形化，浏览器访问，默认）"
-  echo "  [2] CLI 命令行（终端内交互，不监听端口）"
+  echo "  [2] CLI 单次任务（输入一个 task，跑完打印答案后退出）"
   echo "  [0] 取消"
   echo ""
   read -r -p "  请选择 " pick
@@ -259,7 +281,7 @@ esac
 while true; do
   show_status
   if [ "$(get_launch_mode)" = "cli" ]; then
-    echo "  [1] 启动（当前模式：CLI 命令行）"
+    echo "  [1] 启动（当前模式：CLI 单次任务 task）"
   else
     echo "  [1] 启动（当前模式：Web 图形界面）"
   fi

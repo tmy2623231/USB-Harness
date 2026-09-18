@@ -102,7 +102,7 @@ unset CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR CODEBUDDY_TOOL_CALL_ID CODEBUDDY_SAFE
 # 用例 1：dsh --version
 # ---------------------------------------------------------------------------
 hr
-say "用例 1/8  dsh --version（超时 ${T_VERSION}s）"
+say "用例 1/9  dsh --version（超时 ${T_VERSION}s）"
 out="$(run_to $T_VERSION "$NODE" "$CLI" --version 2>&1 | tail -1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -117,7 +117,7 @@ fi
 # 用例 2：dsh --help 且品牌已替换
 # ---------------------------------------------------------------------------
 hr
-say "用例 2/8  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
+say "用例 2/9  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
 help_out="$(run_to $T_HELP "$NODE" "$CLI" --help 2>&1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -141,7 +141,7 @@ fi
 # 以 setup 脚本的 $PeerFix 为唯一数据源，逐个断言其声明的包确实落地。
 # 这样"清单写了但没装上"会在本地就炸，而不是等到 CI。
 hr
-say "用例 3/8  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
+say "用例 3/9  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
 if [ "$QUICK" = "1" ]; then
   record "peer 清单一致性" SKIP "--quick 跳过"
 else
@@ -177,7 +177,7 @@ fi
 # 用例 4：补丁基线校验（dsh_patch_compat_check.py）
 # ---------------------------------------------------------------------------
 hr
-say "用例 4/8  补丁基线校验（超时 ${T_PATCHCHECK}s）"
+say "用例 4/9  补丁基线校验（超时 ${T_PATCHCHECK}s）"
 pc_out="$(run_to $T_PATCHCHECK python scripts/dsh_patch_compat_check.py \
           --patch "brand-patch/@deepseek-ai" --base 0.1.5-rc.2 --target 0.1.5-rc.2 2>&1)"
 rc=$?
@@ -197,7 +197,7 @@ fi
 # 用例 5：headless（CLI）模式可启动到模型派发阶段
 # ---------------------------------------------------------------------------
 hr
-say "用例 5/8  headless CLI 模式（超时 ${T_HEADLESS}s）"
+say "用例 5/9  headless CLI 模式（超时 ${T_HEADLESS}s）"
 if [ "$QUICK" = "1" ]; then
   record "headless CLI 模式" SKIP "--quick 跳过"
 else
@@ -227,7 +227,7 @@ fi
 # 测的是 dsh 本身能跑 headless，而不是"启动器的 CLI 模式可用"。
 # 这个用例转而检查**启动器的调用路径本身**，堵住该盲区。
 hr
-say "用例 6/8  启动器 CLI 分支传参（静态检查）"
+say "用例 6/9  启动器 CLI 分支传参（静态检查）"
 LAUNCH_PS1="scripts/launch-windows.ps1"
 if [ ! -f "$LAUNCH_PS1" ]; then
   record "启动器 CLI 传参" FAIL "找不到 $LAUNCH_PS1"
@@ -262,7 +262,7 @@ fi
 #   * CLI 侧（--version / --help / headless）完全不加载浏览器端 bundle，自然全绿。
 # 所以必须**真的把模块求值一次**，让它自己跑出错误。
 hr
-say "用例 7/8  brand-patch 浏览器端模块可求值（超时 ${T_PATCHCHECK}s）"
+say "用例 7/9  brand-patch 浏览器端模块可求值（超时 ${T_PATCHCHECK}s）"
 PERM_JS="brand-patch/@deepseek-ai/dsh-client-ui-permission-presets/lib/client.js"
 EVAL_TOOL=".patch-tools/eval-client-module.mjs"
 if [ ! -f "$PERM_JS" ]; then
@@ -290,7 +290,7 @@ fi
 # 用例 8：web 服务能真正起来并返回 200
 # ---------------------------------------------------------------------------
 hr
-say "用例 8/8  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
+say "用例 8/9  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
 if [ "$QUICK" = "1" ]; then
   record "web 服务 HTTP" SKIP "--quick 跳过"
 else
@@ -379,6 +379,60 @@ WEBEOF
   kill $WPID 2>/dev/null
   wait $WPID 2>/dev/null
 fi
+
+# ---------------------------------------------------------------------------
+# 用例 9：两个启动器的 CLI 分支语义与文案一致（回归：launch.sh 从未跟进改造）
+# ---------------------------------------------------------------------------
+# 【背景 — 这个用例为什么必须存在】
+# 0.1.5-rc.2.1 只改了 scripts/launch-windows.ps1，**launch.sh 被漏掉**：
+# 它仍在调用裸 `dsh`（旧设计「不带子命令进入交互式 TUI」），而该档位在 0.1.5
+# 已不存在，裸跑直接报 `error: --profile <name> is required`。
+# 同一份「CLI 单次任务」功能在 Windows 能用、Linux 必失败——典型的**平台分支漂移**。
+# 本用例对两个启动器做同一组语义断言，强制它们保持同步：
+#   1) 都声明 --profile headless（真实调用路径）
+#   2) 都不再残留「交互式 TUI / /help / /exit」等已失效的旧文案
+#   3) 都用上游术语 task 表述（文案对齐）
+hr
+say "用例 9/9  启动器 CLI 语义与文案一致（Windows + Linux）"
+
+for pair in "scripts/launch-windows.ps1|Start-Cli|Invoke-Dsh" "launch.sh|start_cli|DSH_CLI"; do
+  lf="${pair%%|*}";  rest="${pair#*|}"
+  fn="${rest%%|*}";  call="${rest#*|}"
+  if [ ! -f "$lf" ]; then
+    record "启动器一致性($lf)" FAIL "文件不存在"
+    continue
+  fi
+  body="$(sed -n "/function ${fn}\|^${fn}()/,/^}/p" "$lf" 2>/dev/null)"
+  [ -z "$body" ] && body="$(sed -n "/^function ${fn}/,/^function /p" "$lf" 2>/dev/null | sed '$d')"
+  if [ -z "$body" ]; then
+    record "启动器一致性($lf)" FAIL "未能解析出 ${fn} 函数体"
+    continue
+  fi
+  problems=""
+  # 1) 必须显式带 --profile headless —— 只认「真实调用行」，不能认注释/提示文案
+  #    【踩坑记录】最初写法是 `grep -qE -- '--profile[[:space:]]+headless'`，
+  #    结果**阴性对照没抓到 bug**：因为函数体里那行给人看的提示
+  #        echo "  等价命令: dsh --profile headless \"<task>\""
+  #    本身就含 "--profile headless"，把 grep 喂饱了。
+  #    这是典型的**自我满足断言**——断言命中的是自己写的文档字符串，不是被验的调用路径。
+  #    故改为：剥掉注释与 echo/Write-Host 行后，再在**剩余的可执行行**里找调用。
+  exec_only="$(printf '%s' "$body" \
+    | grep -vE '^[[:space:]]*#' \
+    | grep -vE '^[[:space:]]*(echo|Write-Host|Write-Step|printf)\b')"
+  printf '%s' "$exec_only" | grep -qE -- '--profile[[:space:]]+headless' \
+    || problems="${problems}真实调用行未传 --profile headless;"
+  # 2) 不得残留已失效的交互式 TUI 文案（/help 与 /exit 是旧 TUI 的提示）
+  printf '%s' "$exec_only" | grep -qE '/exit|交互式 TUI|终端内交互' \
+    && problems="${problems}残留已失效的 TUI 文案;"
+  # 3) 文案需与上游术语对齐（出现 task 字样）
+  printf '%s' "$body" | grep -q 'task' \
+    || problems="${problems}未采用上游 task 术语;"
+  if [ -z "$problems" ]; then
+    record "启动器一致性($lf)" PASS "带 --profile headless、无过期 TUI 文案、采用 task 术语"
+  else
+    record "启动器一致性($lf)" FAIL "$problems"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # 汇总

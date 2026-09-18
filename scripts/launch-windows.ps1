@@ -3,6 +3,11 @@
 # 职责：环境校验 → 首启自动安装 → 交互菜单（启动 Web / 命令模式 / 重置 / 退出）
 # 用法：由 launch.bat 调用；也可直接：
 #   powershell -ExecutionPolicy Bypass -File .\scripts\launch-windows.ps1 [web|cli|setup|reset|status]
+#
+# 【契约】launch.bat 必须保持纯 ASCII（注释也只能用英文）：cmd 在 zh-CN 系统
+# 按 GBK 代码页逐字节解析 .bat，文件里的 UTF-8 中文会被错误拆分，其中一部分
+# 会被当作命令执行，启动时报一串「不是内部或外部命令」乱码错误。
+# 中文文案统一放本脚本与 launch.sh（带 BOM 的 UTF-8 / bash 原生兼容），不受此限。
 # =============================================================================
 [CmdletBinding()]
 param(

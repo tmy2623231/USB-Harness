@@ -120,6 +120,39 @@ curl -sL "https://api.github.com/repos/deepseek-ai/deepseek-harness/tags?per_pag
 
 ---
 
+## 5.1 分支规范：**只有 `main` 一个长期分支**
+
+> **规范确立于 2026-09-18**（`0.1.5-rc.2.3` 之后）。此前的 `Release` 分支已删除。
+
+**为什么不设发布分支**：
+
+1. **Releases 不挂在分支上，挂在 tag 上。** GitHub 的 Release 对象通过
+   `target_commitish` 与 **tag** 关联，与分支无关。删掉任何分支都不会影响已发布的 Release。
+2. **CI 由 tag 触发**：`release.yml` 的触发条件是 `push: tags: ['[0-9]*']`
+   与 `workflow_dispatch`，**不含任何分支条件**。
+3. **发布分支会带来"哪条才是发布线"的歧义**：两个 SHA 永远相同的分支不提供任何额外保障，
+   只会让仓库首页多一条看似独立的分支。
+4. **历史 tag 必须落在 main 上**：核对方法是
+   `git merge-base --is-ancestor <tag>^{} main`。
+
+**发版时的唯一动作**：在 `main` 上打 tag 并推送。
+
+```bash
+git switch main && git pull --ff-only
+git tag <dsh版本[.N]>
+git push origin <dsh版本[.N]>     # CI 自动构建并创建 Release
+```
+
+**切勿**再创建 `Release` / `release` / `stable` 之类的并行长期分支。
+若确需在发布前冻结，用**短暂的** `hotfix/<版本>` 分支，合并回 `main` 后立即删除。
+
+> **历史说明**：`Release` 分支存在于 `0.1.5-rc.2` → `0.1.5-rc.2.3` 期间，
+> 起因是升级需求中的"分支一致"要求。它自创建起就与 `main` 指向同一提交
+> （从未分叉），删除时两者同为 `7a5849e`，属零风险操作。
+> 相关历史记录保留在 `docs/UPGRADE_REPORT_0.1.5-rc.2.md`（不改写，作为当时事实存档）。
+
+---
+
 ## 6. brand-patch 基线校验（不可跳过）
 
 `brand-patch` 内的文件是针对**具体 dsh 版本**改写的。版本号与补丁基线不一致会导致

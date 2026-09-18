@@ -123,19 +123,40 @@ jobs:
           # 本地冒烟没抓到，是因为那里的 headless 用例**绕过了启动器**直接调 dsh——
           # 测的是「dsh 能跑 headless」，不是「启动器的 CLI 模式可用」。
           # 这里改为检查**启动器的调用路径本身**，堵住该盲区。
+          # 【断言口径 — 只认「怎么启动 dsh」，不认「用哪个包装函数」】
+          # 本断言要验的是「启动 dsh 时带了 --profile headless」。
+          # 历史上 Start-Cli 用 `Invoke-Dsh --profile headless $task` 实现，所以早期断言
+          # 写死了 "Invoke-Dsh"。但 0.1.5-rc.2.5 为了分离 stdout/stderr 改用了
+          # .NET Process 直接拉起 node，那条 `Invoke-Dsh ...` 调用行就消失了 ——
+          # 断言立刻误报失败，而实际行为**比原来更正确**。
+          # 这说明旧断言把「实现方式」当成了「验收条件」。
+          # 改为：先剥掉注释与纯输出行，再在剩余可执行行里找 --profile headless，
+          # 避免命中文件里自己写的提示文案（否则断言会被自己的 doc 字符串满足）。
           $ps1 = Get-Content 'scripts/launch-windows.ps1' -Raw
           # 抓 Start-Cli 函数体（到下一个顶层 function 为止）
           $m = [regex]::Match($ps1, 'function\s+Start-Cli\s*\{(.*?)\n\}\s*\n', `
                 [System.Text.RegularExpressions.RegexOptions]::Singleline)
           if (-not $m.Success) { throw "无法从 launch-windows.ps1 解析出 Start-Cli 函数体" }
           $body = $m.Groups[1].Value
-          if ($body -notmatch 'Invoke-Dsh') {
-            throw "Start-Cli 未调用 Invoke-Dsh"
+
+          # 剥离注释行与纯输出行，只留可执行行
+          $execLines = $body -split "`r?`n" | Where-Object {
+            $_ -notmatch '^\s*#' -and $_ -notmatch '^\s*(echo|Write-Host|Write-Step|printf)\b'
           }
-          if ($body -notmatch 'Invoke-Dsh\s+--profile\s+headless') {
-            throw "Start-Cli 调用 Invoke-Dsh 时未显式传 --profile headless（裸跑必报 --profile is required）"
+          $execOnly = $execLines -join "`n"
+
+          if ($execOnly -notmatch '--profile\s+headless') {
+            throw "Start-Cli 启动 dsh 时未传 --profile headless（裸跑必报 --profile is required）"
           }
-          Write-Host "启动器 CLI 传参 ✓（Start-Cli 已显式传 --profile headless）"
+          if ($execOnly -match '2>&1\s*\|') {
+            throw "Start-Cli 出现 stdout/stderr 混流（2>&1 | ...）：headless 的推理过程会污染最终答案"
+          }
+          # 记录实际采用的启动方式，便于人工核对（不参与判定）
+          if ($execOnly -match 'ProcessStartInfo') {
+            Write-Host "启动器 CLI 传参 ✓（已显式传 --profile headless；经 .NET Process 启动以分离双流）"
+          } else {
+            Write-Host "启动器 CLI 传参 ✓（已显式传 --profile headless）"
+          }
 
       - name: 补丁浏览器端模块可求值断言
         shell: pwsh

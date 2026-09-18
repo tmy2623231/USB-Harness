@@ -425,9 +425,14 @@ fi
 hr
 say "用例 9/10 启动器 CLI 语义与文案一致（Windows + Linux）"
 
-for pair in "scripts/launch-windows.ps1|Start-Cli|Invoke-Dsh" "launch.sh|start_cli|DSH_CLI"; do
-  lf="${pair%%|*}";  rest="${pair#*|}"
-  fn="${rest%%|*}";  call="${rest#*|}"
+# 【为什么 pair 里不再带第三个字段】
+# 第三个字段原本是「启动器调用 dsh 时用的包装函数名」（Windows 是 Invoke-Dsh），
+# 后来发现它**根本没被下面的逻辑用到**（只解包了 lf / fn），留着纯属误导 ——
+# 会让人以为断言在检查「调用了哪个函数」，而实际检查的是「有没有带 --profile headless」。
+# 0.1.5-rc.2.5 改用 .NET Process 后 Invoke-Dsh 这层包装已不在 CLI 路径上，
+# 更说明这个字段是过期的实现细节，一并去掉。
+for pair in "scripts/launch-windows.ps1|Start-Cli" "launch.sh|start_cli"; do
+  lf="${pair%%|*}";  fn="${pair#*|}"
   if [ ! -f "$lf" ]; then
     record "启动器一致性($lf)" FAIL "文件不存在"
     continue

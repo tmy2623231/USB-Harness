@@ -146,7 +146,23 @@ USB-Harness/
   > `headless` 每次只跑一个任务，会话数据仍持久化在 `$DSH_HOME`，可用 `--resume` 续接。
 - 启动器 CLI 模式曾报 `--profile is required`（**已修复**）：`launch-windows.ps1` 的 CLI 分支
   原先调用的是裸 `dsh`。由于 0.1.5 取消默认档位，该路径**每次必失败**。
-  现已改为 `Invoke-Dsh --profile headless $task`；
+  现已改为显式传入 `--profile headless`（0.1.5-rc.2.5 起因需分离 stdout/stderr，
+  改用 .NET `Process` 直接拉起 node，不再经由 `Invoke-Dsh` 包装函数）；
   冒烟用例 6「启动器 CLI 分支传参」专门守护此点（防止再次漏传）。
+  该断言的判定口径是「启动 dsh 时带了 `--profile headless`」，**不是**「调用了哪个包装函数」——
+  后者属于实现细节，换实现就会误报。
+- 启动器 CLI 模式跑任务时**满屏红字**（**已修复**）：终端刷出
+  ```
+  node.exe : dsh: reasoning:
+  + CategoryInfo : NotSpecified: (dsh: reasoning::String) [], RemoteException
+  + FullyQualifiedErrorId : NativeCommandError
+  ```
+  看起来像崩溃，**其实任务成功了**——答案就打在终端里，只是被红字盖住。
+  根因：`headless` 按上游设计把**推理过程写 stderr**、最终答案写 stdout；
+  PowerShell 原生命令管道会把子进程每一行 stderr 包成 ErrorRecord 渲染成红字。
+  另实测 `2>>` 重定向还会让 `dsh-cli.err.log` 写成 **0 字节**（日志同时失效）。
+  0.1.5-rc.2.5 起启动器改用 .NET `Process` 分别读两条流：stdout 正常回显为
+  「===== 最终答案 =====」，stderr 只提示已落日志。**看到 `NativeCommandError` 不代表失败**，
+  请以答案区块与退出码为准。守护用例：冒烟用例 10（行为验证双流分离）。
 - 打开 Web 只显示 `401`：dsh 的 browser-trust fence 正常行为，需带启动时打印的 `?token=xxx`
   访问（会 303 种下会话 cookie，之后为 200）。

@@ -62,7 +62,6 @@ mkdir -p "$TMP/scripts" \
          "$TMP/.cache/app/node_modules/@deepseek-ai/dsh/lib" \
          "$TMP/.cache/app/node_modules/.bin"
 cp "$REPO_ROOT/launch.sh" "$TMP/launch.sh"
-cp "$REPO_ROOT/scripts/upgrade-unix.sh" "$TMP/scripts/upgrade-unix.sh"
 
 # 便携 node = 真实 node 二进制（绝对路径调用）
 install -m 755 "$REAL_NODE" "$TMP/.cache/runtimes/$PLATFORM/node/bin/node"

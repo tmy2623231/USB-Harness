@@ -47,7 +47,7 @@
 1. 在 [Releases 页](https://github.com/tmy2623231/USB-Harness/releases/latest) 下载 `USB-Harness-with-runtime.zip`
 2. 解压到 U 盘（推荐 NTFS 或 exFAT、≥4GB 空间，详见下方「U 盘格式要求」）
 3. Windows 双击 **`launch.bat`**；Linux/macOS 执行 **`bash launch.sh`**
-4. 浏览器自动打开 `http://127.0.0.1:3080`，在「设置 → 模型」配置自定义 OpenAI 兼容网关即可使用
+4. 菜单选 `[1]` 启动 Web 界面，等服务就绪后**点控制台里 `web:` 开头的地址**（Ctrl+左键），在「设置 → 模型」配置自定义 OpenAI 兼容网关即可使用
 
 ---
 
@@ -106,8 +106,8 @@
 - ✅ **100% dsh 能力**：Web UI、实时对话、流式输出、模型加载、headless、工具/插件、MCP、权限模式
 - ✅ **免安装便携**：便携 Node.js + 预置依赖，宿主机无需 Node/npm/Python
 - ✅ **跨平台**：Windows（`launch.bat`）+ Linux/macOS（`launch.sh`），一套目录双端运行
-- ✅ **交互式启动器**：中文菜单（启动 Web / 单次任务 CLI / 检查更新 / 重置 / 退出），首启自动安装
-- ✅ **Web 与 CLI 两种用法**：菜单里直接选要哪种，选完即执行，不需要预先切换模式；默认仍为 Web 界面
+- ✅ **交互式启动器**：中文菜单（启动 Web / 命令模式 / 重置 / 退出），首启自动安装
+- ✅ **Web 与命令模式两种用法**：菜单里直接选要哪种，选完即执行，不需要预先切换模式；默认仍为 Web 界面
 - ✅ **数据随盘**：`DSH_HOME` 重定向到 `data/dsh/`，密钥/配置/会话全部留在 U 盘
 - ✅ **零宿主机污染**：不写注册表、不改系统环境变量
 - ✅ **中国网络适配**：Node 下载优先 npmmirror 镜像、npm 用 `registry.npmmirror.com`，失败自动回退官方源
@@ -140,30 +140,29 @@
 
 ```
 [1] 启动 Web 界面（图形化，浏览器访问）
-[2] 单次任务 CLI（输入一个 task，跑完打印答案后退出）
-[3] 检查更新（程序与 dsh 版本）
-[4] 重置（清配置数据，保留运行环境，无需下载）
-[5] 退出
+[2] 命令模式（dsh --profile headless，执行完即退出）
+[3] 重置（清配置数据，保留运行环境，无需下载）
+[4] 退出
 ```
 
 默认监听 `http://0.0.0.0:3080`（本机 `http://127.0.0.1:3080`，局域网 `http://<本机IP>:3080`）。
 
-### 两种用法：Web 界面 / 单次任务 CLI
+### 两种用法：Web 界面 / 命令模式
 
-菜单里**直接选**要哪一种——选 `[1]` 就是 Web，选 `[2]` 就是单次任务，选完即执行。
+菜单里**直接选**要哪一种——选 `[1]` 就是 Web，选 `[2]` 就是命令模式，选完即执行。
 
 > 早期版本是「`[4]` 先切换模式 → 下次 `[1]` 启动才生效」，要切换再启动、还容易忘，
 > 现已取消这层绕路。**不再有「当前处于哪个模式」的概念，也就不存在忘记切换的问题。**
 
 | 选项 | 启动内容 | 适用场景 |
 |------|----------|----------|
-| **`[1]` Web 界面**（默认） | 启动 dsh Web 服务并自动打开浏览器 | 图形化对话、多轮持续交流、多模态输入、局域网共享 |
-| **`[2]` 单次任务 CLI** | 输入一个 task，dsh 跑完一次会话后打印最终答案并退出 | 无浏览器环境、SSH 远程、脚本化/批处理 |
+| **`[1]` Web 界面**（默认） | 启动 dsh Web 服务；就绪后控制台显示可点击的 `web:` 地址 | 图形化对话、多轮持续交流、多模态输入、局域网共享 |
+| **`[2]` 命令模式** | 输入一条命令，dsh 跑完一次会话后打印最终答案并退出 | 无浏览器环境、SSH 远程、脚本化/批处理 |
 
-> **CLI 为什么只能单次？** 这是上游 dsh `headless` 档位的有意设计——
-> 它的定位就是「给一个任务、拿一个答案、退出」，好让脚本能调用它。
+> **命令模式为什么执行完就退出？** 这是上游 dsh `headless` 档位的有意设计——
+> 它的定位就是「给一条命令、拿一个答案、退出」，好让脚本能调用它。
 > **想多轮持续对话请用 `[1]` Web 界面**，两者是同一个 agent 的两个外壳，能力相同。
-> dsh 并未出货交互式终端（TUI）档位，详见「CLI 模式」一节。
+> dsh 并未出货交互式终端（TUI）档位，详见「命令模式」一节。
 
 **默认模式文件**：`config/launch.conf` 的 `mode` 字段（Windows 与 Linux/macOS 共用同一文件格式）。
 它只在**命令行不带参数直接启动**时作为默认值；菜单选择不写回该文件（菜单选择是一次性动作，
@@ -172,17 +171,17 @@
 
 ```ini
 # config/launch.conf
-mode = web      # web = Web 界面（默认）；cli = CLI 单次任务
+mode = web      # web = Web 界面（默认）；cli = 命令模式（dsh --profile headless）
 ```
 
-CLI 单次任务底层调用的是 dsh 的 `--profile headless`：
+命令模式底层调用的是 dsh 的 `--profile headless`：
 
 ```bash
-dsh --profile headless "<task>"
+dsh --profile headless "<命令>"
 ```
 
-> **CLI 为什么只能单次？** 这是上游 `headless` 档位的**有意设计**，不是缺陷 ——
-> 它把推理过程写 stderr、最终答案写 stdout，跑完即退出，定位就是「给一个任务、拿一个答案」，
+> **命令模式为什么执行完就退出？** 这是上游 `headless` 档位的**有意设计**，不是缺陷 ——
+> 它把推理过程写 stderr、最终答案写 stdout，跑完即退出，定位就是「给一条命令、拿一个答案」，
 > 好让脚本和 CI 能直接调用它。**想多轮持续对话请用菜单 `[1]` Web 界面**，
 > 那是同一个 agent 的另一个外壳，能力完全相同。
 
@@ -196,11 +195,11 @@ dsh 0.1.5 出厂自带的档位只有 `web` / `acp` / `headless` / `sdk` 四个�
 与「给人用的终端 UI」是两回事。）
 
 术语与上游对齐（`dsh --profile headless --help` 原文：*"Answer one task, stream reasoning
-to stderr, print the final assistant message, and exit."*），启动器界面统一使用
-**「任务 / task」** 表述。日志写入 `data/logs/dsh-cli.log`（推理过程另存
-`data/logs/dsh-cli.err.log`）。
+to stderr, print the final assistant message, and exit."*）：上游把入参叫 task（命令行视角），
+启动器界面统一使用**「命令模式」**表述——用户输入的是一条命令，dsh 执行完即退出。
+日志写入 `data/logs/dsh-cli.log`（推理过程另存 `data/logs/dsh-cli.err.log`）。
 
-#### 为什么 CLI 模式的「思考过程」不是报错
+#### 为什么命令模式的「思考过程」不是报错
 
 headless 档位把输出分成两条流（这是上游的设计）：
 
@@ -224,18 +223,18 @@ headless 档位把输出分成两条流（这是上游的设计）：
 >
 > **看到红字 `NativeCommandError` 不代表失败** —— 请以「最终答案」区块和退出码为准。
 
-#### 怎么验证 CLI 模式真的能用
+#### 怎么验证命令模式真的能用
 
-CLI 模式**没有独立于模型的验证方式**——它必须有一个可用的模型才能跑出答案。
+命令模式**没有独立于模型的验证方式**——它必须有一个可用的模型才能跑出答案。
 判据分两层：
 
 | 现象 | 含义 |
 |------|------|
-| `dsh: NO_ADAPTER: no adapter registered for provider "pi-ai"` | **插件树已加载成功，只是没配模型**。这说明 CLI 模式的调用链路是通的，缺的只是模型凭据 |
+| `dsh: NO_ADAPTER: no adapter registered for provider "deepseek"` | **插件树已加载成功，只是没配模型**。这说明命令模式的调用链路是通的，缺的只是模型凭据 |
 | 打印出模型生成的答案 | 全链路可用 |
 
 因此验证步骤是：先在 **Web 界面 → 设置 → 模型** 里配好一个自定义提供方（见下节），
-再回到 CLI 模式发一个简单任务（例如 `1+1 等于几`）。能打印出答案即代表 CLI 模式正常。
+再回到命令模式发一条简单命令（例如 `1+1 等于几`）。能打印出答案即代表命令模式正常。
 
 也可以绕过启动器直接测（最直接）：
 
@@ -269,7 +268,7 @@ export DSH_HOME="<解压目录>/data/dsh"
 
 | 场景 | 现象 | 是否正常 |
 |------|------|----------|
-| CLI 单次任务 | `dsh: NO_ADAPTER: no adapter registered for provider "pi-ai"` | ✅ 正常。说明插件树已完整加载，只是没有可用的模型适配器 |
+| 命令模式 | 提示 `no adapter registered for provider "deepseek"` | ✅ 正常。说明插件树已完整加载，只是没有可用的模型适配器 |
 | Web 对话 | 发消息报模型不可用 / 无适配器 | ✅ 正常。同上，去「设置 → 模型」配好即可 |
 | 启动阶段 | 控制台出现 `error:` 开头的红字（PowerShell 的 `NativeCommandError`） | ✅ 多数正常。Node 把 stderr 写警告时，PowerShell 会统一渲染成红字 |
 
@@ -314,7 +313,7 @@ export DSH_HOME="<解压目录>/data/dsh"
   之后就绪状态下的请求都在毫秒级。
 - **用本机 `http://127.0.0.1:3080` 而非局域网 IP**：loopback 免去网卡栈开销，
   上游也明确说明部分功能在局域网地址下受限。
-- **不要在 CLI 单次任务模式下反复启动**：该模式每次都要重新加载整棵插件树，
+- **不要在命令模式下反复启动**：该模式每次都要重新加载整棵插件树，
   批量任务场景建议改用 `web` 模式常驻。
 
 > 说明：本项目**不做**上游包的裁剪（如删语法高亮 chunk）——那会让 `brand-patch`
@@ -325,14 +324,12 @@ export DSH_HOME="<解压目录>/data/dsh"
 ```
 USB-Harness/
 ├── launch.bat / launch.sh     # 一键启动入口（交互菜单，首启自动安装）
-├── HARNESS_VERSION            # 程序版本标记（Release 打包时写入）
+├── HARNESS_VERSION            # 版本标记（Release 打包时写入；启动器不再展示）
 ├── .ready.flag                # 就绪标记（node=/dsh=/harness=/created=）
 ├── scripts/
 │   ├── launch-windows.ps1     # Windows 启动器（中文菜单）
 │   ├── setup-windows.ps1      # Windows 首次配置（下载/离线 Node + 安装 dsh + 品牌补丁）
 │   ├── setup-unix.sh          # Linux/macOS 首次配置
-│   ├── upgrade-windows.ps1    # Windows 检查更新/升级（自动回滚，不动 data/）
-│   ├── upgrade-unix.sh        # Linux/macOS 检查更新/升级
 │   ├── reset-windows.ps1      # Windows 重置（软重置/完全重置 -Full）
 │   ├── reset-unix.sh          # Linux/macOS 重置
 │   ├── tests/                 # 回归测试（RT）
@@ -366,7 +363,7 @@ USB-Harness/
 - 「预览版/测试阶段」等字样移除
 - 默认移除官方 DeepSeek 适配器（`llm-deepseek` 禁用），模型配置仅保留自定义 OpenAI 兼容网关
 - 权限模式等界面文案中文化（只读 / 工作区可写 / 完全访问）
-- 升级 dsh 后 `launch.bat setup` 会自动重新应用补丁
+- 重新执行 `launch.bat setup` 会自动重新应用补丁
 
 ## 中国网络 / 离线安装
 
@@ -387,7 +384,7 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 | `@deepseek-ai/dsh` | `0.1.5-rc.2` | 预发布候选版（rc），官方声明会有破坏性变更 |
 | 便携 Node.js | `22.23.2` (LTS Jod) | 满足 dsh `^22.19.0 \|\| >=24.0.0`（23 不支持） |
 
-> **node 解析**：启动器 / 升级脚本用便携 node 的绝对路径直调 dsh 的 CLI 入口
+> **node 解析**：启动器用便携 node 的绝对路径直调 dsh 的 CLI 入口
 > （`lib/bin.js`），**不经过**依赖 PATH 的 `.bin` 垫片——机器上有没有 node、node 多旧，
 > 都不影响本包运行（历史事故：`node 不是内部或外部命令` / `Object.hasOwn is not a function`，
 > 见 `scripts/tests/test-node-resolution.*` 回归测试）。
@@ -403,8 +400,8 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 | 类别 | 变更 | 对你的影响 |
 |------|------|-----------|
 | **新功能** | 新增 `agent-presets` 挂载点（`dsh.configTrees`）：会话预设从发布包内的 `config/` 目录迁到可挂载的 preset 目录 | 无感；本项目 `brand-patch` 已随之调整落点，预设功能不受影响 |
-| **新功能** | CLI 新增 `--from-default-profile <name>`：以某个已保存的默认 profile 为起点启动 | 便于把调好的会话配置固化成默认档，CLI 单次任务同样受益 |
-| **行为变更** | 执行档位精简为 `web` / `acp` / `headless` / `sdk` 四种；裸跑 `dsh` 会直接报 `error: --profile <name> is required` | **必须显式给 profile**；本项目的「CLI 单次任务」即 `--profile headless`，已封装在启动器里，无需手敲 |
+| **新功能** | CLI 新增 `--from-default-profile <name>`：以某个已保存的默认 profile 为起点启动 | 便于把调好的会话配置固化成默认档，命令模式同样受益 |
+| **行为变更** | 执行档位精简为 `web` / `acp` / `headless` / `sdk` 四种；裸跑 `dsh` 会直接报 `error: --profile <name> is required` | **必须显式给 profile**；本项目的「命令模式」即 `--profile headless`，已封装在启动器里，无需手敲 |
 | **行为变更** | Web 侧新增 `rejectElectronProfile` 校验；`import.meta.main` + `export { runCli }` 使 CLI 可作为模块被调用 | 无感；属于上游内部结构调整 |
 | **安全（本项目已定向放开）** | 上游收紧：`--host 0.0.0.0` 被显式拒绝（理由：会把远程代码执行暴露到网络） | **本项目保留放行**——U 盘插一台机器、同局域网设备访问是本项目的核心场景。此为**有意的定制差异**，不是漏洞：请务必只在可信内网使用，切勿对公网开放（详见「安全须知」） |
 | **问题修复** | 上游 0.1.1-rc.2 → 0.1.5-rc.2 区间累计修复（含插件树加载、会话持久化、工具链稳定性等） | 直接受益；本项目 `brand-patch` 已整体重做到 0.1.5-rc.2 基线，不会回滚这些修复 |
@@ -417,7 +414,7 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 | 2 | 符号链接创建失败 | 直接报错 | 自动回退为真实目录复制 | FAT32/exFAT 不支持 symlink，回退后三种格式均可运行 |
 | 3 | 品牌标识 / 产品名 / 欢迎文案 | DeepSeek 品牌 | 「USB Harness」自绘标识 | 去品牌化，避免用户误认为官方发行版 |
 | 4 | 官方 `llm-deepseek` 适配器 | 默认启用 | 默认禁用，仅保留自定义 OpenAI 兼容网关 | 密钥与网关由使用者自行提供，不绑定官方通道 |
-| 5 | 默认模型 | 官方默认 | `provider: pi-ai` / `model: default` | 与上游解耦，避免默认落到官方通道 |
+| 5 | 默认模型 | 官方默认 | `provider: deepseek` / `model: deepseek-chat`，但**不给它任何路由** | 上游的占位 provider 是个空引用，一跑就报 NO_ADAPTER、看着像程序坏了；改为官方 provider 名但无凭据无路由，首次在「设置 → 模型」配好即覆盖 |
 
 > **适用边界**：上游文档中的 Files API 配额项（`maxRequestFilesBytes` 等）仅在使用 **DeepSeek 官方通道**时生效。
 > 本项目默认已禁用官方适配器（见「品牌改造」），走自定义 OpenAI 兼容网关时以目标网关自身的限制为准。
@@ -425,26 +422,21 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 > 完整逐条清单见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)，
 > 同步流程见 [docs/RELEASE_README_SYNC.md](docs/RELEASE_README_SYNC.md)。
 
-### 检查更新 / 升级
+### 维护者：适配新版 dsh 的流程
 
-> 版本号跟随 dsh：`check-update` 显示的「程序版本」即本包适配的 dsh 版本。
+> 普通用户无需关心本节：直接下载 [Releases](https://github.com/tmy2623231/USB-Harness/releases/latest)
+> 最新完整包即可。本项目**不内置自动升级**——`brand-patch` 是整文件快照覆盖，
+> 让 npm 原地升级 dsh 会把 14 个包的定制悄悄覆盖掉，因此升级只走「改版本号 → 重新安装」一条路。
 
-- **普通用户**：启动菜单 `[2] 检查更新`（或 `launch.bat check-update` / `bash launch.sh check-update`）
-  会同时检测「本项目新 Release」与「上游 dsh 新版」。
-  项目有新版 → 提示到 Releases 页下载完整包（数据可沿用）；dsh 上游有新版 → 提示等待本项目适配。
-- **维护者升级 dsh 版本**：
-  1. 改 `scripts/setup-windows.ps1` 的 `$DshVersion` 与 `scripts/setup-unix.sh` 的 `DSH_VERSION` 为目标版本
-  2. 按 [发布同步规范](docs/RELEASE_README_SYNC.md) 校验 `brand-patch` 基线是否与目标版本一致——**版本号与补丁基线必须同时改**，否则会「装旧版、打新版补丁」导致启动崩溃
-  3. **重定 `PeerFix` / `PEERS` 清单**——补齐清单是逐版本实测的，不能照抄上一版。
-     用「对安装树里全部 `@deepseek-ai/*` 的 import 说明符逐个做模块解析，凡解析不到的即为缺失项」
-     的方法重定（详见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#peer-依赖补齐清单的重定方法)）。
-     注意：靠「跑一次 dsh 看缺哪个包」的方式**会严重漏报**——多数模块是懒加载的。
-  4. 跑完整冒烟测试（`bash .patch-tools/smoke-local.sh`）确认全绿，再 `launch.bat upgrade`
-     （或 `scripts/upgrade-windows.ps1 -DshVersion <v>` / `bash scripts/upgrade-unix.sh <v>`）
-  5. 启动后确认无 `ERR_MODULE_NOT_FOUND`，并在 Web UI 中确认品牌改造仍生效、`--host 0.0.0.0` 仍被放行
-
-> 升级只动 `.cache/` 运行环境，**`data/dsh/`（配置/密钥/会话）零改动**，失败自动回滚到升级前状态。
-> 普通用户无需手动升级：直接下载 [Releases](https://github.com/tmy2623231/USB-Harness/releases/latest) 最新完整包即可。
+1. 改 `scripts/setup-windows.ps1` 的 `$DshVersion` 与 `scripts/setup-unix.sh` 的 `DSH_VERSION` 为目标版本
+2. 按 [发布同步规范](docs/RELEASE_README_SYNC.md) 校验 `brand-patch` 基线是否与目标版本一致——**版本号与补丁基线必须同时改**，否则会「装旧版、打新版补丁」导致启动崩溃
+3. **重定 `PeerFix` / `PEERS` 清单**——补齐清单是逐版本实测的，不能照抄上一版。
+   用「对安装树里全部 `@deepseek-ai/*` 的 import 说明符逐个做模块解析，凡解析不到的即为缺失项」
+   的方法重定（详见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#peer-依赖补齐清单的重定方法)）。
+   注意：靠「跑一次 dsh 看缺哪个包」的方式**会严重漏报**——多数模块是懒加载的。
+4. 删除 `.cache/` 后重新跑 `launch.bat setup`（或 `bash launch.sh` 触发首启安装），
+   跑完整冒烟测试（`bash .patch-tools/smoke-local.sh`）确认全绿
+5. 启动后确认无 `ERR_MODULE_NOT_FOUND`，并在 Web UI 中确认品牌改造仍生效、`--host 0.0.0.0` 仍被放行
 
 ## 安全须知
 
@@ -459,11 +451,12 @@ v1.0.0–v1.0.5 为旧版外壳自编号，已弃用。
 - **裸地址**（`http://127.0.0.1:3080` 或 `http://<局域网IP>:3080`）→ 直接返回 `401`
 - **带启动时打印的 token**（`http://127.0.0.1:3080/?token=XXXX`）→ 种下会话 cookie，之后正常
 
-**正确做法**：用启动器启动后**等浏览器自动打开**（启动器已轮询就绪并打开带 token 的正确地址）；
-若需手动访问，请从启动窗口里复制那一整行 `dsh web: http://...?token=...`，
+**正确做法**：本项目**不再自动打开浏览器**。等服务就绪后，控制台会出现 dsh 自己打印的
+`web: http://...?token=...` 一行（Ctrl+左键即可打开）；若需手动访问，请复制那一整行，
 **务必连 `?token=` 一起复制**——只抄域名和端口会得到 401。
 
-> 从别的设备（局域网 IP）访问时同理，token 就在启动窗口那行的 `LAN:` 部分。
+> 从别的设备（局域网 IP）访问时同理：先在本机用 token 地址打开一次完成握手，
+> 再把 `127.0.0.1` 换成本机局域网 IP；启动器打印的 `LAN:` 行只是地址提示，不含 token。
 
 #### 为什么一定要有 token？（这个设计防的是什么）
 

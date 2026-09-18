@@ -7,7 +7,7 @@
 #     - 装有旧系统 node（<16.9，无 Object.hasOwn）-> 插件树加载失败
 #       （Failed to load plugins. Object.hasOwn is not a function）
 #   线上证据：launch-windows.ps1 第 75 行 $dshVer = & $DshCmd --version 曾整屏报红。
-# 修复：launch-windows.ps1 / upgrade-windows.ps1 一律用便携 node.exe 绝对路径
+# 修复：launch-windows.ps1 一律用便携 node.exe 绝对路径
 #   直调 CLI 入口（.cache\app\node_modules\@deepseek-ai\dsh\lib\bin.js），
 #   不再经过依赖 PATH 的 npm 垫片（垫片仅作 bin.js 缺失时的回退）。
 #
@@ -46,7 +46,6 @@ try {
     $scriptDir = Join-Path $tmp 'scripts'
     New-Item -ItemType Directory -Force -Path $scriptDir | Out-Null
     Copy-Item (Join-Path $repoRoot 'scripts\launch-windows.ps1') $scriptDir
-    Copy-Item (Join-Path $repoRoot 'scripts\upgrade-windows.ps1') $scriptDir
 
     $nodeDir = Join-Path $tmp '.cache\runtimes\windows-x64\node'
     $dshPkg  = Join-Path $tmp '.cache\app\node_modules\@deepseek-ai\dsh'
@@ -76,7 +75,7 @@ process.exit(42);
     [IO.File]::WriteAllText((Join-Path $binDir 'dsh.cmd'),
         "@ECHO off`r`nSETLOCAL`r`nSET `"_prog=node`"`r`n`"%_prog%`" `"%~dp0..\@deepseek-ai\dsh\lib\bin.js`" %*`r`n")
 
-    # 受控 PATH 需含 powershell.exe 所在目录（launch 内部会再调 powershell -ReconcileOnly）
+    # 受控 PATH 需含 powershell.exe 所在目录（launch 内部 setup/reset 会再调 powershell）
     $basePath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0;$env:SystemRoot\System32;$env:SystemRoot"
     $emptyDir = Join-Path $tmp 'emptydir'
     New-Item -ItemType Directory -Force -Path $emptyDir | Out-Null

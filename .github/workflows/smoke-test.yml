@@ -293,44 +293,6 @@ jobs:
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
           Write-Host "冒烟测试全部通过 ✓"
 
-      - name: 检查更新脚本冒烟（-CheckOnly 退出码 ∈ {0,1,2}）
-        shell: pwsh
-        run: |
-          # 验证 upgrade 脚本在干净环境不崩；0=已最新 1=有更新 2=网络不可达（CI 抖动可容忍）。
-          # 已知问题：windows-latest 上从 pwsh 用 & 调用 powershell.exe 偶发子进程启动
-          # 崩溃（0xC0000142），且 & + 2>&1 的管道合并会把异常变成难以诊断的形态。
-          # 改用 Start-Process + 文件重定向（无管道），配合 try/catch 重试 3 次；
-          # 所有关键行输出 ::error:: annotation（公共仓库可经 check-run API 匿名读取）。
-          $scriptPath = (Resolve-Path scripts/upgrade-windows.ps1).Path
-          $rc = -999
-          $outF = Join-Path $env:TEMP ("cc-$([guid]::NewGuid().ToString('N')).log")
-          $errF = "$outF.err"
-          for ($try = 1; $try -le 3; $try++) {
-            try {
-              $p = Start-Process -FilePath 'powershell.exe' `
-                -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$scriptPath,'-CheckOnly') `
-                -NoNewWindow -Wait -PassThru `
-                -RedirectStandardOutput $outF -RedirectStandardError $errF
-              $rc = $p.ExitCode
-              $output = Get-Content $outF -ErrorAction SilentlyContinue
-            } catch {
-              Write-Host "::error::try $try 子进程异常: $($_.Exception.Message)"
-              $output = @()
-              $rc = -999
-            }
-            Write-Host "::error::try $try rc=$rc"
-            if ($null -ne $rc -and $rc -ge 0) { break }   # 0/1/2 为业务退出码，直接采用
-            Start-Sleep -Seconds 2
-          }
-          $output | ForEach-Object { Write-Host $_ }
-          Get-Content $errF -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  [stderr] $_" }
-          Write-Host "::error::check-only 最终 rc=$rc"
-          if ($null -eq $rc -or $rc -lt 0 -or $rc -gt 2) { throw "check-only 退出码异常: $rc（期望 0/1/2）" }
-          Write-Host "check-only 冒烟通过"
-          # 关键：子进程退出码 1/2 是预期结果，若步骤结束时 $LASTEXITCODE 非 0，
-          # GitHub Actions 的 pwsh 外壳会把步骤判失败，必须显式以 0 结束
-          exit 0
-
       - name: 回归测试：dsh 不依赖 PATH 找 node（Windows）
         shell: pwsh
         run: |

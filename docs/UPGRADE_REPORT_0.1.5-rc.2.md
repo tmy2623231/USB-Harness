@@ -99,7 +99,7 @@
 | 2 | 符号链接创建失败 | 直接抛错 | 回退为真实目录复制（`cpSync`） | FAT32/exFAT 不支持 symlink。回退后 NTFS / exFAT / FAT32 三种格式均可运行，符合「U 盘即插即用」定位 |
 | 3 | 品牌标识 / 产品名 / 欢迎文案 / 系统提示词 | DeepSeek 品牌 | 「USB Harness」自绘 USB SVG 标识与文案（共 8 处） | 去品牌化，避免用户误认为官方发行版 |
 | 4 | 官方 `llm-deepseek` 适配器 | 默认启用 | **默认禁用**，仅保留自定义 OpenAI 兼容网关 | 密钥与网关由使用者自行提供，不绑定官方通道 |
-| 5 | 默认模型 | 官方默认 | `provider: pi-ai` / `model: default` | 与上游解耦，避免默认落到官方通道 |
+| 5 | 默认模型 | 官方默认 | `provider: deepseek` / `model: deepseek-chat`（无路由） | 上游的占位 provider 是空引用（一跑就报 NO_ADAPTER）；改为官方 provider 名但无凭据无路由，仍不绑定官方通道 |
 | 6 | Web 首页标题与资源 | DeepSeek 相关标题 | `USB Harness`；追加 `crypto.randomUUID` polyfill 与静态资源绝对路径 | 兼容旧浏览器与 U 盘本地打开场景 |
 | 7 | 权限模式文案 | 英文 | 中文化（只读 / 工作区可写 / 完全访问），`t` 贯穿至 `displayPermissionPreset` | 面向中文终端用户 |
 
@@ -330,7 +330,7 @@ failed to apply loader entry 204619: (…): t is not defined
 
 #### 问题 F — 用户追问"首次不该先让配模型吗"
 
-用户的疑问是合理的：CLI 报 `NO_ADAPTER: no adapter registered for provider "pi-ai"`，
+用户的疑问是合理的：命令模式报 `NO_ADAPTER: no adapter registered for provider "deepseek"`，
 看起来像"没配置就报错"。
 
 **结论：这是预期行为，不是缺陷。** 本项目刻意不内置任何模型凭据
@@ -646,9 +646,9 @@ $ diff -r /tmp/f1 /tmp/f2
 
 | # | 文件 | 清理前 | 清理后 |
 |---|------|--------|--------|
-| 1 | `README.md` L175 | `如阿里云百炼 https://bi.tianmaoyi.cn:4443/v1`（**个人网关域名**） | `如 https://your-gateway.example.com/v1` |
+| 1 | `README.md` L175 | 阿里云百炼网关地址（**个人网关域名**，已脱敏） | `如 https://your-gateway.example.com/v1` |
 | 2 | `config/settings.example.yaml` | 个人模型名 `qwen3.8-max` / `deepseek-v4-flash` / `gemma4`；`自建 Bifrost` | 占位符 `your-model-id-1` / `your-model-id-2` / `your-local-model-id` |
-| 3 | `scripts/COMMANDS.md` L73 | `https://bi.tianmaoyi.cn:4443/v1`（**个人网关域名**） | `https://your-gateway.example.com/v1` |
+| 3 | `scripts/COMMANDS.md` L73 | 自建网关地址（**个人网关域名**，已脱敏） | `https://your-gateway.example.com/v1` |
 | 4 | `scripts/COMMANDS.md` L75 | 个人模型名 `qwen3.8-max` | `your-model-id`（**2026-09-18 复查补漏**） |
 
 > 补充说明：远程提交 `3dde9d6` 已先行删除了 README 中同一处地址（但未给出替代示例），
@@ -667,10 +667,10 @@ $ diff -r /tmp/f1 /tmp/f2
 |--------|------|------|
 | API Key 类硬编码 | `sk-[a-z0-9]{16,}` / `api_key=...` | **0 处** |
 | 凭据字面量 | `password/secret/credential = <值>` | **0 处**（仅 3 处上游 UI 代码里的标识符 `derivedCredential` 等，非凭据） |
-| 个人域名 | `tianmaoyi` / `bi.tianmaoyi.cn` | **0 处** |
+| 个人域名 | 网关域名（含个人标识子串，已脱敏） | **0 处** |
 | **个人模型名（完整）** | `qwen3.8-max` / `deepseek-v4-flash` / `gemma4` | **0 处**（`deepseek-v4-flash` 在 `brand-patch/` 中的命中为**上游内置模型注册表**，非个人配置——详见下） |
 | 内网 / 私有 IP | `10.x` / `192.168.x` / `172.16-31.x` | **0 处** |
-| 个人标识 | `maoyi`（作为账号）/ `tmy26` | **0 处** |
+| 个人标识 | 个人账号名 / 本机用户名（已脱敏） | **0 处** |
 | 非白名单外链端点 | 排除 github/npmjs/npmmirror/nodejs.org/shields.io/example.com/openai.com/deepseek 等 | **0 处** |
 | 仓库自有 owner `tmy2623231` | 用于 shields 徽章与 Releases 链接 | 属**必要公开信息**（仓库地址本身），非隐私，保留 |
 

@@ -459,9 +459,12 @@ for pair in "scripts/launch-windows.ps1|Start-Cli" "launch.sh|start_cli"; do
   # 2) 不得残留已失效的交互式 TUI 文案（/help 与 /exit 是旧 TUI 的提示）
   printf '%s' "$exec_only" | grep -qE '/exit|交互式 TUI|终端内交互' \
     && problems="${problems}残留已失效的 TUI 文案;"
-  # 3) 文案需与上游术语对齐（出现 task 字样）
-  printf '%s' "$body" | grep -q 'task' \
-    || problems="${problems}未采用上游 task 术语;"
+  # 3) 界面文案不得再用旧措辞「单次任务」——0.1.5-rc.2.7 起 UI 统一为「命令模式」
+  #    【踩坑记录】这里原来断言的是「函数体必须出现 task 字样」（与上游术语对齐）。
+  #    改成命令模式措辞后它仍 PASS——命中的是注释里引用的上游帮助原文，
+  #    又是**自我满足断言**。反向断言（禁止出现的旧词）才不会被自己的文档字符串喂饱。
+  printf '%s' "$body" | grep -q '单次任务' \
+    && problems="${problems}残留旧措辞「单次任务」（应统一为「命令模式」）;"
   # 4) 必须分离 stdout / stderr —— headless 把推理写 stderr、答案写 stdout
   #    【背景】上游原话："stream reasoning to stderr, print the final assistant message"
   #    若用 `2>&1 | tee` 或 PowerShell 的 `2>>file | Tee-Object` 混流，推理过程会和
@@ -472,7 +475,7 @@ for pair in "scripts/launch-windows.ps1|Start-Cli" "launch.sh|start_cli"; do
     problems="${problems}检测到 stdout/stderr 混流（2>&1 | tee）;"
   fi
   if [ -z "$problems" ]; then
-    record "启动器一致性($lf)" PASS "带 --profile headless、无过期 TUI 文案、采用 task 术语、未混流"
+    record "启动器一致性($lf)" PASS "带 --profile headless、无过期 TUI 文案、无旧措辞「单次任务」、未混流"
   else
     record "启动器一致性($lf)" FAIL "$problems"
   fi
@@ -522,57 +525,51 @@ fi
 # 用例 11：启动器菜单结构与文档引用一致
 # ---------------------------------------------------------------------------
 # 【为什么需要这个用例】
-# 0.1.5-rc.2.6 把菜单从「[1] 启动（按当前模式）+ [4] 切换模式」改成
-# 「[1] 启动 Web / [2] 单次任务 CLI / [3] 检查更新 / [4] 重置 / [5] 退出」。
-# 这次改动**把后面所有项的编号都平移了**：检查更新 [2]→[3]、重置 [3]→[4]。
-# 而 README / COMMANDS.md / upgrade 脚本的提示语里到处在引用「菜单 [2] 会提示」，
+# 菜单经历两次重排：0.1.5-rc.2.6 平移了编号（检查更新 [2]→[3]、重置 [3]→[4]）；
+# 0.1.5-rc.2.7 删掉「检查更新」后菜单收敛为四项：
+# 「[1] 启动 Web / [2] 命令模式 / [3] 重置 / [4] 退出」。
+# 而 README / COMMANDS.md 的提示语里到处在引用「菜单 [N] 会提示」，
 # 改一处漏一处就会让文档把用户指到错误的菜单项上——**用户照着按会发现不是那个功能**。
-# 所以这里断言两件事：
-#   1) 启动器菜单确实存在且含全部五项（改菜单时不会静默漏项）
-#   2) 文档/脚本里引用的菜单号，都在 1..5 的合法范围内
+# 所以这里断言三件事：
+#   1) 启动器菜单确实存在且含全部四项（改菜单时不会静默漏项）
+#   2) 菜单里不应再出现「检查更新」与「切换运行模式」（已按需求取消）
+#   3) 文档里引用的菜单号，都在 1..4 的合法范围内
 hr
 say "用例 11/11 启动器菜单结构 + 文档菜单号引用合法性"
 
 _menu_problems=""
-for pair in "scripts/launch-windows.ps1|Write-Host '  \[[0-9]\]" "launch.sh|echo \"  \[[0-9]\]"; do
-  lf="${pair%%|*}"
-  if [ ! -f "$lf" ]; then
-    _menu_problems="${_menu_problems}${lf} 不存在;"
-    continue
-  fi
-done
 
-# 1) 两个启动器都必须出现 [1]..[5] 五个菜单项
+# 1) 两个启动器都必须出现 [1]..[4] 四个菜单项
 for lf in scripts/launch-windows.ps1 launch.sh; do
   [ -f "$lf" ] || continue
-  for n in 1 2 3 4 5; do
+  for n in 1 2 3 4; do
     grep -qE "\[$n\] " "$lf" || _menu_problems="${_menu_problems}${lf} 缺菜单项 [${n}];"
   done
 done
 
-# 2) 菜单不应再出现「切换运行模式」这一项（已按需求取消）
+# 2) 菜单不应再出现「检查更新」或「切换运行模式」（已按需求取消）
 for lf in scripts/launch-windows.ps1 launch.sh; do
   [ -f "$lf" ] || continue
-  if grep -qE '^[^#]*\[4\][^#]*切换运行模式' "$lf"; then
-    _menu_problems="${_menu_problems}${lf} 仍残留 [4] 切换运行模式;"
+  if grep -qE '^[^#]*\[[0-9]\][^#]*(检查更新|切换运行模式)' "$lf"; then
+    _menu_problems="${_menu_problems}${lf} 菜单仍残留已取消项（检查更新/切换运行模式）;"
   fi
 done
 
-# 3) 所有“菜单 [N]”引用必须落在 1..5 之内
+# 3) 所有“菜单 [N]”引用必须落在 1..4 之内
 _ref_bad=""
 while IFS= read -r hit; do
   [ -z "$hit" ] && continue
   n="$(printf '%s' "$hit" | grep -oE '菜单 \[[0-9]+\]' | grep -oE '[0-9]+' | head -1)"
   [ -z "$n" ] && continue
-  if [ "$n" -lt 1 ] || [ "$n" -gt 5 ]; then
+  if [ "$n" -lt 1 ] || [ "$n" -gt 4 ]; then
     _ref_bad="${_ref_bad}${hit};"
   fi
 done <<EOF
-$(grep -rn '菜单 \[' README.md scripts/COMMANDS.md scripts/upgrade-windows.ps1 scripts/upgrade-unix.sh 2>/dev/null)
+$(grep -rn '菜单 \[' README.md scripts/COMMANDS.md 2>/dev/null)
 EOF
 
 if [ -z "$_menu_problems" ] && [ -z "$_ref_bad" ]; then
-  record "菜单结构与引用" PASS "两启动器五项齐全、无残留切换项、文档菜单号均在 1..5"
+  record "菜单结构与引用" PASS "两启动器四项齐全、无残留已取消项、文档菜单号均在 1..4"
 else
   record "菜单结构与引用" FAIL "${_menu_problems}${_ref_bad}"
 fi

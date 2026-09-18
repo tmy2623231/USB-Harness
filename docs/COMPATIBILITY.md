@@ -122,7 +122,7 @@
 | 2 | 符号链接创建失败 | 直接抛错 | 回退为真实目录复制（`cpSync`） | FAT32/exFAT 不支持 symlink，回退后三种文件系统均可运行 |
 | 3 | 品牌标识 / 产品名 / 欢迎文案 / 系统提示词 | DeepSeek 品牌 | 「USB Harness」自绘 SVG 标识与文案 | 去品牌化，避免用户误认为官方发行版 |
 | 4 | 官方 `llm-deepseek` 适配器 | 默认启用 | 默认禁用，仅保留自定义 OpenAI 兼容网关 | 密钥与网关由使用者自行提供，不绑定官方通道 |
-| 5 | 默认模型 | 官方默认 | `provider: pi-ai` / `model: default` | 与上游解耦，避免默认落到官方通道 |
+| 5 | 默认模型 | 官方默认 | `provider: deepseek` / `model: deepseek-chat`（无路由） | 上游的占位 provider 是空引用（一跑就报 NO_ADAPTER）；改为官方 provider 名但无凭据无路由，仍不绑定官方通道 |
 | 6 | Web 首页 `${title}` | DeepSeek 相关标题 | `USB Harness`；追加 `crypto.randomUUID` polyfill 与静态资源绝对路径 | 兼容旧浏览器与 U 盘本地打开场景 |
 | 7 | 权限模式文案 | 英文 | 中文化（只读 / 工作区可写 / 完全访问），并把 `t` 贯穿到 `displayPermissionPreset` | 面向中文终端用户 |
 

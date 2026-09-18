@@ -6,7 +6,7 @@
 |------|----------|------|
 | 双击 launch.bat 闪退/无窗口 | 执行策略限制、PowerShell 未配置 | 右键「用 PowerShell 运行」；或运行 `powershell -ExecutionPolicy Bypass -File .\scripts\launch-windows.ps1` |
 | `node: not found` / 找不到 node | 便携 Node 未就绪 | 运行 `.\scripts\setup-windows.ps1` |
-| `node 不是内部或外部命令`（启动器状态/检查更新时） | 系统 PATH 无 node，而 dsh.cmd 垫片靠 PATH 找 node | **`0.1.1-rc.2.1` 起已根治**：启动器用便携 node 绝对路径直调 dsh CLI 入口（`lib/bin.js`），不再经过垫片。若仍出现，确认 `.cache\app\node_modules\@deepseek-ai\dsh\lib\bin.js` 与 `.cache\runtimes\windows-x64\node\node.exe` 存在，必要时重跑 setup |
+| `node 不是内部或外部命令`（启动器显示状态时） | 系统 PATH 无 node，而 dsh.cmd 垫片靠 PATH 找 node | **`0.1.1-rc.2.1` 起已根治**：启动器用便携 node 绝对路径直调 dsh CLI 入口（`lib/bin.js`），不再经过垫片。若仍出现，确认 `.cache\app\node_modules\@deepseek-ai\dsh\lib\bin.js` 与 `.cache\runtimes\windows-x64\node\node.exe` 存在，必要时重跑 setup |
 | 打开 Web 报「Failed to load plugins. Object.hasOwn is not a function」 | 旧版本号（≤0.1.1-rc.2）下 dsh 被垫片带到**旧系统 node**（<16.9，无 `Object.hasOwn`）上 | **`0.1.1-rc.2.1` 起已根治**（同上，直调便携 node）。若在用旧包，请下载新版；临时可用：通过 launch.bat / launch.sh 启动（会把便携 node 提到 PATH 最前），不要在命令行直接敲 `dsh` 命令 |
 | 启动报 `ERR_MODULE_NOT_FOUND: Cannot find package '@deepseek-ai/dsh-xxx'` | **dsh 的 peer 依赖缺陷**：子包把彼此声明为 `peerDependencies`，主包 bundle 未包含，`--legacy-peer-deps` 会跳过它们 | 补齐清单是**逐版本重算**的，不是固定值（0.1.1-rc.2 为 25 个，0.1.5-rc.2 为 71 个）。不要手工拼清单——用 `python .patch-tools/refscan-registry.py --dsh-version <ver> --emit-ps1` 重算后写回 `scripts/setup-windows.ps1` 的 `$PeerFix` 与 `scripts/setup-unix.sh` 的 `PEERS`，再重跑 setup。**切勿用「扫安装树看缺哪个」的办法**，那是循环论证、会报「缺失 0 个」的假阳性（详见下节） |
 | 裸跑 `dsh` 报 `error: --profile <name> is required` | 0.1.5 起 dsh 精简了执行档位，**没有**默认档 | 显式指定 profile（`web` / `acp` / `headless` / `sdk`）。本项目的「命令行模式」即 `dsh --profile headless`，用启动器菜单 `[4]` 切换即可，无需手敲 |

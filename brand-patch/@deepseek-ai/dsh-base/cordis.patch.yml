@@ -72,13 +72,16 @@
 
     # The transport-independent default for Agents created by entry points.
     # Settings may supply a saved selection; consumers read it at creation time.
-    # USB Harness: 默认不指向任何内置 provider（占位值），用户首次在模型页配置
-    # 自定义 OpenAI 兼容网关并在模型选择器里选定真实模型后，会覆盖此默认。
+    # USB Harness: 默认指向官方 `deepseek` provider，但**不给它任何路由**——
+    #   1. 上游原占位 provider 在本包语境下是空引用：它对应的适配器没被任何人启用，
+    #      用户一跑就报 NO_ADAPTER，看着像程序坏了，实为误导性报错。
+    #   2. 仍然不绑定任何真实通道：没有凭据就没有路由，用户首次在 Web 的
+    #      「设置 → 模型」里配好自定义 OpenAI 兼容网关并选定模型后，会覆盖此默认。
     - id: agent-default-model
       name: '@deepseek-ai/dsh-agent-default-model'
       config:
-        provider: pi-ai
-        model: default
+        provider: deepseek
+        model: deepseek-chat
 
     - id: jobs
       name: '@deepseek-ai/dsh-jobs-local'

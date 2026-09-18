@@ -13,6 +13,67 @@
 
 ---
 
+## [0.1.5-rc.2.7] — 2026-09-18
+
+> **包装热修复**：不涉及上游 dsh 变更。七项启动器与文案整改：
+> 取消检查更新、去掉版本展示、清除内部占位符与个人信息、Web 启动输出重排（不再自动开浏览器）、
+> 修复 Ctrl+C 连带退出、菜单文案对齐 dsh 的「命令模式」。
+
+### 变更
+
+1. **取消「检查更新」**。菜单 `[3] 检查更新` 移除，升级与检查更新相关代码全部删除：
+   - 启动器菜单收缩为四项：`[1] 启动 Web 界面 / [2] 命令模式 / [3] 重置 / [4] 退出`
+     （重置 `[4]`→`[3]`、退出 `[5]`→`[4]`，`[2]` 编号不变）；
+   - 删除 `check-update` / `upgrade` 直通分支与启动时的升级残留裁决调用；
+   - **删除 `scripts/upgrade-windows.ps1` 与 `scripts/upgrade-unix.sh`**；
+   - CI 删除「检查更新脚本冒烟」步骤。
+   - 不内置自动升级的原因：`brand-patch` 是整文件快照覆盖，原地升级 dsh 会
+     静默覆盖 14 个包的定制。升级唯一路径 = 下载新完整包（`data/dsh/` 沿用）。
+
+2. **不再展示「程序版本」**。横幅与状态面板的 `版本 : v…` / `程序版本 : …（未记录（旧版包））`
+   两行删除，`Get-HarnessVersion` / `get_harness_ver` 一并移除（`HARNESS_VERSION` 文件保留）。
+
+3. **清除 `pi-ai` 占位符**。默认模型 `provider: pi-ai` 是空引用——对应的适配器没被任何人启用，
+   一跑就报 `NO_ADAPTER: no adapter registered for provider "pi-ai"`，看着像程序坏了。
+   改为 `provider: deepseek` / `model: deepseek-chat`，但**不给它任何路由**
+   （官方适配器仍禁用，无凭据即无路由，不绑定官方通道；首次在「设置 → 模型」配好即覆盖）。
+   内部的 `llm-pi-ai` 适配器挂载**保留**——那是 Web 模型页写自定义网关的机制，动了会坏设置页。
+
+4. **清除个人信息**。文档审计记录中引用的个人网关域名与账号片段全部脱敏。
+
+5. **Web 启动输出重排，不再自动打开浏览器**。原「启动 Web 界面（http://127.0.0.1:3080）+
+   本机访问/局域网访问/功能完整请用本机地址…」改为：
+
+   ```
+   [启动] 启动 Web 界面
+     正在启动服务，请稍候…
+     启动服务后,会显示url(ctrl+鼠标左键 打开网页)
+     （web: 开头、带 token 的那行才是可点击的完整地址）
+     LAN: http://<本机IP>:3080
+     按 Ctrl+C 停止服务
+   ```
+
+   `web:` 行由 dsh 就绪后自己打印（带 token、可直接点击）；删除了端口轮询自动开浏览器的逻辑
+   （`Start-Job` / `xdg-open` 轮询段），启动器不再代开浏览器。
+
+6. **修复 Ctrl+C 连带退出**。原 `launch.bat` 直调 PowerShell，Ctrl+C 时 cmd 弹
+   「终止批处理操作吗(Y/N)?」，即便答 `n` 整个启动器也退出了。现改为：
+   `break off` 关闭 cmd 的 Ctrl+C 检查 + 退出标记（菜单选「退出」时写
+   `.cache\launcher-exit.flag`）+ 循环重进——Ctrl+C 只打断当前这一轮（服务停了），
+   自动回到菜单；显式传动作参数（`web`/`cli`/…）时行为不变、只跑一次。
+
+7. **「单次任务 CLI」更名「命令模式」**。上游把 headless 的入参叫 task（命令行视角），
+   但对启动器用户来说输入的就是一条命令、跑完即退。菜单项、提示语、等价命令示例、
+   状态面板标签（`CLI（单次任务 task）`→`命令模式（dsh --profile headless）`）、
+   `[task]` 前缀（→`[command]`）全部对齐。
+
+### 测试
+
+- 冒烟用例 11 更新：菜单断言 `1..5` → `1..4`；新增「菜单不得残留已取消项（检查更新/切换运行模式）」断言；
+  菜单号引用扫描文件列表移除已删除的升级脚本。
+
+---
+
 ## [0.1.5-rc.2.6] — 2026-09-18
 
 > **包装热修复**：不涉及上游 dsh 变更。取消「先切换模式、下次启动才生效」的绕路，
@@ -314,7 +375,7 @@ Answer one task, stream reasoning to stderr, print the final assistant message, 
 
 - 明确写出**本项目不内置模型凭据**，首次使用需自行配置一次模型，属预期行为。
 - 新增「还没配模型时会看到哪些'像报错'的提示」对照表，说明
-  `NO_ADAPTER: no adapter registered for provider "pi-ai"` 与 PowerShell 红字
+  `NO_ADAPTER: no adapter registered for provider "deepseek"` 与 PowerShell 红字
   都属正常，**真正需要警惕的是浏览器出现 `Failed to load plugins`**。
 
 ### 验证
@@ -374,7 +435,7 @@ Answer one task, stream reasoning to stderr, print the final assistant message, 
   本次改为「新上游基线 + 重新施加定制意图」重建，定制点逐条以**功能断言**校验。
   - 校验结果：**安全 17 / 需确认 0 / 阻断 0 / 异常 0**。
   - 定制清单（全部保留）：品牌标识与文案（8 处）、`--host 0.0.0.0` 放行、
-    符号链接失败回退目录复制、默认模型 `provider: pi-ai`、官方 `llm-deepseek` 禁用、
+    符号链接失败回退目录复制、默认模型 `provider: deepseek`、官方 `llm-deepseek` 禁用、
     权限模式中文化、Web 首页标题与 `crypto.randomUUID` polyfill 等。
 - **peer 补齐清单重定：25 → 26 个**。dsh 子包互相声明 `peerDependencies` 而主包 bundle
   未包含，`--legacy-peer-deps` 会跳过它们 → 启动报 `ERR_MODULE_NOT_FOUND`。

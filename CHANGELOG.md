@@ -13,6 +13,70 @@
 
 ---
 
+## [0.1.5-rc.2.5] — 2026-09-18
+
+> **包装热修复**：不涉及上游 dsh 变更。修复 CLI 单次任务模式下
+> **推理过程被渲染成满屏红字、把最终答案淹没**的问题。
+
+### 修复（CLI 模式满屏红字 `NativeCommandError` —— 用户可感知）
+
+- **现象**：CLI 模式跑任务时终端刷出红字
+  ```
+  node.exe : dsh: reasoning:
+  + CategoryInfo : NotSpecified: (dsh: reasoning::String) [], RemoteException
+  + FullyQualifiedErrorId : NativeCommandError
+  ```
+  **而实际上任务成功了** —— 答案就打在终端里，只是被红字盖住。
+- **根因**：headless 档位按上游设计把输出分成两条流 ——
+  *"stream reasoning to **stderr**, print the final assistant message [to stdout]"*。
+  启动器原先用 `Invoke-Dsh --profile headless $task 2>>$CliErr | Tee-Object`，
+  PowerShell 原生命令管道会把子进程的**每一行 stderr 包成 ErrorRecord 渲染成红字**。
+  另外实测 `2>>` 重定向还会让 `dsh-cli.err.log` **写成 0 字节**，日志同时失效。
+- **修复**：改用 .NET `System.Diagnostics.Process` 分别读取 stdout / stderr
+  （两条流并发读，避免 pipe 缓冲区写满互相死锁）：
+  - stdout → 「===== 最终答案 =====」区块正常回显
+  - stderr → 仅提示已写入 `dsh-cli.err.log`，不刷屏
+  - 退出码非 0 时才显示错误详情；识别到 `NO_ADAPTER` 时额外给出「去 Web 界面配模型」的指引
+  - 等待期间给一句「dsh 正在思考…（推理过程属于正常输出，不是报错）」呼吸提示
+- **Linux 同步**：`launch.sh` 的 `start_cli()` 同步改为 stdout/stderr 分流落盘
+  （原先 `2>&1 | tee` 混流，推理与答案糊在一起分不清）。
+- **实测证据**（用户真实模型配置）：
+  ```
+  stdout  7 字节   → 收到
+  stderr 123 字节  → dsh: reasoning: …
+  退出码 0
+  ```
+
+### 修复（冒烟统计口径 —— 报告自相矛盾）
+
+- **现象**：摘要显示「失败 1」，但明细里找不到任何 `FAIL` 行。
+- **根因**：`record()` 的统计是 `if PASS then PASS++ else FAIL++`，
+  **`SKIP` 被算进了 FAIL**。这是引入三态判定时留下的口径漏洞。
+- **修复**：改为四态分开计（`PASS` / `SKIP` / `FAIL` / `TIMEOUT`），
+  通过率分母只取「已执行」的 `PASS + FAIL`，摘要同时列出用例总数与跳过数；
+  结论只看 `FAIL`，但若有 `SKIP` 会显式提示「有 N 项因前置条件不足被跳过」，
+  避免绿灯给得太满。
+
+### 变更（冒烟用例 6 的断言口径：从「实现方式」改为「验收意图」）
+
+用例 6 原本断言 `Start-Cli` 里存在 `Invoke-Dsh --profile headless` 这个**调用模式**。
+本次改用 .NET `Process` 启动后该调用行消失，**断言立刻误报 FAIL，而实际行为更正确** ——
+说明旧断言把「实现方式」当成了「验收条件」。
+已改为：剥离注释与纯输出行后，在剩余可执行行里找 `--profile headless`
+（与用例 9 同一套剥离逻辑）。**阴性对照已验证**：故意去掉 `headless` 时正确报 FAIL。
+
+### 新增（冒烟用例 10：CLI 双流分离 —— 行为验证）
+
+真实跑一个 headless 任务，断言 stdout 有内容、stderr 有内容、且 stderr 含 `reasoning`。
+这是**行为验证**而非静态检查，直接覆盖本次缺陷。
+无可用模型时记 `SKIP`（前置条件不足），不算失败。
+
+> 冒烟结果：**用例总数 14，通过 13，失败 0，跳过 1，通过率 100%（已执行 13 项）**。
+> 唯一 SKIP 是用例 10 —— 冒烟环境无模型凭据；已用**用户真实模型配置**单独验证该断言成立
+> （stdout 7 B / stderr 123 B / 退出码 0）。
+
+---
+
 ## [0.1.5-rc.2.4] — 2026-09-18
 
 > **仓库维护**：不涉及任何代码或产物变更，**无需重新下载包**。

@@ -175,8 +175,32 @@ dsh 0.1.5 自带的档位只有 `web` / `acp` / `headless` / `sdk` 四个，**�
 终端多轮对话档位**——dsh 本身是 CLI，但它的交互体验主要在 Web 界面上。
 术语与上游对齐（`dsh --profile headless --help` 原文：*"Answer one task, stream reasoning
 to stderr, print the final assistant message, and exit."*），启动器界面统一使用
-**「任务 / task」** 表述。日志写入 `data/logs/dsh-cli.log`。
-切换后菜单 `[1]` 会显示当前模式，直接启动对应界面。
+**「任务 / task」** 表述。日志写入 `data/logs/dsh-cli.log`（推理过程另存
+`data/logs/dsh-cli.err.log`）。切换后菜单 `[1]` 会显示当前模式，直接启动对应界面。
+
+#### 为什么 CLI 模式的「思考过程」不是报错
+
+headless 档位把输出分成两条流（这是上游的设计）：
+
+| 流 | 内容 | 启动器的处理 |
+|----|------|--------------|
+| **stdout** | 最终答案 | 以「===== 最终答案 =====」标题正常回显 |
+| **stderr** | 推理过程（`dsh: reasoning: …`） | 不刷屏，仅提示已写入 `dsh-cli.err.log` |
+
+> **历史坑位**：0.1.5-rc.2.4 之前，启动器用 PowerShell 的 `2>>file | Tee-Object`
+> 接管道，PowerShell 会把 Node 的每一行 stderr 当**错误流**解释，逐行渲染成红字：
+>
+> ```
+> node.exe : dsh: reasoning:
+> + CategoryInfo : NotSpecified: (dsh: reasoning::String) [], RemoteException
+> + FullyQualifiedErrorId : NativeCommandError
+> ```
+>
+> 后果是**满屏红字把真正的答案淹没了** —— 用户以为程序崩了，其实任务成功了。
+> 而且 `2>>` 重定向还会让 err.log 写成 0 字节，日志同时失效。
+> 现已改用 .NET `Process` 对象分别读取两条流（实测 stdout 7 B / stderr 123 B 干净分离）。
+>
+> **看到红字 `NativeCommandError` 不代表失败** —— 请以「最终答案」区块和退出码为准。
 
 #### 怎么验证 CLI 模式真的能用
 
@@ -200,8 +224,9 @@ export DSH_HOME="<解压目录>/data/dsh"
   --profile headless "1+1 等于几"
 ```
 
-> 注意：`NO_ADAPTER` 时报错走的是 stderr，PowerShell 会把它渲染成 `NativeCommandError`
-> 红字，这是**渲染问题不是崩溃**——该进程退出码为 0。
+> 注意：`NO_ADAPTER` 时报错走的是 stderr。**0.1.5-rc.2.4 起**启动器已能正确区分
+> 两条流，不会再渲染成红字；且 `NO_ADAPTER` 被明确识别为「未配模型」并给出配置指引。
+> 该进程退出码为 0，属正常终态。
 
 ### 3. 配置模型（进入 Web UI 后）
 

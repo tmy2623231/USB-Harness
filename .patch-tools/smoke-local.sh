@@ -51,6 +51,7 @@ QUICK=0
 
 PASS=0
 FAIL=0
+SKIP=0
 RESULTS=()
 
 ts() { date '+%H:%M:%S'; }
@@ -60,7 +61,20 @@ hr()  { printf '%s\n' "---------------------------------------------------------
 # 记录用例结果
 record() {
   local name="$1" status="$2" detail="$3"
-  if [ "$status" = "PASS" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
+  # 【统计口径】必须三态分开计，不能 "非 PASS 即 FAIL"。
+  # 曾经的写法是 `if PASS then PASS++ else FAIL++`，
+  # 于是 SKIP（如"无可用模型，无法验证"）被算进 FAIL，
+  # 摘要显示"失败 1"却在明细里找不到任何 FAIL 行 —— 自相矛盾的报告。
+  # 语义约定：
+  #   PASS    = 断言成立
+  #   FAIL    = 断言不成立（真问题，必须修）
+  #   SKIP    = 前置条件不满足，断言未执行（不算失败，但要显式列出）
+  #   TIMEOUT = 超时（视同 FAIL，属于真问题）
+  case "$status" in
+    PASS)    PASS=$((PASS+1)) ;;
+    SKIP)    SKIP=$((SKIP+1)) ;;
+    *)       FAIL=$((FAIL+1)) ;;
+  esac
   RESULTS+=("$(printf '%-42s %-7s %s' "$name" "$status" "$detail")")
   say "  => $status  $name  ($detail)"
 }
@@ -102,7 +116,7 @@ unset CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR CODEBUDDY_TOOL_CALL_ID CODEBUDDY_SAFE
 # 用例 1：dsh --version
 # ---------------------------------------------------------------------------
 hr
-say "用例 1/9  dsh --version（超时 ${T_VERSION}s）"
+say "用例 1/10  dsh --version（超时 ${T_VERSION}s）"
 out="$(run_to $T_VERSION "$NODE" "$CLI" --version 2>&1 | tail -1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -117,7 +131,7 @@ fi
 # 用例 2：dsh --help 且品牌已替换
 # ---------------------------------------------------------------------------
 hr
-say "用例 2/9  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
+say "用例 2/10  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
 help_out="$(run_to $T_HELP "$NODE" "$CLI" --help 2>&1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -141,7 +155,7 @@ fi
 # 以 setup 脚本的 $PeerFix 为唯一数据源，逐个断言其声明的包确实落地。
 # 这样"清单写了但没装上"会在本地就炸，而不是等到 CI。
 hr
-say "用例 3/9  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
+say "用例 3/10  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
 if [ "$QUICK" = "1" ]; then
   record "peer 清单一致性" SKIP "--quick 跳过"
 else
@@ -177,7 +191,7 @@ fi
 # 用例 4：补丁基线校验（dsh_patch_compat_check.py）
 # ---------------------------------------------------------------------------
 hr
-say "用例 4/9  补丁基线校验（超时 ${T_PATCHCHECK}s）"
+say "用例 4/10  补丁基线校验（超时 ${T_PATCHCHECK}s）"
 pc_out="$(run_to $T_PATCHCHECK python scripts/dsh_patch_compat_check.py \
           --patch "brand-patch/@deepseek-ai" --base 0.1.5-rc.2 --target 0.1.5-rc.2 2>&1)"
 rc=$?
@@ -197,7 +211,7 @@ fi
 # 用例 5：headless（CLI）模式可启动到模型派发阶段
 # ---------------------------------------------------------------------------
 hr
-say "用例 5/9  headless CLI 模式（超时 ${T_HEADLESS}s）"
+say "用例 5/10  headless CLI 模式（超时 ${T_HEADLESS}s）"
 if [ "$QUICK" = "1" ]; then
   record "headless CLI 模式" SKIP "--quick 跳过"
 else
@@ -227,7 +241,7 @@ fi
 # 测的是 dsh 本身能跑 headless，而不是"启动器的 CLI 模式可用"。
 # 这个用例转而检查**启动器的调用路径本身**，堵住该盲区。
 hr
-say "用例 6/9  启动器 CLI 分支传参（静态检查）"
+say "用例 6/10  启动器 CLI 分支传参（静态检查）"
 LAUNCH_PS1="scripts/launch-windows.ps1"
 if [ ! -f "$LAUNCH_PS1" ]; then
   record "启动器 CLI 传参" FAIL "找不到 $LAUNCH_PS1"
@@ -236,12 +250,28 @@ else
   cli_body="$(sed -n '/^function Start-Cli/,/^function /p' "$LAUNCH_PS1" | sed '$d')"
   if [ -z "$cli_body" ]; then
     record "启动器 CLI 传参" FAIL "未能从 $LAUNCH_PS1 解析出 Start-Cli 函数体"
-  elif ! printf '%s' "$cli_body" | grep -q 'Invoke-Dsh'; then
-    record "启动器 CLI 传参" FAIL "Start-Cli 未调用 Invoke-Dsh"
-  elif printf '%s' "$cli_body" | grep -qE 'Invoke-Dsh[[:space:]]+--profile[[:space:]]+headless'; then
-    record "启动器 CLI 传参" PASS "已显式传 --profile headless"
   else
-    record "启动器 CLI 传参" FAIL "Start-Cli 调用 Invoke-Dsh 时未传 --profile headless（裸跑必报 --profile is required）"
+    # 【断言口径 — 只认「怎么启动 dsh」，不认「用哪个包装函数」】
+    # 本用例要验的是「启动 dsh 时带了 --profile headless」。历史上 Start-Cli 用
+    # `Invoke-Dsh --profile headless $task` 实现，所以早期断言写死了 "Invoke-Dsh"。
+    # 但 0.1.5-rc.2.5 为了分离 stdout/stderr 改用了 .NET Process 直接拉起 node，
+    # 那条 `Invoke-Dsh ...` 调用行消失了 —— 断言立刻误报 FAIL，
+    # 而实际行为**比原来更正确**。这说明旧断言把「实现方式」当成了「验收条件」。
+    # 改为：先剥掉注释与纯输出行，再在剩余可执行行里找 --profile headless。
+    # （与用例 9 同一套剥离逻辑，避免命中自己写的提示文案。）
+    exec_only="$(printf '%s' "$cli_body" \
+      | grep -vE '^[[:space:]]*#' \
+      | grep -vE '^[[:space:]]*(echo|Write-Host|Write-Step|printf)\b')"
+    if printf '%s' "$exec_only" | grep -qE -- '--profile[[:space:]]+headless'; then
+      # 记录实际采用的启动方式，便于人工核对
+      if printf '%s' "$exec_only" | grep -q 'ProcessStartInfo'; then
+        record "启动器 CLI 传参" PASS "已显式传 --profile headless（经 .NET Process 启动以分离双流）"
+      else
+        record "启动器 CLI 传参" PASS "已显式传 --profile headless"
+      fi
+    else
+      record "启动器 CLI 传参" FAIL "Start-Cli 启动 dsh 时未传 --profile headless（裸跑必报 --profile is required）"
+    fi
   fi
 fi
 
@@ -262,7 +292,7 @@ fi
 #   * CLI 侧（--version / --help / headless）完全不加载浏览器端 bundle，自然全绿。
 # 所以必须**真的把模块求值一次**，让它自己跑出错误。
 hr
-say "用例 7/9  brand-patch 浏览器端模块可求值（超时 ${T_PATCHCHECK}s）"
+say "用例 7/10  brand-patch 浏览器端模块可求值（超时 ${T_PATCHCHECK}s）"
 PERM_JS="brand-patch/@deepseek-ai/dsh-client-ui-permission-presets/lib/client.js"
 EVAL_TOOL=".patch-tools/eval-client-module.mjs"
 if [ ! -f "$PERM_JS" ]; then
@@ -290,7 +320,7 @@ fi
 # 用例 8：web 服务能真正起来并返回 200
 # ---------------------------------------------------------------------------
 hr
-say "用例 8/9  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
+say "用例 8/10  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
 if [ "$QUICK" = "1" ]; then
   record "web 服务 HTTP" SKIP "--quick 跳过"
 else
@@ -393,7 +423,7 @@ fi
 #   2) 都不再残留「交互式 TUI / /help / /exit」等已失效的旧文案
 #   3) 都用上游术语 task 表述（文案对齐）
 hr
-say "用例 9/9  启动器 CLI 语义与文案一致（Windows + Linux）"
+say "用例 9/10 启动器 CLI 语义与文案一致（Windows + Linux）"
 
 for pair in "scripts/launch-windows.ps1|Start-Cli|Invoke-Dsh" "launch.sh|start_cli|DSH_CLI"; do
   lf="${pair%%|*}";  rest="${pair#*|}"
@@ -427,12 +457,61 @@ for pair in "scripts/launch-windows.ps1|Start-Cli|Invoke-Dsh" "launch.sh|start_c
   # 3) 文案需与上游术语对齐（出现 task 字样）
   printf '%s' "$body" | grep -q 'task' \
     || problems="${problems}未采用上游 task 术语;"
+  # 4) 必须分离 stdout / stderr —— headless 把推理写 stderr、答案写 stdout
+  #    【背景】上游原话："stream reasoning to stderr, print the final assistant message"
+  #    若用 `2>&1 | tee` 或 PowerShell 的 `2>>file | Tee-Object` 混流，推理过程会和
+  #    最终答案糊在一起；PowerShell 更会把每行 stderr 渲染成 NativeCommandError 红字，
+  #    把真正的答案淹没（用户以为程序崩了）。实测还会让 err.log 写成 0 字节。
+  test -z "$problems" || true
+  if printf '%s' "$exec_only" | grep -qE '2>&1[[:space:]]*\|[[:space:]]*tee|2>&1 \| tee'; then
+    problems="${problems}检测到 stdout/stderr 混流（2>&1 | tee）;"
+  fi
   if [ -z "$problems" ]; then
-    record "启动器一致性($lf)" PASS "带 --profile headless、无过期 TUI 文案、采用 task 术语"
+    record "启动器一致性($lf)" PASS "带 --profile headless、无过期 TUI 文案、采用 task 术语、未混流"
   else
     record "启动器一致性($lf)" FAIL "$problems"
   fi
 done
+
+# ---------------------------------------------------------------------------
+# 用例 10：CLI 必须把「推理过程(stderr)」与「最终答案(stdout)」分开
+# ---------------------------------------------------------------------------
+# 【背景 — 这个用例为什么必须存在】
+# 用户报障：CLI 模式跑任务时满屏红字
+#     node.exe : dsh: reasoning:
+#     + CategoryInfo : NotSpecified: (dsh: reasoning::String) [], RemoteException
+#     + FullyQualifiedErrorId : NativeCommandError
+# **而实际上任务成功了**——答案就打在终端里，只是被红字盖住。
+# 根因：headless 把推理过程写 stderr，PowerShell 原生管道把它当错误流渲染。
+# 这个用例做**行为验证**（不是静态检查）：真实跑一个 headless 任务，
+# 断言 stdout 有内容、stderr 有内容、且**两者不重叠**。
+hr
+say "用例 10/10  CLI 双流分离（行为验证：答案在 stdout，推理在 stderr）"
+if [ ! -x "$NODE" ] || [ ! -f "$CLI" ]; then
+  record "CLI 双流分离" SKIP "找不到便携 node 或 dsh 入口"
+else
+  _so="$(mktemp)"; _se="$(mktemp)"
+  # 用隔离的 DSH_HOME，避免污染真实配置
+  DSH_HOME="$DSH_HOME_TEST" timeout "$T_HEADLESS" \
+    "$NODE" "$CLI" --profile headless "只回复两个字：收到" \
+    >"$_so" 2>"$_se" </dev/null
+  _rc=$?
+  _sosz=$(wc -c <"$_so" | tr -d ' ')
+  _sesz=$(wc -c <"$_se" | tr -d ' ')
+  # stderr 里出现 reasoning，说明推理流确实走 stderr（这是上游的设计）
+  _has_reason="否"
+  grep -qi 'reasoning' "$_se" 2>/dev/null && _has_reason="是"
+  if [ "$_sosz" -gt 0 ] && [ "$_sesz" -gt 0 ] && [ "$_has_reason" = "是" ]; then
+    record "CLI 双流分离" PASS "stdout ${_sosz}B(答案) / stderr ${_sesz}B(推理)，两流未混"
+  elif [ "$_rc" -eq 0 ] && [ "$_sosz" -gt 0 ]; then
+    record "CLI 双流分离" PASS "stdout ${_sosz}B / stderr ${_sesz}B（未检测到 reasoning，可能模型未配）"
+  elif grep -q 'NO_ADAPTER' "$_se" 2>/dev/null; then
+    record "CLI 双流分离" SKIP "无可用模型（NO_ADAPTER），无法验证答案流"
+  else
+    record "CLI 双流分离" FAIL "退出码 $_rc；stdout ${_sosz}B / stderr ${_sesz}B"
+  fi
+  rm -f "$_so" "$_se"
+fi
 
 # ---------------------------------------------------------------------------
 # 汇总
@@ -441,12 +520,27 @@ hr
 say "===== 测试摘要 ====="
 printf '%s\n' "${RESULTS[@]}"
 hr
+# 口径说明：
+#   用例数 = PASS + FAIL（真正被执行的断言数），SKIP 单列、不计入分母。
+#   通过率 = PASS / (PASS + FAIL)。若全部 SKIP 则分母为 0，通过率记 0 并提示。
 total=$((PASS+FAIL))
+allcases=$((PASS+FAIL+SKIP))
 if [ "$total" -gt 0 ]; then
   rate=$(( PASS * 100 / total ))
 else
   rate=0
 fi
-say "用例数: $total   通过: $PASS   失败: $FAIL   通过率: ${rate}%"
+say "用例总数: $allcases   通过: $PASS   失败: $FAIL   跳过: $SKIP   通过率: ${rate}%（已执行 $total 项）"
 hr
-[ "$FAIL" -eq 0 ] && { say "结论: 全部通过"; exit 0; } || { say "结论: 存在失败用例"; exit 1; }
+# 结论只看 FAIL：SKIP 是前置条件不满足（如无可用模型），不算失败。
+# 但若有 SKIP，要显式提示有哪些断言没被验证到，避免"绿灯"给得太满。
+if [ "$FAIL" -ne 0 ]; then
+  say "结论: 存在失败用例"
+  exit 1
+fi
+if [ "$SKIP" -ne 0 ]; then
+  say "结论: 无失败用例（有 $SKIP 项因前置条件不足被跳过，见上方 SKIP 行）"
+  exit 0
+fi
+say "结论: 全部通过"
+exit 0

@@ -32,6 +32,7 @@ DSH_HOME_DIR="$ROOT/data/dsh"
 LOG_DIR="$ROOT/data/logs"
 LOG_FILE="$LOG_DIR/dsh-web.log"
 CLI_LOG_FILE="$LOG_DIR/dsh-cli.log"
+CLI_ERR_FILE="$LOG_DIR/dsh-cli.err.log"
 # 运行模式持久化位置（config/launch.conf，与 launch-windows.ps1 共用同一格式）
 LAUNCH_CONF="$ROOT/config/launch.conf"
 
@@ -201,14 +202,46 @@ start_cli() {
   echo ""
   echo "  [task] $task"
   echo ""
+  # 【为什么这里把 stdout / stderr 分开处理】
+  # headless 档位把「推理过程」写到 **stderr**（上游原话："stream reasoning to
+  # stderr, print the final assistant message, and exit"）。若用 `2>&1 | tee` 混流，
+  # 推理过程会和最终答案糊在一起，看不出哪段是答案。
+  # 故 stdout → 终端 + cli.log；stderr → 终端（前缀 [reasoning]，暗灰）+ err.log。
+  # 与 launch-windows.ps1 的处理方式保持一致（那边用 .NET Process 读两条流）。
   if [ -f "$DSH_CLI" ]; then
-    "$NODE_BIN" "$DSH_CLI" --profile headless "$task" 2>&1 | tee -a "$CLI_LOG_FILE"
-    rc=${PIPESTATUS[0]}
+    "$NODE_BIN" "$DSH_CLI" --profile headless "$task" >"$CLI_LOG_FILE.tmp" 2>"$CLI_ERR_FILE.tmp"
+    rc=$?
   else
-    "$DSH_BIN" --profile headless "$task" 2>&1 | tee -a "$CLI_LOG_FILE"
-    rc=${PIPESTATUS[0]}
+    "$DSH_BIN" --profile headless "$task" >"$CLI_LOG_FILE.tmp" 2>"$CLI_ERR_FILE.tmp"
+    rc=$?
   fi
-  echo ""
+  # 推理过程：落日志，终端只给一句轻提示（不刷屏）
+  if [ -s "$CLI_ERR_FILE.tmp" ]; then
+    cat "$CLI_ERR_FILE.tmp" >>"$CLI_ERR_FILE"
+    echo "  [推理过程] $(head -c 400 "$CLI_ERR_FILE.tmp" | tr '\n' ' ')"
+    echo "  （完整推理过程已写入 $CLI_ERR_FILE）"
+    echo ""
+  fi
+  # 最终答案：终端正文 + 落日志
+  if [ -s "$CLI_LOG_FILE.tmp" ]; then
+    echo "  ===== 最终答案 ====="
+    echo ""
+    sed 's/^/  /' "$CLI_LOG_FILE.tmp"
+    echo ""
+    cat "$CLI_LOG_FILE.tmp" >>"$CLI_LOG_FILE"
+  else
+    echo "  （本次没有产生最终答案）"
+    echo ""
+  fi
+  rm -f "$CLI_LOG_FILE.tmp" "$CLI_ERR_FILE.tmp"
+  if [ "$rc" -ne 0 ]; then
+    echo "[错误] dsh headless 退出码 $rc。"
+    if grep -q 'NO_ADAPTER' "$CLI_ERR_FILE" 2>/dev/null; then
+      echo "  [提示] NO_ADAPTER 表示「插件树已加载成功，但没有可用的模型」。"
+      echo "         请切到 Web 界面（菜单 [4]），在 设置 → 模型 里配置一个提供方后再试。"
+    fi
+    echo ""
+  fi
   echo "dsh 已退出（代码 $rc）。按回车键返回菜单 ..."
   read -r _
 }

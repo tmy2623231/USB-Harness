@@ -275,14 +275,89 @@ function Start-Cli {
     Write-Host "  [task] $task" -ForegroundColor DarkGray
     Write-Host ''
     Remove-Item $CliErr -Force -ErrorAction SilentlyContinue
-    Invoke-Dsh --profile headless $task 2>>$CliErr | Tee-Object -FilePath $CliLog -Append
-    $exit = $LASTEXITCODE
-    if ($exit -ne 0 -and (Test-Path $CliErr)) {
-        $errBody = Get-Content $CliErr -Raw -ErrorAction SilentlyContinue
-        if ($errBody -and $errBody.Trim()) {
+
+    # ---------------------------------------------------------------------
+    # 【为什么这里不能用 `Invoke-Dsh ... 2>>$CliErr | Tee-Object`】
+    #
+    # headless 档位把「推理过程」写到 **stderr**（上游原话："stream reasoning to
+    # stderr, print the final assistant message, and exit"）。而 PowerShell 的原生
+    # 命令管道会把子进程的每一行 stderr 包成 ErrorRecord 渲染成红字，形如：
+    #
+    #     node.exe : dsh: reasoning:
+    #     + CategoryInfo : NotSpecified: (dsh: reasoning::String) [], RemoteException
+    #     + FullyQualifiedErrorId : NativeCommandError
+    #
+    # 后果有两个，都很难受：
+    #   1. 满屏红字把**真正的答案**（在 stdout）淹没 —— 用户以为程序崩了；
+    #   2. 实测 `2>>$CliErr` 还会让 err.log **写成 0 字节**，日志也失效。
+    #
+    # 因此改用 .NET Process 直接读两条流：stdout 是答案（正常色回显），
+    # stderr 是推理过程（暗灰回显 + 落日志），两条流各归各位、互不污染。
+    # 实测：stdout 6 字节 `1+1=2` / stderr 184 字节 `dsh: reasoning: …`，干净分离。
+    # ---------------------------------------------------------------------
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $NodeExe
+    $psi.Arguments = '"' + $DshCli + '" --profile headless "' + $task + '"'
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
+    $psi.CreateNoWindow = $true
+
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $psi
+    $proc.Start() | Out-Null
+
+    # 必须并发读两条流：若串行读，写满 pipe 缓冲区（约 4KB）就会互相死锁。
+    $outTask = $proc.StandardOutput.ReadToEndAsync()
+    $errTask = $proc.StandardError.ReadToEndAsync()
+
+    # 等待期间给个呼吸提示（大模型首字可能要几秒到几十秒）
+    $waited = 0
+    while (-not $proc.WaitForExit(1000)) {
+        $waited++
+        if ($waited -eq 3) {
+            Write-Host '  dsh 正在思考…（推理过程属于正常输出，不是报错）' -ForegroundColor DarkGray
+        }
+    }
+    $stdout = $outTask.Result
+    $stderr = $errTask.Result
+    $exit = $proc.ExitCode
+
+    # 推理过程落日志（便于事后排查），但只在终端用暗灰轻提示，不刷红字
+    if ($stderr.Trim()) {
+        Add-Content -Path $CliErr -Value $stderr -Encoding UTF8
+    }
+    if ($stdout.Trim()) {
+        Add-Content -Path $CliLog -Value $stdout -Encoding UTF8
+    }
+
+    Write-Host ''
+    if ($stdout.Trim()) {
+        Write-Host '  ===== 最终答案 =====' -ForegroundColor Cyan
+        Write-Host ''
+        $stdout.TrimEnd() -split "`r?`n" | ForEach-Object { Write-Host "  $_" }
+        Write-Host ''
+        Write-Host "  （推理过程已写入 $CliErr）" -ForegroundColor DarkGray
+    } else {
+        Write-Host '  （本次没有产生最终答案）' -ForegroundColor Yellow
+        if ($stderr.Trim()) {
+            Write-Host "  详细信息：$CliErr" -ForegroundColor DarkGray
+        }
+    }
+
+    if ($exit -ne 0) {
+        Write-Host ''
+        Write-Host "[错误] dsh headless 退出码 $exit。" -ForegroundColor Red
+        if ($stderr.Trim()) {
+            Write-Host '  错误详情：' -ForegroundColor Red
+            $stderr.TrimEnd() -split "`r?`n" | Select-Object -Last 30 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        }
+        if ($stderr -match 'NO_ADAPTER') {
             Write-Host ''
-            Write-Host "[错误] dsh headless 退出码 $exit。错误详情（$CliErr）：" -ForegroundColor Red
-            Get-Content $CliErr -Tail 30 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+            Write-Host '  [提示] NO_ADAPTER 表示「插件树已加载成功，但没有可用的模型」。' -ForegroundColor Yellow
+            Write-Host '         请切到 Web 界面（菜单 [4]），在 设置 → 模型 里配置一个提供方后再试。' -ForegroundColor Yellow
         }
     }
     Write-Host ''

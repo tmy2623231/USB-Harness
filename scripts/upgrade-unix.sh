@@ -208,7 +208,7 @@ peer_match() {
   fi
   if [ "$versions" != "$target" ]; then
     w_warn "peer 列表与 dsh@$target 不一致（锁定为 $versions），强制升级已阻断。"
-    echo "    上游 dsh 已发新版但本项目尚未适配。请等待本项目发布适配版 Release（菜单 [2] 会提示），"
+    echo "    上游 dsh 已发新版但本项目尚未适配。请等待本项目发布适配版 Release（菜单 [3] 会提示），"
     echo "    或由维护者更新 setup-unix.sh 的 PEERS 版本串后再试。"
     return 1
   fi

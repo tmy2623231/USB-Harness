@@ -116,7 +116,7 @@ unset CODEBUDDY_SAFE_DELETE_BULK_STATE_DIR CODEBUDDY_TOOL_CALL_ID CODEBUDDY_SAFE
 # 用例 1：dsh --version
 # ---------------------------------------------------------------------------
 hr
-say "用例 1/10  dsh --version（超时 ${T_VERSION}s）"
+say "用例 1/11  dsh --version（超时 ${T_VERSION}s）"
 out="$(run_to $T_VERSION "$NODE" "$CLI" --version 2>&1 | tail -1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -131,7 +131,7 @@ fi
 # 用例 2：dsh --help 且品牌已替换
 # ---------------------------------------------------------------------------
 hr
-say "用例 2/10  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
+say "用例 2/11  dsh --help（超时 ${T_HELP}s）+ 品牌检查"
 help_out="$(run_to $T_HELP "$NODE" "$CLI" --help 2>&1)"
 rc=$?
 if [ $rc -eq 124 ]; then
@@ -155,7 +155,7 @@ fi
 # 以 setup 脚本的 $PeerFix 为唯一数据源，逐个断言其声明的包确实落地。
 # 这样"清单写了但没装上"会在本地就炸，而不是等到 CI。
 hr
-say "用例 3/10  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
+say "用例 3/11  \$PeerFix 清单与实际安装一致性（超时 ${T_ASSET}s）"
 if [ "$QUICK" = "1" ]; then
   record "peer 清单一致性" SKIP "--quick 跳过"
 else
@@ -191,7 +191,7 @@ fi
 # 用例 4：补丁基线校验（dsh_patch_compat_check.py）
 # ---------------------------------------------------------------------------
 hr
-say "用例 4/10  补丁基线校验（超时 ${T_PATCHCHECK}s）"
+say "用例 4/11  补丁基线校验（超时 ${T_PATCHCHECK}s）"
 pc_out="$(run_to $T_PATCHCHECK python scripts/dsh_patch_compat_check.py \
           --patch "brand-patch/@deepseek-ai" --base 0.1.5-rc.2 --target 0.1.5-rc.2 2>&1)"
 rc=$?
@@ -211,7 +211,7 @@ fi
 # 用例 5：headless（CLI）模式可启动到模型派发阶段
 # ---------------------------------------------------------------------------
 hr
-say "用例 5/10  headless CLI 模式（超时 ${T_HEADLESS}s）"
+say "用例 5/11  headless CLI 模式（超时 ${T_HEADLESS}s）"
 if [ "$QUICK" = "1" ]; then
   record "headless CLI 模式" SKIP "--quick 跳过"
 else
@@ -241,7 +241,7 @@ fi
 # 测的是 dsh 本身能跑 headless，而不是"启动器的 CLI 模式可用"。
 # 这个用例转而检查**启动器的调用路径本身**，堵住该盲区。
 hr
-say "用例 6/10  启动器 CLI 分支传参（静态检查）"
+say "用例 6/11  启动器 CLI 分支传参（静态检查）"
 LAUNCH_PS1="scripts/launch-windows.ps1"
 if [ ! -f "$LAUNCH_PS1" ]; then
   record "启动器 CLI 传参" FAIL "找不到 $LAUNCH_PS1"
@@ -292,7 +292,7 @@ fi
 #   * CLI 侧（--version / --help / headless）完全不加载浏览器端 bundle，自然全绿。
 # 所以必须**真的把模块求值一次**，让它自己跑出错误。
 hr
-say "用例 7/10  brand-patch 浏览器端模块可求值（超时 ${T_PATCHCHECK}s）"
+say "用例 7/11  brand-patch 浏览器端模块可求值（超时 ${T_PATCHCHECK}s）"
 PERM_JS="brand-patch/@deepseek-ai/dsh-client-ui-permission-presets/lib/client.js"
 EVAL_TOOL=".patch-tools/eval-client-module.mjs"
 if [ ! -f "$PERM_JS" ]; then
@@ -320,7 +320,7 @@ fi
 # 用例 8：web 服务能真正起来并返回 200
 # ---------------------------------------------------------------------------
 hr
-say "用例 8/10  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
+say "用例 8/11  web 服务启动与 HTTP 响应（启动超时 ${T_WEB_BOOT}s）"
 if [ "$QUICK" = "1" ]; then
   record "web 服务 HTTP" SKIP "--quick 跳过"
 else
@@ -423,7 +423,7 @@ fi
 #   2) 都不再残留「交互式 TUI / /help / /exit」等已失效的旧文案
 #   3) 都用上游术语 task 表述（文案对齐）
 hr
-say "用例 9/10 启动器 CLI 语义与文案一致（Windows + Linux）"
+say "用例 9/11 启动器 CLI 语义与文案一致（Windows + Linux）"
 
 # 【为什么 pair 里不再带第三个字段】
 # 第三个字段原本是「启动器调用 dsh 时用的包装函数名」（Windows 是 Invoke-Dsh），
@@ -491,7 +491,7 @@ done
 # 这个用例做**行为验证**（不是静态检查）：真实跑一个 headless 任务，
 # 断言 stdout 有内容、stderr 有内容、且**两者不重叠**。
 hr
-say "用例 10/10  CLI 双流分离（行为验证：答案在 stdout，推理在 stderr）"
+say "用例 10/11  CLI 双流分离（行为验证：答案在 stdout，推理在 stderr）"
 if [ ! -x "$NODE" ] || [ ! -f "$CLI" ]; then
   record "CLI 双流分离" SKIP "找不到便携 node 或 dsh 入口"
 else
@@ -516,6 +516,65 @@ else
     record "CLI 双流分离" FAIL "退出码 $_rc；stdout ${_sosz}B / stderr ${_sesz}B"
   fi
   rm -f "$_so" "$_se"
+fi
+
+# ---------------------------------------------------------------------------
+# 用例 11：启动器菜单结构与文档引用一致
+# ---------------------------------------------------------------------------
+# 【为什么需要这个用例】
+# 0.1.5-rc.2.6 把菜单从「[1] 启动（按当前模式）+ [4] 切换模式」改成
+# 「[1] 启动 Web / [2] 单次任务 CLI / [3] 检查更新 / [4] 重置 / [5] 退出」。
+# 这次改动**把后面所有项的编号都平移了**：检查更新 [2]→[3]、重置 [3]→[4]。
+# 而 README / COMMANDS.md / upgrade 脚本的提示语里到处在引用「菜单 [2] 会提示」，
+# 改一处漏一处就会让文档把用户指到错误的菜单项上——**用户照着按会发现不是那个功能**。
+# 所以这里断言两件事：
+#   1) 启动器菜单确实存在且含全部五项（改菜单时不会静默漏项）
+#   2) 文档/脚本里引用的菜单号，都在 1..5 的合法范围内
+hr
+say "用例 11/11 启动器菜单结构 + 文档菜单号引用合法性"
+
+_menu_problems=""
+for pair in "scripts/launch-windows.ps1|Write-Host '  \[[0-9]\]" "launch.sh|echo \"  \[[0-9]\]"; do
+  lf="${pair%%|*}"
+  if [ ! -f "$lf" ]; then
+    _menu_problems="${_menu_problems}${lf} 不存在;"
+    continue
+  fi
+done
+
+# 1) 两个启动器都必须出现 [1]..[5] 五个菜单项
+for lf in scripts/launch-windows.ps1 launch.sh; do
+  [ -f "$lf" ] || continue
+  for n in 1 2 3 4 5; do
+    grep -qE "\[$n\] " "$lf" || _menu_problems="${_menu_problems}${lf} 缺菜单项 [${n}];"
+  done
+done
+
+# 2) 菜单不应再出现「切换运行模式」这一项（已按需求取消）
+for lf in scripts/launch-windows.ps1 launch.sh; do
+  [ -f "$lf" ] || continue
+  if grep -qE '^[^#]*\[4\][^#]*切换运行模式' "$lf"; then
+    _menu_problems="${_menu_problems}${lf} 仍残留 [4] 切换运行模式;"
+  fi
+done
+
+# 3) 所有“菜单 [N]”引用必须落在 1..5 之内
+_ref_bad=""
+while IFS= read -r hit; do
+  [ -z "$hit" ] && continue
+  n="$(printf '%s' "$hit" | grep -oE '菜单 \[[0-9]+\]' | grep -oE '[0-9]+' | head -1)"
+  [ -z "$n" ] && continue
+  if [ "$n" -lt 1 ] || [ "$n" -gt 5 ]; then
+    _ref_bad="${_ref_bad}${hit};"
+  fi
+done <<EOF
+$(grep -rn '菜单 \[' README.md scripts/COMMANDS.md scripts/upgrade-windows.ps1 scripts/upgrade-unix.sh 2>/dev/null)
+EOF
+
+if [ -z "$_menu_problems" ] && [ -z "$_ref_bad" ]; then
+  record "菜单结构与引用" PASS "两启动器五项齐全、无残留切换项、文档菜单号均在 1..5"
+else
+  record "菜单结构与引用" FAIL "${_menu_problems}${_ref_bad}"
 fi
 
 # ---------------------------------------------------------------------------

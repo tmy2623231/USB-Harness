@@ -72,17 +72,6 @@ get_launch_mode() {
   esac
 }
 
-set_launch_mode() {
-  mkdir -p "$(dirname "$LAUNCH_CONF")"
-  cat > "$LAUNCH_CONF" <<EOF
-# USB Harness 运行模式（由启动器菜单 [4] 切换）
-#   mode = web   启动 Web 界面（默认）
-#   mode = cli   启动 dsh 命令行交互模式
-# 本文件缺失或值无法识别时按 web 处理，删除即恢复默认。
-mode = $1
-EOF
-}
-
 mode_label() {
   if [ "$1" = "cli" ]; then printf 'CLI（单次任务 task）'; else printf 'Web（图形界面）'; fi
 }
@@ -127,7 +116,7 @@ show_status() {
     if [ -n "$HARNESS_VER" ]; then echo "  程序版本  : $HARNESS_VER"; else echo "  程序版本  : 未记录（旧版包）"; fi
     echo "  数据目录  : $DSH_HOME_DIR"
     LAUNCH_MODE="$(get_launch_mode)"
-    echo "  运行模式  : $(mode_label "$LAUNCH_MODE")（菜单 [4] 切换）"
+    echo "  默认模式  : $(mode_label "$LAUNCH_MODE")（菜单直接选，无需切换）"
     if [ "$LAUNCH_MODE" = "web" ]; then
       echo "  监听地址  : http://0.0.0.0:3080（本机 + 局域网）"
     else
@@ -192,7 +181,7 @@ start_cli() {
   echo "  说明: 输入一个任务（task），dsh 跑完一次会话后打印最终答案并退出"
   echo "  等价命令: dsh --profile headless \"<task>\""
   echo "  提示: 本模式不监听端口，浏览器访问不可用"
-  echo "  想切回 Web 界面: 返回菜单后用 [4] 切换运行模式"
+  echo "  想切回 Web 界面: 返回菜单后选 [1] 启动 Web 界面即可，无需切换"
   echo ""
   read -r -p "  请输入任务内容 / task（直接回车取消）: " task
   if [ -z "${task// }" ]; then
@@ -238,7 +227,7 @@ start_cli() {
     echo "[错误] dsh headless 退出码 $rc。"
     if grep -q 'NO_ADAPTER' "$CLI_ERR_FILE" 2>/dev/null; then
       echo "  [提示] NO_ADAPTER 表示「插件树已加载成功，但没有可用的模型」。"
-      echo "         请切到 Web 界面（菜单 [4]），在 设置 → 模型 里配置一个提供方后再试。"
+      echo "         请返回菜单选 [1] 启动 Web 界面，在 设置 → 模型 里配置一个提供方后再试。"
     fi
     echo ""
   fi
@@ -246,36 +235,14 @@ start_cli() {
   read -r _
 }
 
-# 切换运行模式（默认 web；只改 config/launch.conf，不触碰任何 dsh 配置）
-switch_launch_mode() {
-  cur="$(get_launch_mode)"
-  echo ""
-  echo "--------------------------------------------"
-  echo "  切换运行模式"
-  echo "--------------------------------------------"
-  echo "  当前: $(mode_label "$cur")"
-  echo ""
-  echo "  [1] Web 界面（图形化，浏览器访问，默认）"
-  echo "  [2] CLI 单次任务（输入一个 task，跑完打印答案后退出）"
-  echo "  [0] 取消"
-  echo ""
-  read -r -p "  请选择 " pick
-  case "$pick" in
-    1) new="web" ;;
-    2) new="cli" ;;
-    0|"") echo "  已取消。"; return ;;
-    *) echo "[警告] 无效选择：$pick"; return ;;
-  esac
-  if [ "$new" = "$cur" ]; then
-    echo "  已是 $(mode_label "$new")，无需改动。"
-    return
-  fi
-  set_launch_mode "$new"
-  echo ""
-  echo "  运行模式已切换为: $(mode_label "$new")"
-  echo "  记录位置: $LAUNCH_CONF"
-  echo "  下次选 [1] 启动即生效。"
-}
+# 【为什么取消了「切换运行模式」这一项】
+# 原先流程是「[4] 切换模式 → 下次 [1] 启动才生效」，要先切换、再启动，绕一圈还容易忘。
+# 本质问题是：**运行模式几乎总是「这一次」的选择**，
+# 却用「先改持久配置、下次生效」的交互去表达它。
+# 改为菜单里直接选——选完即执行，不需要先切换、也不需要记住当前处在哪个模式。
+# config/launch.conf 仍保留并继续维护：命令行直启（launch.sh web / cli）需要它作默认值。
+# 注意：菜单选择【不】写回 launch.conf——菜单选择是一次性动作，
+# 改持久值会让「上次点了什么」悄悄影响下次不带参数的启动，反而更难预期。
 
 # 重置
 do_reset() {
@@ -313,23 +280,20 @@ esac
 # 交互菜单
 while true; do
   show_status
-  if [ "$(get_launch_mode)" = "cli" ]; then
-    echo "  [1] 启动（当前模式：CLI 单次任务 task）"
-  else
-    echo "  [1] 启动（当前模式：Web 图形界面）"
-  fi
-  echo "  [2] 检查更新（程序与 dsh 版本）"
-  echo "  [3] 重置（清配置数据，保留运行环境，无需下载）"
-  echo "  [4] 切换运行模式（Web 界面 / CLI 命令行）"
+  echo "  [1] 启动 Web 界面（图形化，浏览器访问）"
+  echo "  [2] 单次任务 CLI（输入一个 task，跑完打印答案后退出）"
+  echo "  [3] 检查更新（程序与 dsh 版本）"
+  echo "  [4] 重置（清配置数据，保留运行环境，无需下载）"
   echo "  [5] 退出"
   echo ""
   read -r -p "  请选择 " choice
   case "$choice" in
-    1) if [ "$(get_launch_mode)" = "cli" ]; then start_cli; else start_web; fi ;;
-    2) bash "$UPGRADE_SCRIPT" --check-only || true ;;
-    3) do_reset ;;
-    4) switch_launch_mode ;;
+    1) start_web ;;
+    2) start_cli ;;
+    3) bash "$UPGRADE_SCRIPT" --check-only || true ;;
+    4) do_reset ;;
     5) exit 0 ;;
+    "") ;;
     *) echo "[警告] 无效选择：$choice" ;;
   esac
 done

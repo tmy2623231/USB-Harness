@@ -235,7 +235,7 @@ function Test-PeerMatch([string]$target) {
     if ($bad.Count -gt 0) {
         Write-WarnMsg ("peer 列表与 dsh@$target 不一致，强制升级已阻断：")
         $bad | ForEach-Object { Write-Info "  - $_" }
-        Write-Info '  上游 dsh 已发新版但本项目尚未适配。请等待本项目发布适配版 Release（菜单 [2] 会提示），'
+        Write-Info '  上游 dsh 已发新版但本项目尚未适配。请等待本项目发布适配版 Release（菜单 [3] 会提示），'
         Write-Info '  或由维护者更新 setup-windows.ps1 的 PeerFix 版本串后再试。'
         return $false
     }
@@ -488,7 +488,7 @@ if ($latestVersions.dsh -and $localVersions.dsh -ne 'unknown' -and $localVersion
     if ($ans -match '^[yY]') { Invoke-Upgrade $latestVersions.dsh }
 } elseif (-not $latestVersions.dsh -and -not $latestVersions.harness) {
     Write-Host ''
-    Write-WarnMsg '网络不可用，无法检查更新。可稍后在菜单 [2] 重试。'
+    Write-WarnMsg '网络不可用，无法检查更新。可稍后在菜单 [3] 重试。'
     exit 2
 } else {
     Write-Host ''

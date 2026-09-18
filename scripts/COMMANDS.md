@@ -6,7 +6,7 @@
 
 | 操作 | 命令 |
 |------|------|
-| 启动（交互菜单） | 双击 `launch.bat` / `bash launch.sh`（菜单 `[2]` 检查更新） |
+| 启动（交互菜单） | 双击 `launch.bat` / `bash launch.sh`（菜单 `[3]` 检查更新） |
 | 直接启动 Web | `launch.bat web` / `bash launch.sh web` |
 | 查看状态 | `launch.bat status` / `bash launch.sh status` |
 | 检查更新 | `launch.bat check-update` / `bash launch.sh check-update` |
@@ -83,7 +83,7 @@ USB-Harness/
 
 ## 检查更新 / 升级
 
-启动器菜单 `[2]` 或直通命令 `check-update` 会做**双层检测**（两源独立，互不拖累）：
+启动器菜单 `[3]` 或直通命令 `check-update` 会做**双层检测**（两源独立，互不拖累）：
 
 | 检测项 | 来源 | 有新版本时的行为 |
 |--------|------|------------------|
@@ -109,7 +109,7 @@ USB-Harness/
 `scripts/upgrade-windows.ps1 -DshVersion <x.y.z>` / `bash scripts/upgrade-unix.sh <x.y.z>`
 可在 peer 已适配的前提下强制升级 dsh。**前置条件**：`setup-*.ps1|sh` 内 `PeerFix` / `PEERS`
 中 `@deepseek-ai/dsh-*` 的版本串已与目标版本严格一致（脚本会自动校验，不一致直接阻断，退出码 4）。
-普通用户请直接等待本项目发布适配版 Release，菜单 `[2]` 会提示。
+普通用户请直接等待本项目发布适配版 Release，菜单 `[3]` 会提示。
 
 ### 升级过程与数据安全
 
@@ -139,10 +139,12 @@ USB-Harness/
   **不要用「扫安装树看缺哪个」的办法**重定——那是循环论证、会报「缺失 0 个」的假阴性。
 - 裸跑 `dsh` 报 `error: --profile <name> is required`：0.1.5 起 dsh 无默认执行档位，
   须显式给 `web` / `acp` / `headless` / `sdk`。
-  本项目的「CLI 模式」= `--profile headless`（**单次任务**：输入任务 → 跑完打印答案 → 退出），
-  用启动器菜单 `[4]` 切换、`[1]` 启动即可，启动器会自动带上 `--profile`，无需手敲。
+  本项目的「单次任务 CLI」= `--profile headless`（**单次任务**：输入任务 → 跑完打印答案 → 退出），
+  用启动器菜单 `[2]` 直接选即可，启动器会自动带上 `--profile`，无需手敲。
 
-  > 注意：0.1.5 的上游**没有交互式 TUI 档位**。若想持续多轮对话，请用 Web 界面；
+  > 注意：上游**没有出货交互式 TUI 档位**（`dsh --help` 示例里的 `tui` 附带
+  > `assuming the tui profile is installed` 限定条件，实测该档位不存在）。
+  > 若想持续多轮对话，请用菜单 `[1]` 的 Web 界面；
   > `headless` 每次只跑一个任务，会话数据仍持久化在 `$DSH_HOME`，可用 `--resume` 续接。
 - 启动器 CLI 模式曾报 `--profile is required`（**已修复**）：`launch-windows.ps1` 的 CLI 分支
   原先调用的是裸 `dsh`。由于 0.1.5 取消默认档位，该路径**每次必失败**。

@@ -81,21 +81,6 @@ function Get-LaunchMode {
     } catch { return 'web' }
 }
 
-function Set-LaunchMode {
-    param([ValidateSet('web', 'cli')][string]$Mode)
-    $dir = Split-Path -Parent $LaunchConf
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    $body = @(
-        '# USB Harness 运行模式（由启动器菜单 [4] 切换）',
-        '#   mode = web   启动 Web 界面（默认）',
-        '#   mode = cli   启动 dsh 单次任务（headless）模式',
-        '# 本文件缺失或值无法识别时按 web 处理，删除即恢复默认。',
-        "mode = $Mode"
-    ) -join "`r`n"
-    [IO.File]::WriteAllText($LaunchConf, $body + "`r`n")
-    return $Mode
-}
-
 function Get-LaunchModeLabel {
     param([string]$Mode)
     if ($Mode -eq 'cli') { return 'CLI（单次任务 task）' }
@@ -161,11 +146,11 @@ function Show-Status {
         else { Write-Host '  程序版本  : 未记录（旧版包）' -ForegroundColor DarkGray }
         Write-Host "  数据目录  : $DshHome"
         $mode = Get-LaunchMode
-        Write-Host "  运行模式  : $(Get-LaunchModeLabel $mode)（菜单 [4] 切换）"
+        Write-Host "  默认模式  : $(Get-LaunchModeLabel $mode)（菜单直接选，无需切换）"
         if ($mode -eq 'web') {
             Write-Host '  监听地址  : http://0.0.0.0:3080（本机 + 局域网）'
         } else {
-            Write-Host '  监听地址  : 不适用（CLI 单次任务模式不监听端口）' -ForegroundColor DarkGray
+            Write-Host '  监听地址  : 不适用（单次任务模式不监听端口）' -ForegroundColor DarkGray
         }
         if (Test-Path $ReadyFlag) { Write-Host '  就绪标记  : 已就绪' -ForegroundColor Green }
         else { Write-Host '  就绪标记  : 缺失（将自动重新配置）' -ForegroundColor Yellow }
@@ -255,7 +240,7 @@ function Start-Cli {
     Write-Host '  说明: 输入一个任务（task），dsh 跑完一次会话后打印最终答案并退出' -ForegroundColor DarkGray
     Write-Host '  等价命令: dsh --profile headless "<task>"' -ForegroundColor DarkGray
     Write-Host '  提示: 本模式不监听端口，浏览器访问不可用' -ForegroundColor DarkGray
-    Write-Host '  想持续对话/图形界面: 返回菜单后用 [4] 切换运行模式' -ForegroundColor DarkGray
+    Write-Host '  想持续对话/图形界面: 返回菜单后选 [1] 启动 Web 界面即可，无需切换' -ForegroundColor DarkGray
     Write-Host ''
 
     $env:DSH_HOME = $DshHome
@@ -357,7 +342,7 @@ function Start-Cli {
         if ($stderr -match 'NO_ADAPTER') {
             Write-Host ''
             Write-Host '  [提示] NO_ADAPTER 表示「插件树已加载成功，但没有可用的模型」。' -ForegroundColor Yellow
-            Write-Host '         请切到 Web 界面（菜单 [4]），在 设置 → 模型 里配置一个提供方后再试。' -ForegroundColor Yellow
+            Write-Host '         请返回菜单选 [1] 启动 Web 界面，在 设置 → 模型 里配置一个提供方后再试。' -ForegroundColor Yellow
         }
     }
     Write-Host ''
@@ -365,42 +350,21 @@ function Start-Cli {
     Read-Host
 }
 
-# 启动（按当前运行模式分派）
+# 启动（按「本次」的选择分派；不再读取持久模式，见上方说明）
 function Start-Harness {
-    if ((Get-LaunchMode) -eq 'cli') { Start-Cli } else { Start-Web }
+    param([ValidateSet('web', 'cli')][string]$Mode)
+    if ($Mode -eq 'cli') { Start-Cli } else { Start-Web }
 }
 
-# 切换运行模式（默认 web；切换只改 config/launch.conf，不触碰任何 dsh 配置）
-function Switch-LaunchMode {
-    $cur = Get-LaunchMode
-    Write-Host ''
-    Write-Host '--------------------------------------------' -ForegroundColor Cyan
-    Write-Host '  切换运行模式' -ForegroundColor Cyan
-    Write-Host '--------------------------------------------' -ForegroundColor Cyan
-    Write-Host "  当前: $(Get-LaunchModeLabel $cur)"
-    Write-Host ''
-    Write-Host '  [1] Web 界面（图形化，浏览器访问，默认）' -ForegroundColor White
-    Write-Host '  [2] CLI 单次任务（输入一个 task，跑完打印答案后退出）' -ForegroundColor White
-    Write-Host '  [0] 取消' -ForegroundColor Gray
-    Write-Host ''
-    $pick = (Read-Host '  请选择').Trim()
-    switch ($pick) {
-        '1' { $new = 'web' }
-        '2' { $new = 'cli' }
-        '0' { Write-Host '  已取消。' -ForegroundColor DarkGray; return }
-        ''  { Write-Host '  已取消。' -ForegroundColor DarkGray; return }
-        default { Write-WarnMsg "无效选择：$pick"; return }
-    }
-    if ($new -eq $cur) {
-        Write-Host "  已是 $(Get-LaunchModeLabel $new)，无需改动。" -ForegroundColor DarkGray
-        return
-    }
-    Set-LaunchMode -Mode $new | Out-Null
-    Write-Host ''
-    Write-Host "  运行模式已切换为: $(Get-LaunchModeLabel $new)" -ForegroundColor Green
-    Write-Host "  记录位置: $LaunchConf" -ForegroundColor DarkGray
-    Write-Host '  下次选 [1] 启动即生效。' -ForegroundColor DarkGray
-}
+# 【为什么取消了「切换运行模式」这一项】
+# 原先的流程是「[4] 切换模式 → 下次 [1] 启动才生效」，用户要先切换、再启动，
+# 绕了一圈还容易忘。本质问题是：**运行模式几乎总是「这一次」的选择**，
+# 却用了「先改持久配置、下次生效」的交互去表达它。
+# 改为菜单里直接选——选完即执行，不需要先切换、也不需要记住当前处在哪个模式。
+# config/launch.conf 仍然保留并继续维护：命令行直启（launch.bat / launch.sh 带参数）
+# 需要它作为默认值，且「重置」等流程也依赖该文件存在。
+# 注意：这里【不】写回 launch.conf。菜单选择是一次性动作，
+# 改持久值会让「上次点了什么」悄悄影响下次不带参数的启动，反而更难预期。
 
 # 重置
 function Invoke-Reset {
@@ -452,22 +416,20 @@ switch ($Action.ToLower()) {
 # 交互菜单
 while ($true) {
     Show-Status
-    $mode = Get-LaunchMode
-    if ($mode -eq 'cli') { $startLabel = '启动（当前模式：CLI 单次任务 task）' }
-    else { $startLabel = '启动（当前模式：Web 图形界面）' }
-    Write-Host "  [1] $startLabel" -ForegroundColor White
-    Write-Host '  [2] 检查更新（程序与 dsh 版本）' -ForegroundColor White
-    Write-Host '  [3] 重置（清配置数据，保留运行环境，无需下载）' -ForegroundColor White
-    Write-Host '  [4] 切换运行模式（Web 界面 / CLI 单次任务）' -ForegroundColor White
+    Write-Host '  [1] 启动 Web 界面（图形化，浏览器访问）' -ForegroundColor White
+    Write-Host '  [2] 单次任务 CLI（输入一个 task，跑完打印答案后退出）' -ForegroundColor White
+    Write-Host '  [3] 检查更新（程序与 dsh 版本）' -ForegroundColor White
+    Write-Host '  [4] 重置（清配置数据，保留运行环境，无需下载）' -ForegroundColor White
     Write-Host '  [5] 退出' -ForegroundColor Gray
     Write-Host ''
-    $choice = Read-Host '  请选择'
-    switch ($choice.Trim()) {
-        '1' { Start-Harness }
-        '2' { & powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript -CheckOnly }
-        '3' { Invoke-Reset }
-        '4' { Switch-LaunchMode }
+    $choice = (Read-Host '  请选择').Trim()
+    switch ($choice) {
+        '1' { Start-Harness -Mode web }
+        '2' { Start-Harness -Mode cli }
+        '3' { & powershell -NoProfile -ExecutionPolicy Bypass -File $UpgradeScript -CheckOnly }
+        '4' { Invoke-Reset }
         '5' { exit 0 }
+        ''  { }
         default { Write-WarnMsg "无效选择：$choice" }
     }
 }
